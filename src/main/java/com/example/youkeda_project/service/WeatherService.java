@@ -19,18 +19,32 @@ public class WeatherService {
     private final ApiConfig apiConfig;
     private final ObjectMapper objectMapper;
 
-    private static final Map<String, String> CITY_MAP = Map.of(
-            "北京", "101010100",
-            "上海", "101020100",
-            "广州", "101280101",
-            "深圳", "101280601",
-            "杭州", "101210101",
-            "成都", "101270101",
-            "武汉", "101200101",
-            "南京", "101190101",
-            "西安", "101110101",
-            "重庆", "101040100"
-    );
+    private static final Map<String, String> CITY_MAP;
+
+    static {
+        Map<String, String> map = new java.util.HashMap<>();
+        map.put("北京", "101010100");
+        map.put("beijing", "101010100");
+        map.put("上海", "101020100");
+        map.put("shanghai", "101020100");
+        map.put("广州", "101280101");
+        map.put("guangzhou", "101280101");
+        map.put("深圳", "101280601");
+        map.put("shenzhen", "101280601");
+        map.put("杭州", "101210101");
+        map.put("hangzhou", "101210101");
+        map.put("成都", "101270101");
+        map.put("chengdu", "101270101");
+        map.put("武汉", "101200101");
+        map.put("wuhan", "101200101");
+        map.put("南京", "101190101");
+        map.put("nanjing", "101190101");
+        map.put("西安", "101110101");
+        map.put("xian", "101110101");
+        map.put("重庆", "101040100");
+        map.put("chongqing", "101040100");
+        CITY_MAP = Map.copyOf(map);
+    }
 
     public WeatherService(ApiConfig apiConfig, ObjectMapper objectMapper) {
         this.apiConfig = apiConfig;
@@ -45,7 +59,7 @@ public class WeatherService {
         }
 
         String cityNameTrimmed = cityName.trim();
-        String cityId = CITY_MAP.get(cityNameTrimmed);
+        String cityId = CITY_MAP.get(cityNameTrimmed.toLowerCase());
 
         if (cityId == null) {
             log.warn("天气查询失败: 不支持的城市 '{}'", cityNameTrimmed);
