@@ -1,5 +1,6 @@
 package com.example.youkeda_project.service;
 
+import com.example.youkeda_project.ai.AIService;
 import com.example.youkeda_project.client.IlinkProtocolClient;
 import com.example.youkeda_project.protocol.GetUpdatesResponse;
 import com.example.youkeda_project.protocol.LoginResult;
@@ -18,13 +19,17 @@ public class IlinkService {
     private static final long POLL_INTERVAL_MS = 3000;
 
     private final IlinkProtocolClient client;
+    private final WeatherService weatherService;
+    private final AIService aiService;
 
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicBoolean polling = new AtomicBoolean(false);
     private Thread pollThread;
 
-    public IlinkService(IlinkProtocolClient client) {
+    public IlinkService(IlinkProtocolClient client, WeatherService weatherService, AIService aiService) {
         this.client = client;
+        this.weatherService = weatherService;
+        this.aiService = aiService;
     }
 
     public String start() {
@@ -88,7 +93,7 @@ public class IlinkService {
                             if (text != null && msg.getContextToken() != null) {
                                 log.info("微信消息 from={}, text={}", fromUser, text);
                                 System.out.println("\n[微信] " + fromUser + ": " + text);
-                                autoReply(msg);
+                                handleMessage(msg);
                             }
                         }
                     }
@@ -110,14 +115,27 @@ public class IlinkService {
         pollThread.start();
     }
 
-    private void autoReply(WeixinMessage msg) {
+    private void handleMessage(WeixinMessage msg) {
         try {
             String text = extractText(msg);
-            String reply = "收到: " + text;
+            String reply;
+
+            String lowerText = text.toLowerCase().trim();
+            if (lowerText.startsWith("weather ")) {
+                String city = text.substring("weather ".length()).trim();
+                reply = weatherService.queryWeather(city);
+            } else if (lowerText.startsWith("天气 ")) {
+                String city = text.substring("天气 ".length()).trim();
+                reply = weatherService.queryWeather(city);
+            } else {
+                reply = aiService.chat(msg.getFromUserId(), text);
+            }
+
             client.sendMessage(msg.getFromUserId(), msg.getContextToken(), reply);
             log.info("已回复 {}: {}", msg.getFromUserId(), reply);
+
         } catch (Exception e) {
-            log.error("自动回复失败", e);
+            log.error("处理消息失败", e);
         }
     }
 

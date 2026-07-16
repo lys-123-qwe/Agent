@@ -15,6 +15,9 @@ public class ApiConfig {
     @Value("${ai.api.key:}")
     private String aiApiKey;
 
+    @Value("${ai.api.url:https://api.deepseek.com/chat/completions}")
+    private String aiApiUrl;
+
     public String getWeatherApiKey() {
         return weatherApiKey;
     }
@@ -25,5 +28,17 @@ public class ApiConfig {
 
     public String getAiApiKey() {
         return aiApiKey;
+    }
+
+    public String getAiApiUrl() {
+        return aiApiUrl;
+    }
+
+    public String getDeepSeekApiKey() {
+        return aiApiKey;
+    }
+
+    public String getDeepSeekApiUrl() {
+        return aiApiUrl;
     }
 }
