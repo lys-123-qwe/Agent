@@ -18,26 +18,26 @@ import java.util.concurrent.ThreadLocalRandom;
 public class IlinkProtocolClient {
 
     private static final Logger log = LoggerFactory.getLogger(IlinkProtocolClient.class);
-    private static final String BASE_URL = "https://ilinkai.weixin.qq.com";
+    private static final String DEFAULT_BASE_URL = "https://ilinkai.weixin.qq.com";
     private static final int LONG_POLL_TIMEOUT_MS = 35000;
 
-    private final RestClient restClient;
     private final ObjectMapper objectMapper;
 
+    private RestClient restClient;
     private String botToken;
-    private String baseUrl = BASE_URL;
+    private String baseUrl = DEFAULT_BASE_URL;
 
     public IlinkProtocolClient(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
-        this.restClient = RestClient.builder()
-                .baseUrl(BASE_URL)
-                .build();
+        this.restClient = buildRestClient(DEFAULT_BASE_URL);
     }
 
     public void setCredentials(String botToken, String baseUrl) {
         this.botToken = botToken;
         if (baseUrl != null && !baseUrl.isBlank()) {
             this.baseUrl = baseUrl;
+            this.restClient = buildRestClient(baseUrl);
+            log.info("API地址已更新为: {}", baseUrl);
         }
     }
 
@@ -71,13 +71,16 @@ public class IlinkProtocolClient {
         return parseJson(json, GetUpdatesResponse.class);
     }
 
-    public void sendMessage(String toUserId, String contextToken, String text) {
+    public String sendMessage(String toUserId, String contextToken, String text) {
         SendMessageRequest request = new SendMessageRequest(toUserId, contextToken, text);
         try {
             String body = objectMapper.writeValueAsString(request);
-            postWithAuth("/ilink/bot/sendmessage", body, 15000);
+            log.info("发送消息请求: {}", body);
+            String response = postWithAuth("/ilink/bot/sendmessage", body, 15000);
+            log.info("发送消息响应: {}", response);
+            return response;
         } catch (Exception e) {
-            throw new RuntimeException("序列化发送消息请求失败", e);
+            throw new RuntimeException("发送消息失败", e);
         }
     }
 
@@ -85,21 +88,27 @@ public class IlinkProtocolClient {
         if (botToken == null || botToken.isBlank()) {
             throw new IllegalStateException("未登录，缺少 bot_token");
         }
-        return restClient.post()
+        byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
+        byte[] responseBytes = restClient.post()
                 .uri(path)
-                .header("Content-Type", "application/json")
+                .header("Content-Type", "application/json; charset=UTF-8")
                 .header("AuthorizationType", "ilink_bot_token")
                 .header("Authorization", "Bearer " + botToken)
                 .header("X-WECHAT-UIN", generateWechatUin())
-                .body(body)
+                .body(bodyBytes)
                 .retrieve()
-                .body(String.class);
+                .body(byte[].class);
+        return new String(responseBytes, StandardCharsets.UTF_8);
     }
 
     private String generateWechatUin() {
         int random = ThreadLocalRandom.current().nextInt();
         String decimal = Integer.toUnsignedString(random);
         return Base64.getEncoder().encodeToString(decimal.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private RestClient buildRestClient(String url) {
+        return RestClient.builder().baseUrl(url).build();
     }
 
     private <T> T parseJson(String json, Class<T> clazz) {

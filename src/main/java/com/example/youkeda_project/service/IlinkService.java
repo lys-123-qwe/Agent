@@ -85,9 +85,10 @@ public class IlinkService {
                         for (WeixinMessage msg : resp.getMsgs()) {
                             String fromUser = msg.getFromUserId();
                             String text = extractText(msg);
-                            if (text != null) {
+                            if (text != null && msg.getContextToken() != null) {
                                 log.info("微信消息 from={}, text={}", fromUser, text);
                                 System.out.println("\n[微信] " + fromUser + ": " + text);
+                                autoReply(msg);
                             }
                         }
                     }
@@ -109,16 +110,14 @@ public class IlinkService {
         pollThread.start();
     }
 
-    public String sendMessage(String userId, String text) {
-        if (!connected.get() || client.getBotToken() == null) {
-            return "错误: iLink 未连接，请先执行 ilink login";
-        }
+    private void autoReply(WeixinMessage msg) {
         try {
-            client.sendMessage(userId, text, null);
-            return "已发送";
+            String text = extractText(msg);
+            String reply = "收到: " + text;
+            client.sendMessage(msg.getFromUserId(), msg.getContextToken(), reply);
+            log.info("已回复 {}: {}", msg.getFromUserId(), reply);
         } catch (Exception e) {
-            log.error("发送消息失败", e);
-            return "发送失败: " + e.getMessage();
+            log.error("自动回复失败", e);
         }
     }
 

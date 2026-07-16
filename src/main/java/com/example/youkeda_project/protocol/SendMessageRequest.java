@@ -2,6 +2,7 @@ package com.example.youkeda_project.protocol;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
+import java.util.UUID;
 
 public class SendMessageRequest {
 
@@ -16,7 +17,9 @@ public class SendMessageRequest {
         item.setTextItem(textItem);
 
         this.msg = new Msg();
+        msg.setFromUserId("");
         msg.setToUserId(toUserId);
+        msg.setClientId(UUID.randomUUID().toString());
         msg.setMessageType(2);
         msg.setMessageState(2);
         msg.setContextToken(contextToken);
@@ -33,8 +36,14 @@ public class SendMessageRequest {
 
     public static class Msg {
 
+        @JsonProperty("from_user_id")
+        private String fromUserId;
+
         @JsonProperty("to_user_id")
         private String toUserId;
+
+        @JsonProperty("client_id")
+        private String clientId;
 
         @JsonProperty("message_type")
         private int messageType;
@@ -48,12 +57,28 @@ public class SendMessageRequest {
         @JsonProperty("item_list")
         private List<MessageItem> itemList;
 
+        public String getFromUserId() {
+            return fromUserId;
+        }
+
+        public void setFromUserId(String fromUserId) {
+            this.fromUserId = fromUserId;
+        }
+
         public String getToUserId() {
             return toUserId;
         }
 
         public void setToUserId(String toUserId) {
             this.toUserId = toUserId;
+        }
+
+        public String getClientId() {
+            return clientId;
+        }
+
+        public void setClientId(String clientId) {
+            this.clientId = clientId;
         }
 
         public int getMessageType() {
