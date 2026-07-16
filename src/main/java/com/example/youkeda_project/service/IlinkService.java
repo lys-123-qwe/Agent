@@ -124,9 +124,11 @@ public class IlinkService {
             if (lowerText.startsWith("weather ")) {
                 String city = text.substring("weather ".length()).trim();
                 reply = weatherService.queryWeather(city);
+                aiService.addExchange(msg.getFromUserId(), text, reply);
             } else if (lowerText.startsWith("天气 ")) {
                 String city = text.substring("天气 ".length()).trim();
                 reply = weatherService.queryWeather(city);
+                aiService.addExchange(msg.getFromUserId(), text, reply);
             } else {
                 reply = aiService.chat(msg.getFromUserId(), text);
             }

@@ -80,14 +80,25 @@ public class AIService {
     }
 
     private void trimHistory(List<ChatMessage> history) {
-        // 保留 system + 最近 MAX_HISTORY 条对话
         if (history.size() > MAX_HISTORY + 1) {
             ChatMessage system = history.get(0);
-            List<ChatMessage> recent = history.subList(history.size() - MAX_HISTORY, history.size());
+            List<ChatMessage> recent = new ArrayList<>(
+                    history.subList(history.size() - MAX_HISTORY, history.size()));
             history.clear();
             history.add(system);
             history.addAll(recent);
         }
+    }
+
+    public void addExchange(String userId, String userMessage, String assistantReply) {
+        List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
+            List<ChatMessage> list = new ArrayList<>();
+            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，回答简洁。"));
+            return list;
+        });
+        history.add(new ChatMessage("user", userMessage));
+        history.add(new ChatMessage("assistant", assistantReply));
+        trimHistory(history);
     }
 
     public void clearSession(String userId) {
