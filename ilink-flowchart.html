@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>iLink 协议实现流程图</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #f5f7fa;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            padding: 40px 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 20px rgba(0,0,0,0.08);
+            padding: 40px 30px;
+        }
+        h1 {
+            font-size: 24px;
+            color: #1a1a2e;
+            margin-bottom: 8px;
+            padding-left: 8px;
+            border-left: 4px solid #4a90d9;
+        }
+        .subtitle {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 30px;
+            padding-left: 12px;
+        }
+        .mermaid-wrapper {
+            overflow-x: auto;
+            padding: 20px 0;
+        }
+        .mermaid-wrapper svg {
+            max-width: none;
+        }
+        .legend {
+            margin-top: 30px;
+            display: flex;
+            gap: 24px;
+            flex-wrap: wrap;
+            padding: 16px 20px;
+            background: #f8f9fc;
+            border-radius: 8px;
+            border: 1px solid #e8ecf1;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: #444;
+        }
+        .legend-color {
+            width: 20px;
+            height: 14px;
+            border-radius: 3px;
+            border: 1px solid rgba(0,0,0,0.1);
+        }
+        .qa-section {
+            margin-top: 36px;
+        }
+        .qa-section h2 {
+            font-size: 18px;
+            color: #1a1a2e;
+            margin-bottom: 16px;
+            padding-left: 8px;
+            border-left: 4px solid #f5a623;
+        }
+        .qa-item {
+            margin-bottom: 14px;
+            padding: 14px 18px;
+            background: #fafbfc;
+            border-radius: 8px;
+            border: 1px solid #eef1f5;
+        }
+        .qa-q {
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 4px;
+            font-size: 14px;
+        }
+        .qa-a {
+            color: #555;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        .file-structure {
+            margin-top: 36px;
+        }
+        .file-structure h2 {
+            font-size: 18px;
+            color: #1a1a2e;
+            margin-bottom: 12px;
+            padding-left: 8px;
+            border-left: 4px solid #27ae60;
+        }
+        .file-tree {
+            background: #1e1e2e;
+            color: #cdd6f4;
+            padding: 20px 24px;
+            border-radius: 8px;
+            font-family: "Cascadia Code", "Fira Code", monospace;
+            font-size: 13px;
+            line-height: 1.8;
+            overflow-x: auto;
+            white-space: pre;
+        }
+        .file-tree .folder { color: #89b4fa; }
+        .file-tree .file { color: #a6e3a1; }
+        .file-tree .highlight { color: #f9e2af; font-weight: bold; }
+        .file-tree .dim { color: #6c7086; }
+        @media (max-width: 768px) {
+            .container { padding: 20px 12px; }
+            h1 { font-size: 20px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Claw助手 流程图</h1>
+        <p class="subtitle">iLink 协议 + 天气查询 + DeepSeek AI 对话 · 整体项目流程</p>
+
+        <div class="mermaid-wrapper">
+            <div class="mermaid">
+flowchart TB
+    classDef entry fill:#e1f5fe,stroke:#0288d1,stroke-width:2px
+    classDef process fill:#fff3e0,stroke:#f57c00,stroke-width:1px
+    classDef api fill:#e8f5e9,stroke:#388e3c,stroke-width:1px
+    classDef decision fill:#fce4ec,stroke:#c62828,stroke-width:1px
+    classDef external fill:#f3e5f5,stroke:#7b1fa2,stroke-width:1px
+    classDef future fill:#e0e0e0,stroke:#9e9e9e,stroke-width:1px,stroke-dasharray:8 4
+
+    MAIN["程序入口 main()<br>YoukedaProjectApplication.java"]:::entry
+    MAIN --> CONSOLE{"输入命令"}:::decision
+    CONSOLE --> |"exit"| EXIT["退出程序"]:::entry
+    CONSOLE --> |"help / version / status"| CMD["CommandHandler<br>CommandHandler.java"]:::entry
+    CONSOLE --> |"weather"| WEATHER_CMD["WeatherService<br>控制台查询"]:::entry
+    CONSOLE --> |"ilink login"| ILINK_START["IlinkService.start()"]:::entry
+    CONSOLE --> |"ilink stop"| ILINK_STOP1["IlinkService.stop()"]:::entry
+
+    subgraph LOGIN["① iLink 登录流程"]
+        QR["getQRCode()<br>GET /get_bot_qrcode<br>IlinkProtocolClient.java:52"]:::api
+        QR_RESP["返回 { qrcode,<br>qrcode_img_content }"]:::api
+        PRINT["打印二维码 URL 到控制台"]:::process
+        POLL_API["pollQRStatus(qrcode)<br>每 2 秒 GET /get_qrcode_status<br>IlinkProtocolClient.java:60"]:::api
+        STATUS{"status 字段?"}:::decision
+        EXPIRED["二维码过期 → 结束"]:::process
+        WAITING["等待中..."]:::process
+        CONFIRMED["扫码确认成功!"]:::process
+        CRED["setCredentials()<br>保存 bot_token<br>更新 baseUrl<br>connected = true"]:::process
+
+        QR --> QR_RESP --> PRINT
+        PRINT --> POLL_API --> STATUS
+        STATUS --> |"waiting"| WAITING --> POLL_API
+        STATUS --> |"expired"| EXPIRED
+        STATUS --> |"confirmed"| CONFIRMED --> CRED
+    end
+
+    subgraph POLLING["② 消息轮询（独立线程）"]
+        POLL_START["startPolling()<br>new Thread → daemon<br>IlinkService.java:76"]:::entry
+        UPDATES["getUpdates(cursor)<br>POST /getupdates<br>长轮询 35 秒超时<br>IlinkProtocolClient.java:68"]:::api
+        UPDATES_RESP["返回 { msgs,<br>get_updates_buf }"]:::api
+        HAS_MSG{"msgs 不为空?"}:::decision
+        FOR_MSG["遍历 msgs<br>提取文本 + contextToken"]:::process
+        ERR{"抛异常?"}:::decision
+        ERR_HANDLE["日志警告<br>sleep 6s 继续"]:::process
+        POLL_CHECK{"polling 状态<br>仍为 true?"}:::decision
+
+        POLL_START --> UPDATES
+        UPDATES --> ERR
+        ERR --> |"是"| ERR_HANDLE --> POLL_CHECK
+        ERR --> |"否"| UPDATES_RESP --> HAS_MSG
+        HAS_MSG --> |"否"| POLL_CHECK
+        HAS_MSG --> |"是"| FOR_MSG
+        POLL_CHECK --> |"是"| UPDATES
+    end
+
+    subgraph ROUTE["③ 消息路由"]
+        HANDLE["handleMessage(msg)<br>IlinkService.java:118"]:::process
+        EXTRACT["extractText(msg)<br>从 item_list 取 text"]:::process
+        DECIDE{"text 以什么开头?"}:::decision
+        W_PATH["weather / 天气"]:::external
+        AI_PATH["其他消息"]:::external
+        MORE["... 后续可扩展更多分支"]:::future
+        HANDLE --> EXTRACT --> DECIDE
+        DECIDE --> W_PATH
+        DECIDE --> AI_PATH
+        DECIDE --> MORE
+    end
+
+    subgraph WEATHER["④ 天气查询"]
+        W_CITY["取城市名"]:::process
+        W_MAP{"CITY_MAP<br>查到 cityId?"}:::decision
+        W_API_REQ["和风天气 API<br>GET /v7/weather/now<br>?location=cityId&key=xxx"]:::api
+        W_PARSE["解析 JSON<br>温度 / 天气 / 湿度 / 风向"]:::process
+        W_INJECT["addExchange()<br>注入 AI 对话历史"]:::process
+        W_ERR["暂不支持该城市"]:::process
+        W_CITY --> W_MAP
+        W_MAP --> |"是"| W_API_REQ --> W_PARSE --> W_INJECT
+        W_MAP --> |"否"| W_ERR
+    end
+
+    subgraph AI["⑤ DeepSeek AI 对话"]
+        AI_SESSION["获取或创建用户 session<br>（ConcurrentHashMap）"]:::process
+        AI_ADD["追加 user 消息到历史"]:::process
+        AI_TRIM["trimHistory()<br>保留最近 10 轮"]:::process
+        AI_REQ["POST /chat/completions<br>model: deepseek-chat<br>Authorization: Bearer xxx"]:::api
+        AI_RESP["解析 choices[0]<br>追加 assistant 回复"]:::process
+        AI_SESSION --> AI_ADD --> AI_TRIM --> AI_REQ --> AI_RESP
+    end
+
+    subgraph SEND["⑥ 发送回复到微信"]
+        SEND_REQ["sendMessage(toUserId,<br>contextToken, text)<br>IlinkProtocolClient.java:74"]:::entry
+        BUILD["构建 JSON<br>{ msg: {<br>  client_id: UUID(唯一),<br>  context_token: 原值带回,<br>  item_list: [{ type:1,<br>    text_item:{text} }]<br>}}"]:::process
+        AUTH["加三个认证头<br>① AuthorizationType<br>② Authorization: Bearer<br>③ X-WECHAT-UIN: Base64"]:::process
+        ENCODE["body = byte[] (UTF-8)<br>→ 防 Windows 乱码"]:::process
+        SEND_API["POST /sendmessage"]:::api
+        SEND_RESP["响应 {} 即接受成功"]:::api
+        SEND_REQ --> BUILD --> AUTH --> ENCODE --> SEND_API --> SEND_RESP
+    end
+
+    ILINK_START --> QR
+    CRED --> POLL_START
+    FOR_MSG --> HANDLE
+    W_PATH --> W_CITY
+    AI_PATH --> AI_SESSION
+    W_INJECT --> SEND_REQ
+    W_ERR --> SEND_REQ
+    AI_RESP --> SEND_REQ
+    SEND_RESP --> POLL_CHECK
+    </div>
+        </div>
+
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color" style="background:#e1f5fe;border-color:#0288d1;"></div>
+                入口/起点
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background:#fff3e0;border-color:#f57c00;"></div>
+                处理过程
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background:#e8f5e9;border-color:#388e3c;"></div>
+                API 调用
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background:#fce4ec;border-color:#c62828;"></div>
+                判断分支
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background:#f3e5f5;border-color:#7b1fa2;"></div>
+                外部服务
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background:#fffde7;border-color:#f9a825;"></div>
+                注解
+            </div>
+        </div>
+
+        <div class="file-structure">
+            <h2>项目文件结构</h2>
+            <div class="file-tree">
+
+<span class="folder">入口层</span>
+└── <span class="highlight">YoukedaProjectApplication.java</span>  <span class="dim">  —  main() 入口 + 控制台循环</span>
+
+<span class="folder">协议层 ─ iLink DTO（7 个文件）</span>
+├── <span class="file">QRCodeResponse.java</span>            <span class="dim">  —  get_bot_qrcode 响应</span>
+├── <span class="file">LoginResult.java</span>               <span class="dim">  —  登录结果（含 bot_token）</span>
+├── <span class="file">GetUpdatesResponse.java</span>        <span class="dim">  —  消息拉取响应 + 游标</span>
+├── <span class="file">WeixinMessage.java</span>             <span class="dim">  —  单条微信消息结构</span>
+├── <span class="file">MessageItem.java</span>               <span class="dim">  —  消息条目</span>
+├── <span class="file">TextItem.java</span>                  <span class="dim">  —  文本内容</span>
+└── <span class="file">SendMessageRequest.java</span>        <span class="dim">  —  发送消息请求体</span>
+
+<span class="folder">客户端层</span>
+└── <span class="highlight">IlinkProtocolClient.java</span>      <span class="dim">  —  iLink HTTP 客户端（认证头 + 4个API）</span>
+
+<span class="folder">服务编排层</span>
+├── <span class="highlight">IlinkService.java</span>             <span class="dim">  —  登录 + 轮询线程 + 消息路由</span>
+└── <span class="file">WeatherService.java</span>            <span class="dim">  —  和风天气查询（10 城市）</span>
+
+<span class="folder">AI 层 ─ DeepSeek DTO（5 个文件）</span>
+├── <span class="highlight">AIService.java</span>               <span class="dim">  —  DeepSeek 对话（每用户 session）</span>
+├── <span class="file">ChatRequest.java</span>
+├── <span class="file">ChatResponse.java</span>
+├── <span class="file">ChatMessage.java</span>
+└── <span class="file">ChatChoice.java</span>
+
+<span class="folder">配置层</span>
+└── <span class="file">ApiConfig.java</span>                 <span class="dim">  —  读取 weather + ai 配置</span>
+
+<span class="folder">命令层</span>
+└── <span class="file">CommandHandler.java</span>            <span class="dim">  —  控制台命令分发</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'base',
+            themeVariables: {
+                fontFamily: '-apple-system, "Microsoft YaHei", sans-serif',
+                fontSize: '14px',
+                primaryColor: '#e1f5fe',
+                primaryTextColor: '#1a1a2e',
+                primaryBorderColor: '#0288d1',
+                lineColor: '#666',
+                secondaryColor: '#fff3e0',
+                tertiaryColor: '#fce4ec',
+                mainBkg: '#ffffff',
+                nodeBorder: '#ccc',
+                clusterBkg: '#f8f9fc',
+                clusterBorder: '#e0e4ea',
+                titleColor: '#333',
+            },
+            flowchart: {
+                useMaxWidth: true,
+                htmlLabels: true,
+                curve: 'basis',
+                padding: 16,
+            }
+        });
+    </script>
+</body>
+</html>
