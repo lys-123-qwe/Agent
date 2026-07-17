@@ -20,6 +20,15 @@ public class IlinkService {
     private static final Logger log = LoggerFactory.getLogger(IlinkService.class);
     private static final long POLL_INTERVAL_MS = 3000;
 
+    private static final String WELCOME_TEXT = """
+        欢迎使用 Claw助手！\n\n\
+        可用功能：\n\
+        - AI对话：直接发送消息与我聊天\n\
+        - 天气查询：发送"天气 城市名"（如：天气 北京）\n\
+        - 图片生成：发送"图片生成 描述"（如：图片生成 一只可爱的猫）\n\
+        - 图片识别：直接发送图片给我\n\n\
+        开始试试吧！""";
+
     private final IlinkProtocolClient client;
     private final WeatherService weatherService;
     private final AIService aiService;
@@ -27,6 +36,8 @@ public class IlinkService {
 
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicBoolean polling = new AtomicBoolean(false);
+    private final AtomicBoolean welcomeSent = new AtomicBoolean(false);
+    private String ownerId;
     private Thread pollThread;
 
     public IlinkService(IlinkProtocolClient client, WeatherService weatherService, AIService aiService, ImageService imageService) {
@@ -57,7 +68,9 @@ public class IlinkService {
                 if ("confirmed".equals(status)) {
                     client.setCredentials(result.botToken(), result.baseurl());
                     connected.set(true);
-                    log.info("登录成功, botId={}", result.botId());
+                    ownerId = result.userId();
+                    welcomeSent.set(false);
+                    log.info("登录成功, botId={}, userId={}", result.botId(), ownerId);
                     System.out.println("\n[系统] iLink 登录成功! BotID=" + result.botId());
                     startPolling();
                     return "登录成功";
@@ -128,15 +141,25 @@ public class IlinkService {
 
     private void handleMessage(WeixinMessage msg) {
         try {
+            String fromUser = msg.fromUserId();
+
+            if (!welcomeSent.get() && ownerId != null && ownerId.equals(fromUser)) {
+                client.sendMessage(fromUser, msg.contextToken(), List.of(MessageItem.text(WELCOME_TEXT)));
+                welcomeSent.set(true);
+                log.info("已向 {} 发送欢迎消息（消耗首条消息）", fromUser);
+                System.out.println("[微信] " + fromUser + ": [系统] 已发送欢迎消息");
+                return;
+            }
+
             MessageItem imageItem = extractFirstImage(msg);
             if (imageItem != null) {
                 String textPrompt = extractText(msg);
-                System.out.println("[微信] " + msg.fromUserId() + " 发送了图片，正在识别...");
+                System.out.println("[微信] " + fromUser + " 发送了图片，正在识别...");
                 byte[] imageBytes = client.downloadAndDecryptImage(imageItem);
-                String reply = aiService.chatWithImage(msg.fromUserId(), textPrompt, imageBytes);
-                client.sendMessage(msg.fromUserId(), msg.contextToken(), List.of(MessageItem.text(reply)));
-                log.info("已回复图片识别 {}: {}", msg.fromUserId(), reply);
-                System.out.println("[微信] " + msg.fromUserId() + ": " + reply);
+                String reply = aiService.chatWithImage(fromUser, textPrompt, imageBytes);
+                client.sendMessage(fromUser, msg.contextToken(), List.of(MessageItem.text(reply)));
+                log.info("已回复图片识别 {}: {}", fromUser, reply);
+                System.out.println("[微信] " + fromUser + ": " + reply);
                 return;
             }
 
@@ -147,18 +170,16 @@ public class IlinkService {
             if (lowerText.startsWith("weather ")) {
                 String city = text.substring("weather ".length()).trim();
                 reply = weatherService.queryWeather(city);
-                aiService.addExchange(msg.fromUserId(), text, reply);
-                client.sendMessage(msg.fromUserId(), msg.contextToken(), List.of(MessageItem.text(reply)));
+                aiService.addExchange(fromUser, text, reply);
             } else if (lowerText.startsWith("天气 ")) {
                 String city = text.substring("天气 ".length()).trim();
                 reply = weatherService.queryWeather(city);
-                aiService.addExchange(msg.fromUserId(), text, reply);
-                client.sendMessage(msg.fromUserId(), msg.contextToken(), List.of(MessageItem.text(reply)));
+                aiService.addExchange(fromUser, text, reply);
             } else if (lowerText.startsWith("图片生成 ")) {
                 String prompt = text.substring("图片生成 ".length()).trim();
                 String imageUrl = imageService.generateImage(prompt);
                 if (!imageUrl.startsWith("http://") && !imageUrl.startsWith("https://")) {
-                    client.sendMessage(msg.fromUserId(), msg.contextToken(), List.of(MessageItem.text(imageUrl)));
+                    client.sendMessage(fromUser, msg.contextToken(), List.of(MessageItem.text(imageUrl)));
                     log.info("图片生成失败: {}", imageUrl);
                     return;
                 }
@@ -166,21 +187,21 @@ public class IlinkService {
                 System.out.println("[系统] 图片已生成，正在上传到微信CDN...");
                 try {
                     byte[] imageBytes = imageService.downloadImage(imageUrl);
-                    client.uploadAndSendImage(msg.fromUserId(), msg.contextToken(), imageBytes);
-                    log.info("已回复图片 {}", msg.fromUserId());
+                    client.uploadAndSendImage(fromUser, msg.contextToken(), imageBytes);
+                    log.info("已回复图片 {}", fromUser);
                     System.out.println("[系统] 图片已发送到微信");
                 } catch (Exception e) {
                     log.error("图片上传发送失败", e);
-                    client.sendMessage(msg.fromUserId(), msg.contextToken(),
+                    client.sendMessage(fromUser, msg.contextToken(),
                         List.of(MessageItem.text("图片上传失败: " + e.getMessage())));
                 }
                 return;
             } else {
-                reply = aiService.chat(msg.fromUserId(), text);
-                client.sendMessage(msg.fromUserId(), msg.contextToken(), List.of(MessageItem.text(reply)));
+                reply = aiService.chat(fromUser, text);
             }
 
-            log.info("已回复 {}: {}", msg.fromUserId(), reply);
+            client.sendMessage(fromUser, msg.contextToken(), List.of(MessageItem.text(reply)));
+            log.info("已回复 {}: {}", fromUser, reply);
 
         } catch (Exception e) {
             log.error("处理消息失败", e);

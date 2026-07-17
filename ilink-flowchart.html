@@ -71,6 +71,7 @@
         .tag-api { background: #e8f5e9; color: #2e7d32; }
         .tag-decision { background: #fce4ec; color: #c62828; }
         .tag-external { background: #f3e5f5; color: #7b1fa2; }
+        .tag-future { background: #e0e0e0; color: #757575; }
 
         .mermaid-wrap {
             padding: 20px;
@@ -102,6 +103,9 @@
             font-family: "Cascadia Code", "Fira Code", monospace;
             color: #d63384;
         }
+        .explanation .exp-body strong {
+            color: #1a1a2e;
+        }
         .arrow-connector {
             text-align: center;
             padding: 4px 0;
@@ -120,7 +124,7 @@
 <body>
     <div class="container">
         <h1>Claw助手 流程图</h1>
-        <p class="subtitle">WeChat Bot · iLink 协议 · 和风天气 · DeepSeek AI</p>
+        <p class="subtitle">WeChat Bot · iLink 协议 · 和风天气 · DeepSeek AI · 通义万相 · 通义千问 VL</p>
 
         <!-- ============================================================ -->
         <!-- 0. 程序入口 -->
@@ -140,7 +144,7 @@ flowchart LR
     CTX --> CONSOLE{"Scanner 控制台<br>scanner.hasNextLine()"}:::decision
     CONSOLE --> |"exit"| EXIT["退出程序"]:::entry
     CONSOLE --> |"help/version/status"| CMD["CommandHandler<br>CommandHandler.java:17"]:::entry
-    CONSOLE --> |"weather"| W0["WeatherService<br>控制台查询"]:::entry
+    CONSOLE --> |"weather 城市"| W0["WeatherService<br>控制台查询"]:::entry
     CONSOLE --> |"ilink login"| L0["→ iLink 登录"]:::entry
     CONSOLE --> |"ilink status/stop"| S0["→ 状态/断开"]:::entry
 
@@ -150,7 +154,7 @@ flowchart LR
                 </div>
             </div>
             <div class="explanation">
-                <div class="exp-title">📌 程序启动与控制台循环</div>
+                <div class="exp-title">程序启动与控制台循环</div>
                 <div class="exp-body">
                     Spring Boot 启动后进入 <code>main()</code>，使用 <code>Scanner</code> 监听控制台输入。
                     用户可输入命令：<code>help</code> / <code>version</code> / <code>status</code> /
@@ -160,7 +164,7 @@ flowchart LR
             </div>
         </div>
 
-        <div class="arrow-connector">▼</div>
+        <div class="arrow-connector">&#9660;</div>
 
         <!-- ============================================================ -->
         <!-- 1. iLink 登录 -->
@@ -176,11 +180,11 @@ flowchart LR
                 <div class="mermaid">
 flowchart LR
     subgraph L[" "]
-        QR["getQRCode()<br>GET /get_bot_qrcode?bot_type=3<br>IlinkProtocolClient.java:52"]:::api
+        QR["getQRCode()<br>GET /get_bot_qrcode?bot_type=3<br>IlinkProtocolClient.java:66"]:::api
         QR_R["← { qrcode, qrcode_img_content }"]:::api
         PRINT["打印二维码 URL<br>提示扫码登录"]:::process
         QR --> QR_R --> PRINT
-        POLL["每 2 秒轮询状态<br>pollQRStatus(qrcode)<br>GET /get_qrcode_status<br>IlinkProtocolClient.java:60"]:::api
+        POLL["每 2 秒轮询状态<br>pollQRStatus(qrcode)<br>GET /get_qrcode_status<br>IlinkProtocolClient.java:74"]:::api
         PRINT --> POLL
         STATUS{"status?"}:::decision
         POLL --> STATUS
@@ -188,7 +192,8 @@ flowchart LR
         W -.->|"继续轮询"| POLL
         STATUS --> |"expired"| E["二维码过期"]:::process
         STATUS --> |"confirmed"| C["扫码确认!"]:::process
-        C --> CRED["setCredentials(botToken, baseUrl)<br>保存 token，更新 baseUrl<br>connected = true"]:::process
+        C --> CRED["setCredentials(botToken, baseUrl)<br>保存 token，更新 baseUrl<br>记录 ownerId (ilink_user_id)"]:::process
+        CRED --> POLLING["startPolling()<br>启动消息轮询线程"]:::process
     end
 
     classDef entry fill:#e1f5fe,stroke:#0288d1;
@@ -198,19 +203,20 @@ flowchart LR
                 </div>
             </div>
             <div class="explanation">
-                <div class="exp-title">📌 扫码登录原理</div>
+                <div class="exp-title">扫码登录原理</div>
                 <div class="exp-body">
                     请求微信 iLink 服务器获取二维码 → 服务器返回 <code>qrcode_id</code> 和二维码图片 URL →
                     打印到控制台供用户扫码 → 每 2 秒轮询二维码状态 → 用户扫码确认后返回
                     <code>bot_token</code>（身份凭证）和 <code>baseUrl</code>（可能变化，用于负载均衡）。
                     <br><br>
-                    ★ <strong>关键</strong>：<code>bot_token</code> 是后续所有请求的密码，
-                    <code>baseUrl</code> 可能从 <code>ilinkai</code> 变为 <code>ilinkii</code>，需要动态重建 RestClient。
+                    <strong>LoginResult 字段：</strong><code>status</code>、<code>bot_token</code>、
+                    <code>ilink_bot_id</code>（机器人 ID）、<code>ilink_user_id</code>（主人微信 ID）、
+                    <code>baseurl</code>。<code>ownerId</code> 用于后续首次消息欢迎触发。
                 </div>
             </div>
         </div>
 
-        <div class="arrow-connector">▼</div>
+        <div class="arrow-connector">&#9660;</div>
 
         <!-- ============================================================ -->
         <!-- 2. 消息轮询 -->
@@ -226,21 +232,21 @@ flowchart LR
                 <div class="mermaid">
 flowchart LR
     subgraph P[" "]
-        PS["startPolling()<br>new Thread → daemon<br>IlinkService.java:76"]:::entry
+        PS["startPolling()<br>new Thread → daemon<br>IlinkService.java:93"]:::entry
         PI["初始化 cursor = ''"]:::process
         PS --> PI
         PL{"polling && connected?"}:::decision
         PI --> PL
         PL --> |"否"| PE["线程结束"]:::process
-        PL --> |"是"| GET["getUpdates(cursor)<br>POST /getupdates<br>IlinkProtocolClient.java:68"]:::api
-        GET --> LP["长轮询 35 秒<br>有消息立即返回<br>超时空返回"]:::process
+        PL --> |"是"| GET["getUpdates(cursor)<br>POST /getupdates<br>IlinkProtocolClient.java:82"]:::api
+        GET --> LP["长轮询 35 秒<br>超时空返回"]:::process
         LP --> RESP["← { msgs,<br>get_updates_buf }"]:::api
         RESP --> CU["更新 cursor"]:::process
         CU --> HM{"msgs 不为空?"}:::decision
         HM --> |"否"| PL
         HM --> |"是"| FOR["for 遍历 msgs"]:::process
-        FOR --> EXT["extractText(msg)<br>取 item_list.text"]:::process
-        EXT --> VAL{"有文本?<br>有contextToken?"}:::decision
+        FOR --> EXT["extractText(msg)<br>extractFirstImage(msg)"]:::process
+        EXT --> VAL{"contextToken 不为空<br>且（有文本/有图片）?"}:::decision
         VAL --> |"否"| SK["跳过"]:::process
         SK -.->|"继续"| FOR
         VAL --> |"是"| LOG["日志 + 打印<br>→ handleMessage"]:::process
@@ -257,20 +263,19 @@ flowchart LR
                 </div>
             </div>
             <div class="explanation">
-                <div class="exp-title">📌 长轮询消息拉取</div>
+                <div class="exp-title">长轮询消息拉取</div>
                 <div class="exp-body">
-                    登录成功后启动独立线程，每 3 秒发起一次 <code>getUpdates</code> 请求。
-                    这是<strong>长轮询（Long Polling）</strong>：服务器挂起连接最多 35 秒，
-                    有消息到达立即返回，无消息则超时空返回。
+                    登录成功后启动独立线程，发起 <code>getUpdates</code> 长轮询请求。
+                    服务器挂起连接最多 35 秒，有消息到达立即返回，无消息则超时空返回。
                     <br><br>
-                    每次返回 <code>get_updates_buf</code>（游标），下次请求时带回，
-                    确保不重复消费消息 → 用 <code>cursor</code> 变量维护。
-                    收到消息后提取文本和 <code>contextToken</code>，进入路由处理。
+                    每次返回 <code>get_updates_buf</code>（游标），下次请求带回，确保不重复消费。
+                    过滤条件：必须有 <code>contextToken</code>，且至少包含文本或图片。
+                    收到消息后提取内容，进入路由处理。
                 </div>
             </div>
         </div>
 
-        <div class="arrow-connector">▼</div>
+        <div class="arrow-connector">&#9660;</div>
 
         <!-- ============================================================ -->
         <!-- 3. 消息路由 -->
@@ -278,24 +283,29 @@ flowchart LR
         <div class="section">
             <div class="section-header">
                 <span class="step-num">3</span>
-                消息路由分发
+                消息路由 — handleMessage
                 <span class="step-tag tag-decision">decision</span>
+                <span class="step-tag tag-external">routing</span>
             </div>
             <div class="mermaid-wrap">
                 <div class="mermaid">
 flowchart LR
     subgraph R[" "]
-        H["handleMessage(msg)<br>IlinkService.java:118"]:::process
-        T["extractText(msg)"]:::process
-        L["text.toLowerCase().trim()"]:::process
-        H --> T --> L
-        D{"以什么开头?"}:::decision
-        L --> D
-        D --> |"weather 或 天气"| W["→ 天气查询<br>WeatherService"]:::external
-        D --> |"其他"| A["→ AI 对话<br>AIService"]:::external
-        D --> |"..."| F["未来扩展"]:::future
+        H["handleMessage(msg)<br>IlinkService.java:142"]:::entry
+        H --> W{"是主人首条消息?<br>!welcomeSent &&<br>ownerId==fromUser"}:::decision
+        W --> |"是"| WS["发送欢迎语<br>消耗 contextToken<br>welcomeSent=true"]:::process
+        WS --> RET["return"]:::process
+        W --> |"否"| IMG{"有图片?"}:::decision
+        IMG --> |"是"| IR["→ 图片识别<br>通义千问 VL"]:::external
+        IMG --> |"否"| T["取文本 text"]:::process
+        T --> D{"路由判断"}:::decision
+        D --> |"weather/天气"| WE["→ 天气查询<br>和风天气"]:::external
+        D --> |"图片生成"| IG["→ 图片生成<br>通义万相 → CDN"]:::external
+        D --> |"其他"| AI["→ AI对话<br>DeepSeek"]:::external
+        D --> |"..."| FT["未来扩展"]:::future
     end
 
+    classDef entry fill:#e1f5fe,stroke:#0288d1;
     classDef process fill:#fff3e0,stroke:#f57c00;
     classDef decision fill:#fce4ec,stroke:#c62828;
     classDef external fill:#f3e5f5,stroke:#7b1fa2;
@@ -303,41 +313,81 @@ flowchart LR
                 </div>
             </div>
             <div class="explanation">
-                <div class="exp-title">📌 消息路由逻辑</div>
+                <div class="exp-title">消息路由逻辑</div>
                 <div class="exp-body">
-                    从微信消息的 <code>item_list</code> 中提取文本内容 →
-                    转为小写判断开头：<code>weather</code> 或 <code>天气</code> 开头走天气查询，
-                    其他全部走 DeepSeek AI 对话。
-                    <br><br>
-                    ★ 路由分支用 <code>startsWith</code> 判断（非精确匹配），
-                    未来可在此处扩展更多命令（如翻译、新闻等），灰色虚线节点表示扩展点。
+                    优先检测是否为主人首条消息（用于触发欢迎语）。其次检测图片 → 走图片识别。
+                    文本消息按前缀分发：<code>weather</code> / <code>天气</code> → 天气查询，
+                    <code>图片生成</code> → 通义万相生图并上传 CDN，
+                    其他 → DeepSeek AI 对话。
                 </div>
             </div>
         </div>
 
-        <div class="arrow-connector">▼</div>
+        <div class="arrow-connector">&#9660;</div>
 
         <!-- ============================================================ -->
-        <!-- 4. 天气查询 -->
+        <!-- 4. 首条消息欢迎 -->
         <!-- ============================================================ -->
         <div class="section">
             <div class="section-header">
                 <span class="step-num">4</span>
+                首条消息欢迎机制
+                <span class="step-tag tag-process">process</span>
+            </div>
+            <div class="mermaid-wrap">
+                <div class="mermaid">
+flowchart LR
+    subgraph WW[" "]
+        LOGIN["登录成功<br>记录 ownerId<br>welcomeSent = false"]:::entry
+        MSG["收到主人消息"]:::process
+        CHK{"welcomeSent?<br>ownerId==fromUser?"}:::decision
+        MSG --> CHK
+        CHK --> |"false, 是主人"| SEND["回复欢迎语<br>消耗 contextToken<br>welcomeSent = true"]:::process
+        SEND --> RET["return<br>（不处理消息内容）"]:::process
+        CHK --> |"true 或非主人"| NORMAL["正常消息路由"]:::process
+    end
+
+    classDef entry fill:#e1f5fe,stroke:#0288d1;
+    classDef process fill:#fff3e0,stroke:#f57c00;
+    classDef decision fill:#fce4ec,stroke:#c62828;
+                </div>
+            </div>
+            <div class="explanation">
+                <div class="exp-title">欢迎消息触发机制</div>
+                <div class="exp-body">
+                    因 iLink 协议不支持 Bot 主动推送消息（返回 <code>{}</code> 但微信侧不投递），
+                    欢迎语通过「消耗主人第一条消息」的方式发送。
+                    <br><br>
+                    登录后记录 <code>ownerId</code>（<code>ilink_user_id</code>），
+                    首次收到来自该 ID 的消息时，仅回复欢迎语（消息内容被消耗不处理）。
+                    后续消息正常路由。
+                </div>
+            </div>
+        </div>
+
+        <div class="arrow-connector">&#9660;</div>
+
+        <!-- ============================================================ -->
+        <!-- 5. 天气查询 -->
+        <!-- ============================================================ -->
+        <div class="section">
+            <div class="section-header">
+                <span class="step-num">5</span>
                 天气查询（和风天气）
                 <span class="step-tag tag-api">API</span>
             </div>
             <div class="mermaid-wrap">
                 <div class="mermaid">
 flowchart LR
-    subgraph W[" "]
-        WS["WeatherService.queryWeather(city)<br>WeatherService.java:55"]:::process
+    subgraph W5[" "]
+        WS["queryWeather(city)<br>WeatherService.java:55"]:::process
         WE{"空?"}:::decision
         WS --> WE
         WE --> |"是"| WEE["返回: 请输入城市名"]:::process
         WE --> |"否"| WM{"CITY_MAP<br>查到 cityId?"}:::decision
         WM --> |"否"| WEC["返回: 暂不支持"]:::process
-        WM --> |"是"| WA["GET 和风天气<br>/v7/weather/now<br>?location=cityId&key=xxx"]:::api
-        WA --> WR["← JSON<br>{now:{text,temp,<br>feelsLike,humidity,...}}"]:::api
+        WM --> |"是"| WA["GET 和风天气<br>/v7/weather/now<br>自定义域名<br>na3h2taynf.re.qweatherapi.com"]:::api
+        WA --> WR["← JSON<br>{now:{text,temp,<br>feelsLike,humidity,<br>windDir,windScale}}"]:::api
         WR --> WC{"code==200?"}:::decision
         WC --> |"否"| WEA["返回: API异常"]:::process
         WC --> |"是"| WF["格式化天气文本<br>'北京天气: 晴 25℃'"]:::process
@@ -354,36 +404,36 @@ flowchart LR
                 </div>
             </div>
             <div class="explanation">
-                <div class="exp-title">📌 天气查询流程</div>
+                <div class="exp-title">天气查询流程</div>
                 <div class="exp-body">
                     通过城市名在 <code>CITY_MAP</code> 中查找对应的 <code>cityId</code>
-                    （预置北京/上海/广州/深圳/杭州/成都/武汉/南京/西安/重庆）。
+                    （预置 10 城市：北京/上海/广州/深圳/杭州/成都/武汉/南京/西安/重庆）。
                     <br><br>
                     查到后请求和风天气 API（自定义域名 <code>na3h2taynf.re.qweatherapi.com</code>），
                     返回 JSON 格式的实时天气数据。解析后格式化为可读文本。
                     <br><br>
-                    ★ 查询结果会通过 <code>addExchange()</code> 注入 AI 对话历史，
-                    这样用户接下来问"明天呢"时 AI 知道上下文。
+                    <strong>★</strong> 查询结果会通过 <code>addExchange()</code> 注入 AI 对话历史，
+                    用户后续问"明天呢"时 AI 可理解上下文。
                 </div>
             </div>
         </div>
 
-        <div class="arrow-connector">▼</div>
+        <div class="arrow-connector">&#9660;</div>
 
         <!-- ============================================================ -->
-        <!-- 5. AI 对话 -->
+        <!-- 6. AI 对话 -->
         <!-- ============================================================ -->
         <div class="section">
             <div class="section-header">
-                <span class="step-num">5</span>
-                DeepSeek AI 对话
+                <span class="step-num">6</span>
+                AI 对话（DeepSeek）
                 <span class="step-tag tag-api">API</span>
             </div>
             <div class="mermaid-wrap">
                 <div class="mermaid">
 flowchart LR
-    subgraph A[" "]
-        AS["sessions.computeIfAbsent(userId)<br>ConcurrentHashMap<br>AIService.java:42"]:::process
+    subgraph A6[" "]
+        AS["sessions.computeIfAbsent(userId)<br>ConcurrentHashMap<br>AIService.java:48"]:::process
         AE{"首次对话?"}:::decision
         AS --> AE
         AE --> |"是"| AN["创建 session<br>添加 system 消息"]:::process
@@ -392,12 +442,12 @@ flowchart LR
         AO --> AA
         AA["追加 user 消息到历史"]:::process
         AT["trimHistory()<br>保留最近 10 轮"]:::process
-        AR["POST /chat/completions<br>model: deepseek-chat<br>Authorization: Bearer xxx"]:::api
+        AR["POST /chat/completions<br>model: deepseek-chat<br>api.deepseek.com<br>byte[] 防乱码"]:::api
         AX["← choices[0].message.content"]:::api
         AA --> AT --> AR --> AX
         AX --> AC{"有内容?"}:::decision
         AC --> |"否"| AER["返回: 无内容"]:::process
-        AC --> |"是"| AAS["追加 assistant 回复<br>到历史"]:::process
+        AC --> |"是"| AAS["追加 assistant 回复到历史"]:::process
         AAS --> AOK["reply = AI 回复"]:::process
     end
 
@@ -407,27 +457,147 @@ flowchart LR
                 </div>
             </div>
             <div class="explanation">
-                <div class="exp-title">📌 DeepSeek AI 对话机制</div>
+                <div class="exp-title">DeepSeek AI 对话机制</div>
                 <div class="exp-body">
                     每个微信用户独立对话 session，存储为 <code>ConcurrentHashMap&lt;String, List&lt;ChatMessage&gt;&gt;</code>。
-                    session 结构：<code>[system消息, user消息, assistant回复, user消息, ...]</code>。
+                    session 结构：<code>[system, user, assistant, user, ...]</code>。
                     <br><br>
                     最多保留 10 轮对话，超出后删除最早的历史（保留 system 消息），
                     这是 <code>trimHistory()</code> 方法的作用。
                     <br><br>
-                    ★ HTTP 请求同样使用 <code>byte[]</code> 编解码，防止 Windows 乱码。
+                    <strong>★</strong> HTTP 请求使用 <code>byte[]</code> 编解码，防止 Windows 控制台 GBK 乱码。
+                    <strong>★</strong> Model 为 <code>deepseek-chat</code>（映射 deepseek-v4-flash）。
                 </div>
             </div>
         </div>
 
-        <div class="arrow-connector">▼</div>
+        <div class="arrow-connector">&#9660;</div>
 
         <!-- ============================================================ -->
-        <!-- 6. 发送回复 -->
+        <!-- 7. 图片识别 -->
         <!-- ============================================================ -->
         <div class="section">
             <div class="section-header">
-                <span class="step-num">6</span>
+                <span class="step-num">7</span>
+                图片识别（通义千问 VL）
+                <span class="step-tag tag-api">API</span>
+                <span class="step-tag tag-process">encrypt</span>
+            </div>
+            <div class="mermaid-wrap">
+                <div class="mermaid">
+flowchart LR
+    subgraph V7[" "]
+        IR["handleMessage → 有图片<br>IlinkService.java:154"]:::entry
+        IR --> DL["downloadAndDecryptImage()<br>IlinkProtocolClient.java:101"]:::process
+        DL --> URL{"media.full_url<br>还是<br>encrypt_query_param?"}:::decision
+        URL --> |"full_url"| D1["GET full_url<br>下载加密字节"]:::api
+        URL --> |"encrypt_query_param"| D2["拼接 CDN URL<br>+ URLEncoder.encode"]:::process
+        D2 --> D1
+        D1 --> AES{"有 aeskey?"}:::decision
+        AES --> |"否"| RAW["返回原始密文"]:::process
+        AES --> |"是"| K["deriveAesKey()<br>3种格式兼容解析"]:::process
+        K --> DEC["AES-128-ECB 解密<br>去除 PKCS7 padding"]:::process
+        DEC --> B64["Base64 编码<br>检测 MIME 类型<br>→ data: URI"]:::process
+        B64 --> VL["通义千问 VL<br>POST 兼容模式<br>model: qwen-vl-plus<br>content: [{text},{image_url}]"]:::api
+        VL --> RESP["← choices[0].content<br>图片描述文本"]:::api
+        RESP --> SEND["回复用户"]:::process
+    end
+
+    classDef entry fill:#e1f5fe,stroke:#0288d1;
+    classDef process fill:#fff3e0,stroke:#f57c00;
+    classDef decision fill:#fce4ec,stroke:#c62828;
+    classDef api fill:#e8f5e9,stroke:#388e3c;
+                </div>
+            </div>
+            <div class="explanation">
+                <div class="exp-title">图片识别流程（CDN 下载 → AES 解密 → 通义千问 VL）</div>
+                <div class="exp-body">
+                    <strong>CDN 下载：</strong> 优先使用 <code>media.full_url</code>，否则拼接
+                    <code>CDN_BASE + /download?encrypted_query_param=...</code>。
+                    <br><br>
+                    <strong>AES 解密：</strong> <code>deriveAesKey()</code> 兼容 3 种 key 格式：
+                    <code>32 字符 hex → bytes</code>、
+                    <code>base64(hex) → hex → bytes</code>、
+                    <code>base64(raw 16 字节) → raw</code>。
+                    解密后去除 PKCS7 padding。
+                    <br><br>
+                    <strong>视觉识别：</strong> 图片 Base64 → <code>data:image/jpeg;base64,...</code> URI →
+                    通义千问 VL（<code>qwen-vl-plus</code>），
+                    通过 DashScope 兼容模式（<code>compatible-mode/v1/chat/completions</code>），
+                    复用通义系列 API Key。
+                </div>
+            </div>
+        </div>
+
+        <div class="arrow-connector">&#9660;</div>
+
+        <!-- ============================================================ -->
+        <!-- 8. 图片生成 -->
+        <!-- ============================================================ -->
+        <div class="section">
+            <div class="section-header">
+                <span class="step-num">8</span>
+                图片生成（通义万相）→ CDN 上传 → 发送
+                <span class="step-tag tag-api">API</span>
+                <span class="step-tag tag-process">CDN</span>
+            </div>
+            <div class="mermaid-wrap">
+                <div class="mermaid">
+flowchart LR
+    subgraph G8[" "]
+        IG["handleMessage → 图片生成 xxx<br>IlinkService.java:178"]:::entry
+        IG --> GEN["generateImage(prompt)<br>ImageService.java:32"]:::process
+        GEN --> API["通义万相<br>POST /multimodal-generation/generation<br>model: wan2.6-t2i<br>DashScope 同步模式"]:::api
+        API --> RESP["← output.choices[0]<br>.content[0].image<br>OSS 图片 URL"]:::api
+        RESP --> OK{"URL 有效?"}:::decision
+        OK --> |"否"| ERR["回复错误文本"]:::process
+        OK --> |"是"| DL2["downloadImage(url)<br>从 OSS 下载图片字节"]:::process
+        DL2 --> ENC["AES-128-ECB 加密<br>随机 16 字节 key"]:::process
+        ENC --> MD5["计算 rawfilemd5<br>计算 padded filesize"]:::process
+        MD5 --> UPL["getUploadUrl<br>POST /ilink/bot/getuploadurl"]:::api
+        UPL --> UPL_R["← upload_full_url<br>或 upload_param"]:::api
+        UPL_R --> CDN["POST 加密字节到 CDN"]:::process
+        CDN --> CDN_R["← x-encrypted-param"]:::api
+        CDN_R --> SEND2["发送 image_item<br>encrypt_query_param + aes_key"]:::process
+        SEND2 --> DONE["用户收到图片"]:::process
+    end
+
+    classDef entry fill:#e1f5fe,stroke:#0288d1;
+    classDef process fill:#fff3e0,stroke:#f57c00;
+    classDef decision fill:#fce4ec,stroke:#c62828;
+    classDef api fill:#e8f5e9,stroke:#388e3c;
+                </div>
+            </div>
+            <div class="explanation">
+                <div class="exp-title">图片生成全流程</div>
+                <div class="exp-body">
+                    <strong>1. 生图：</strong> 通义万相 <code>wan2.6-t2i</code> 同步模式，
+                    请求格式为 <code>input.messages[0].content[0].text</code>，
+                    返回 OSS 图片 URL。
+                    <br><br>
+                    <strong>2. 加密：</strong> 随机生成 16 字节 AES key → <code>AES-128-ECB/PKCS5Padding</code>
+                    加密图片字节。
+                    <br><br>
+                    <strong>3. CDN 上传：</strong> <code>getUploadUrl</code> 请求参数：
+                    <code>filekey</code>（32 hex）、<code>media_type:1</code>、<code>to_user_id</code>、
+                    <code>rawsize</code>、<code>rawfilemd5</code>、<code>filesize</code>（填充后）、
+                    <code>aeskey</code>（hex）、<code>no_need_thumb:true</code>。
+                    POST 加密字节后从响应头取 <code>x-encrypted-param</code>。
+                    <br><br>
+                    <strong>4. 发送：</strong> 构建 <code>image_item.cdnImage(CDNMedia, midSize)</code> →
+                    调用 <code>sendMessage</code>。
+                </div>
+            </div>
+        </div>
+
+        <div class="arrow-connector">&#9660;</div>
+
+        <!-- ============================================================ -->
+        <!-- 9. 发送回复 -->
+        <!-- ============================================================ -->
+        <div class="section">
+            <div class="section-header">
+                <span class="step-num">9</span>
                 发送回复到微信
                 <span class="step-tag tag-api">API</span>
                 <span class="step-tag tag-process">auth</span>
@@ -435,16 +605,15 @@ flowchart LR
             <div class="mermaid-wrap">
                 <div class="mermaid">
 flowchart LR
-    subgraph S[" "]
-        SR["sendMessage(toUserId,<br>contextToken, text)<br>IlinkProtocolClient.java:74"]:::entry
-        SB["构建 SendMessageRequest<br>• client_id = UUID（唯一）<br>• context_token = 原值带回<br>• item_list = [{type:1,text}]"]:::process
-        SE["byte[] body = UTF-8<br>★ 防 Windows GBK 乱码"]:::process
-        SA["三个认证头<br>① AuthorizationType: ilink_bot_token<br>② Authorization: Bearer {token}<br>③ X-WECHAT-UIN: Base64(随机)"]:::process
-        SU["X-WECHAT-UIN 生成:<br>randomInt → toUnsignedString<br>→ Base64.encode<br>每次不同，防重放"]:::process
-        SI["POST /sendmessage<br>RestClient.post().body(byte[])"]:::api
-        SP["← {} 接受成功<br>（不代表已送达用户）"]:::api
-        SL["日志: 已回复 userId"]:::process
-        SR --> SB --> SE --> SA --> SU --> SI --> SP --> SL
+    subgraph S9[" "]
+        SR["sendMessage(toUserId,<br>contextToken, items)<br>IlinkProtocolClient.java:88"]:::entry
+        SB["构建 SendMessageRequest<br>• client_id = UUID（去重）<br>• context_token = 原值带回<br>• message_type=2, message_state=2<br>• item_list = [{text}] 或 [{image}]"]:::process
+        SB --> BASE["base_info: {channel_version: '1.0.2'}"]:::process
+        BASE --> SE["byte[] body = UTF-8<br>★ 防 Windows GBK 乱码"]:::process
+        SE --> SA["三个认证头<br>① AuthorizationType: ilink_bot_token<br>② Authorization: Bearer {token}<br>③ X-WECHAT-UIN: Base64(随机 int)"]:::process
+        SA --> SI["POST /sendmessage<br>RestClient.post().body(byte[])"]:::api
+        SI --> SP["← {} 接受成功<br>（不代表已送达用户）"]:::api
+        SP --> SL["日志: 已回复 userId"]:::process
     end
 
     classDef entry fill:#e1f5fe,stroke:#0288d1;
@@ -453,31 +622,33 @@ flowchart LR
                 </div>
             </div>
             <div class="explanation">
-                <div class="exp-title">📌 发送回复的关键细节</div>
+                <div class="exp-title">发送回复的关键细节</div>
                 <div class="exp-body">
                     <strong>client_id：</strong> 每次发送必须使用不同的 UUID，微信用来去重（幂等性）。
                     <br>
                     <strong>context_token：</strong> 必须原值带回接收消息时的 token，用于关联原消息。
                     <br>
+                    <strong>base_info：</strong> 包含 <code>channel_version: '1.0.2'</code>。
+                    <br>
                     <strong>X-WECHAT-UIN：</strong> 每次请求生成新的随机数，防重放攻击。
                     生成逻辑：随机整数 → 无符号十进制字符串 → Base64 编码。
                     <br>
-                    <strong>byte[]：</strong> Windows 默认 GBK 编码，<code>body(String.class)</code>
-                    会乱码。用 <code>byte[]</code> 拿到原始字节再 UTF-8 解码。
+                    <strong>byte[]：</strong> Windows 默认 GBK 编码，用 <code>byte[]</code> 拿到原始字节再 UTF-8 解码。
                     <br><br>
-                    ★ 响应 <code>{}</code> 仅表示服务器接受，不代表消息已送达用户微信。
+                    <strong>★</strong> 响应 <code>{}</code> 仅表示服务器接受，不代表消息已送达用户微信。
+                    iLink 不支持 Bot 主动推送消息（无 <code>contextToken</code> 的请求返回 <code>{}</code> 但微信侧不投递）。
                 </div>
             </div>
         </div>
 
-        <div class="arrow-connector">▼</div>
+        <div class="arrow-connector">&#9660;</div>
 
         <!-- ============================================================ -->
-        <!-- 7. 断开流程 -->
+        <!-- 10. 断开流程 -->
         <!-- ============================================================ -->
         <div class="section">
             <div class="section-header">
-                <span class="step-num">7</span>
+                <span class="step-num">10</span>
                 iLink 断开
                 <span class="step-tag tag-process">process</span>
             </div>
@@ -488,7 +659,7 @@ flowchart LR
         SP["polling.set(false)"]:::process
         SC["connected.set(false)"]:::process
         STH["pollThread.interrupt()"]:::process
-        SCL["清除 bot_token"]:::process
+        SCL["清除 bot_token<br>setCredentials(null, null)"]:::process
         SRR["返回: iLink 已断开"]:::process
         SP --> SC
         SC --> SCL --> SRR
@@ -499,14 +670,14 @@ flowchart LR
                 </div>
             </div>
             <div class="explanation">
-                <div class="exp-title">📌 断开清理</div>
+                <div class="exp-title">断开清理</div>
                 <div class="exp-body">
                     <code>polling.set(false)</code> 使轮询循环条件不满足 → 线程自然退出。
                     <code>connected.set(false)</code> 标记连接断开。
                     调用 <code>pollThread.interrupt()</code> 中断可能的 sleep 等待。
                     最后清除 <code>bot_token</code> 使认证失效。
                     <br><br>
-                    ★ 线程标记为 <code>daemon</code>，即使忘记调用 stop，程序退出时也会自动结束。
+                    <strong>★</strong> 线程标记为 <code>daemon</code>，程序退出时自动结束。
                 </div>
             </div>
         </div>

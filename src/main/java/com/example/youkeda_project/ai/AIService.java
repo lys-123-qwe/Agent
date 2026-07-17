@@ -172,6 +172,10 @@ public class AIService {
         trimHistory(history);
     }
 
+    public boolean hasSession(String userId) {
+        return sessions.containsKey(userId);
+    }
+
     public void clearSession(String userId) {
         sessions.remove(userId);
     }
