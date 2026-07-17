@@ -2,13 +2,16 @@ package com.example.youkeda_project.client;
 
 import com.example.youkeda_project.protocol.CDNMedia;
 import com.example.youkeda_project.protocol.GetUpdatesResponse;
+import com.example.youkeda_project.protocol.ImageItem;
 import com.example.youkeda_project.protocol.LoginResult;
 import com.example.youkeda_project.protocol.MessageItem;
 import com.example.youkeda_project.protocol.QRCodeResponse;
 import com.example.youkeda_project.protocol.SendMessageRequest;
+import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
@@ -93,6 +96,81 @@ public class IlinkProtocolClient {
         } catch (Exception e) {
             throw new RuntimeException("发送消息失败", e);
         }
+    }
+
+    public byte[] downloadAndDecryptImage(MessageItem item) {
+        ImageItem imageItem = item.imageItem();
+        if (imageItem == null || imageItem.media() == null) {
+            throw new RuntimeException("消息中没有图片");
+        }
+
+        String url = null;
+        if (imageItem.media().fullUrl() != null && !imageItem.media().fullUrl().isBlank()) {
+            url = imageItem.media().fullUrl();
+        } else if (imageItem.media().encryptQueryParam() != null && !imageItem.media().encryptQueryParam().isBlank()) {
+            url = CDN_BASE + "/download?encrypted_query_param="
+                + URLEncoder.encode(imageItem.media().encryptQueryParam(), StandardCharsets.UTF_8);
+        }
+        if (url == null) throw new RuntimeException("图片无下载URL");
+
+        String aesKeyStr = imageItem.aeskey();
+        if (aesKeyStr == null && imageItem.media().aesKey() != null) {
+            aesKeyStr = imageItem.media().aesKey();
+        }
+
+        log.info("下载图片CDN: {}", url);
+        byte[] encryptedBytes = RestClient.create().get()
+            .uri(URI.create(url))
+            .retrieve()
+            .body(byte[].class);
+        log.info("CDN下载完成: {} bytes", encryptedBytes != null ? encryptedBytes.length : 0);
+
+        if (aesKeyStr == null) {
+            log.warn("图片无AES key，返回原始密文");
+            return encryptedBytes;
+        }
+
+        byte[] key = deriveAesKey(aesKeyStr);
+        try {
+            Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
+            cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"));
+            byte[] decrypted = cipher.doFinal(encryptedBytes);
+            int pad = decrypted[decrypted.length - 1];
+            if (pad > 0 && pad <= 16) {
+                return Arrays.copyOf(decrypted, decrypted.length - pad);
+            }
+            return decrypted;
+        } catch (Exception e) {
+            throw new RuntimeException("图片AES解密失败", e);
+        }
+    }
+
+    private byte[] deriveAesKey(String aesKeyStr) {
+        if (aesKeyStr == null) throw new IllegalArgumentException("AES key为空");
+
+        if (aesKeyStr.matches("^[0-9a-fA-F]{32}$")) {
+            return HexFormat.of().parseHex(aesKeyStr);
+        }
+
+        byte[] decoded;
+        try {
+            decoded = Base64.getDecoder().decode(aesKeyStr);
+        } catch (Exception e) {
+            throw new RuntimeException("无法解析AES key: " + aesKeyStr);
+        }
+
+        if (decoded.length == 32) {
+            String asHex = new String(decoded, StandardCharsets.UTF_8);
+            if (asHex.matches("^[0-9a-fA-F]{32}$")) {
+                return HexFormat.of().parseHex(asHex);
+            }
+        }
+
+        if (decoded.length == 16) {
+            return decoded;
+        }
+
+        throw new RuntimeException("无法解析AES key，长度不匹配: " + aesKeyStr);
     }
 
     public void uploadAndSendImage(String toUserId, String contextToken, byte[] imageBytes) {

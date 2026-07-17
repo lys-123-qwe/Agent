@@ -94,9 +94,16 @@ public class IlinkService {
                         for (WeixinMessage msg : resp.msgs()) {
                             String fromUser = msg.fromUserId();
                             String text = extractText(msg);
-                            if (text != null && msg.contextToken() != null) {
-                                log.info("微信消息 from={}, text={}", fromUser, text);
-                                System.out.println("\n[微信] " + fromUser + ": " + text);
+                            boolean hasImage = extractFirstImage(msg) != null;
+                            if (msg.contextToken() != null && (text != null || hasImage)) {
+                                if (text != null) {
+                                    log.info("微信消息 from={}, text={}", fromUser, text);
+                                    System.out.println("\n[微信] " + fromUser + ": " + text);
+                                }
+                                if (hasImage) {
+                                    log.info("微信消息 from={}, [图片]", fromUser);
+                                    System.out.println("\n[微信] " + fromUser + ": [图片]");
+                                }
                                 handleMessage(msg);
                             }
                         }
@@ -121,6 +128,18 @@ public class IlinkService {
 
     private void handleMessage(WeixinMessage msg) {
         try {
+            MessageItem imageItem = extractFirstImage(msg);
+            if (imageItem != null) {
+                String textPrompt = extractText(msg);
+                System.out.println("[微信] " + msg.fromUserId() + " 发送了图片，正在识别...");
+                byte[] imageBytes = client.downloadAndDecryptImage(imageItem);
+                String reply = aiService.chatWithImage(msg.fromUserId(), textPrompt, imageBytes);
+                client.sendMessage(msg.fromUserId(), msg.contextToken(), List.of(MessageItem.text(reply)));
+                log.info("已回复图片识别 {}: {}", msg.fromUserId(), reply);
+                System.out.println("[微信] " + msg.fromUserId() + ": " + reply);
+                return;
+            }
+
             String text = extractText(msg);
             String reply;
 
@@ -190,6 +209,14 @@ public class IlinkService {
                 .filter(item -> item.textItem() != null)
                 .findFirst()
                 .map(item -> item.textItem().text())
+                .orElse(null);
+    }
+
+    private MessageItem extractFirstImage(WeixinMessage msg) {
+        if (msg.itemList() == null) return null;
+        return msg.itemList().stream()
+                .filter(item -> item.imageItem() != null)
+                .findFirst()
                 .orElse(null);
     }
 }

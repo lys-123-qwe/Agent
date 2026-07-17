@@ -40,6 +40,9 @@ public class ApiConfig {
     @Value("${image.api.url:https://dashscope.aliyuncs.com}")
     private String imageApiUrl;
 
+    @Value("${vision.api.url:https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions}")
+    private String visionApiUrl;
+
     public String getDeepSeekApiKey() {
         return aiApiKey;
     }
@@ -54,5 +57,13 @@ public class ApiConfig {
 
     public String getImageApiUrl() {
         return imageApiUrl;
+    }
+
+    public String getVisionApiKey() {
+        return imageApiKey;
+    }
+
+    public String getVisionApiUrl() {
+        return visionApiUrl;
     }
 }
