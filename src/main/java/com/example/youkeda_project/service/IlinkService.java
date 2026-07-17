@@ -23,15 +23,17 @@ public class IlinkService {
     private final IlinkProtocolClient client;
     private final WeatherService weatherService;
     private final AIService aiService;
+    private final ImageService imageService;
 
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicBoolean polling = new AtomicBoolean(false);
     private Thread pollThread;
 
-    public IlinkService(IlinkProtocolClient client, WeatherService weatherService, AIService aiService) {
+    public IlinkService(IlinkProtocolClient client, WeatherService weatherService, AIService aiService, ImageService imageService) {
         this.client = client;
         this.weatherService = weatherService;
         this.aiService = aiService;
+        this.imageService = imageService;
     }
 
     public String start() {
@@ -127,15 +129,38 @@ public class IlinkService {
                 String city = text.substring("weather ".length()).trim();
                 reply = weatherService.queryWeather(city);
                 aiService.addExchange(msg.fromUserId(), text, reply);
+                client.sendMessage(msg.fromUserId(), msg.contextToken(), List.of(MessageItem.text(reply)));
             } else if (lowerText.startsWith("天气 ")) {
                 String city = text.substring("天气 ".length()).trim();
                 reply = weatherService.queryWeather(city);
                 aiService.addExchange(msg.fromUserId(), text, reply);
+                client.sendMessage(msg.fromUserId(), msg.contextToken(), List.of(MessageItem.text(reply)));
+            } else if (lowerText.startsWith("图片生成 ")) {
+                String prompt = text.substring("图片生成 ".length()).trim();
+                String imageUrl = imageService.generateImage(prompt);
+                if (!imageUrl.startsWith("http://") && !imageUrl.startsWith("https://")) {
+                    client.sendMessage(msg.fromUserId(), msg.contextToken(), List.of(MessageItem.text(imageUrl)));
+                    log.info("图片生成失败: {}", imageUrl);
+                    return;
+                }
+                log.info("图片已生成: {}", imageUrl);
+                System.out.println("[系统] 图片已生成，正在上传到微信CDN...");
+                try {
+                    byte[] imageBytes = imageService.downloadImage(imageUrl);
+                    client.uploadAndSendImage(msg.fromUserId(), msg.contextToken(), imageBytes);
+                    log.info("已回复图片 {}", msg.fromUserId());
+                    System.out.println("[系统] 图片已发送到微信");
+                } catch (Exception e) {
+                    log.error("图片上传发送失败", e);
+                    client.sendMessage(msg.fromUserId(), msg.contextToken(),
+                        List.of(MessageItem.text("图片上传失败: " + e.getMessage())));
+                }
+                return;
             } else {
                 reply = aiService.chat(msg.fromUserId(), text);
+                client.sendMessage(msg.fromUserId(), msg.contextToken(), List.of(MessageItem.text(reply)));
             }
 
-            client.sendMessage(msg.fromUserId(), msg.contextToken(), List.of(MessageItem.text(reply)));
             log.info("已回复 {}: {}", msg.fromUserId(), reply);
 
         } catch (Exception e) {

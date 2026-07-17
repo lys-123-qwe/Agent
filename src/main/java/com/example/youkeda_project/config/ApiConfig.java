@@ -34,11 +34,25 @@ public class ApiConfig {
         return aiApiUrl;
     }
 
+    @Value("${image.api.key:}")
+    private String imageApiKey;
+
+    @Value("${image.api.url:https://dashscope.aliyuncs.com}")
+    private String imageApiUrl;
+
     public String getDeepSeekApiKey() {
         return aiApiKey;
     }
 
     public String getDeepSeekApiUrl() {
         return aiApiUrl;
+    }
+
+    public String getImageApiKey() {
+        return imageApiKey;
+    }
+
+    public String getImageApiUrl() {
+        return imageApiUrl;
     }
 }

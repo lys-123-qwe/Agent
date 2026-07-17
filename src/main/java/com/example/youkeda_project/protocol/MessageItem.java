@@ -12,7 +12,7 @@ public record MessageItem(
         return new MessageItem(1, new TextItem(text), null, null);
     }
 
-    public static MessageItem image(String imageUrl) {
-        return new MessageItem(2, null, new ImageItem(imageUrl), null);
+    public static MessageItem cdnImage(CDNMedia media, int midSize) {
+        return new MessageItem(2, null, ImageItem.fromCdn(media, midSize), null);
     }
 }
