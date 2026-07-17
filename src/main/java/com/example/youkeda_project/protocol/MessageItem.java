@@ -2,26 +2,17 @@ package com.example.youkeda_project.protocol;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-public class MessageItem {
-
-    private int type;
-
-    @JsonProperty("text_item")
-    private TextItem textItem;
-
-    public int getType() {
-        return type;
+public record MessageItem(
+    int type,
+    @JsonProperty("text_item") TextItem textItem,
+    @JsonProperty("image_item") ImageItem imageItem,
+    @JsonProperty("voice_item") VoiceItem voiceItem
+) {
+    public static MessageItem text(String text) {
+        return new MessageItem(1, new TextItem(text), null, null);
     }
 
-    public void setType(int type) {
-        this.type = type;
-    }
-
-    public TextItem getTextItem() {
-        return textItem;
-    }
-
-    public void setTextItem(TextItem textItem) {
-        this.textItem = textItem;
+    public static MessageItem image(String imageUrl) {
+        return new MessageItem(2, null, new ImageItem(imageUrl), null);
     }
 }

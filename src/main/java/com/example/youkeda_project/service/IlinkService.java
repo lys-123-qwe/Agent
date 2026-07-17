@@ -4,8 +4,10 @@ import com.example.youkeda_project.ai.AIService;
 import com.example.youkeda_project.client.IlinkProtocolClient;
 import com.example.youkeda_project.protocol.GetUpdatesResponse;
 import com.example.youkeda_project.protocol.LoginResult;
+import com.example.youkeda_project.protocol.MessageItem;
 import com.example.youkeda_project.protocol.QRCodeResponse;
 import com.example.youkeda_project.protocol.WeixinMessage;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -39,8 +41,8 @@ public class IlinkService {
 
         try {
             QRCodeResponse qrCode = client.getQRCode();
-            String qrcodeId = qrCode.getQrcode();
-            String qrCodeUrl = qrCode.getQrcodeImgContent();
+            String qrcodeId = qrCode.qrcode();
+            String qrCodeUrl = qrCode.qrcodeImgContent();
 
             log.info("二维码ID={}, URL={}", qrcodeId, qrCodeUrl);
             System.out.println("\n请用微信扫码登录:");
@@ -48,13 +50,13 @@ public class IlinkService {
 
             while (true) {
                 LoginResult result = client.pollQRStatus(qrcodeId);
-                String status = result.getStatus();
+                String status = result.status();
 
                 if ("confirmed".equals(status)) {
-                    client.setCredentials(result.getBotToken(), result.getBaseurl());
+                    client.setCredentials(result.botToken(), result.baseurl());
                     connected.set(true);
-                    log.info("登录成功, botId={}", result.getBotId());
-                    System.out.println("\n[系统] iLink 登录成功! BotID=" + result.getBotId());
+                    log.info("登录成功, botId={}", result.botId());
+                    System.out.println("\n[系统] iLink 登录成功! BotID=" + result.botId());
                     startPolling();
                     return "登录成功";
                 } else if ("expired".equals(status)) {
@@ -82,15 +84,15 @@ public class IlinkService {
             while (polling.get() && connected.get()) {
                 try {
                     GetUpdatesResponse resp = client.getUpdates(cursor);
-                    if (resp.getGetUpdatesBuf() != null) {
-                        cursor = resp.getGetUpdatesBuf();
+                    if (resp.getUpdatesBuf() != null) {
+                        cursor = resp.getUpdatesBuf();
                     }
-                    if (resp.getMsgs() != null && !resp.getMsgs().isEmpty()) {
-                        log.info("收到 {} 条消息", resp.getMsgs().size());
-                        for (WeixinMessage msg : resp.getMsgs()) {
-                            String fromUser = msg.getFromUserId();
+                    if (resp.msgs() != null && !resp.msgs().isEmpty()) {
+                        log.info("收到 {} 条消息", resp.msgs().size());
+                        for (WeixinMessage msg : resp.msgs()) {
+                            String fromUser = msg.fromUserId();
                             String text = extractText(msg);
-                            if (text != null && msg.getContextToken() != null) {
+                            if (text != null && msg.contextToken() != null) {
                                 log.info("微信消息 from={}, text={}", fromUser, text);
                                 System.out.println("\n[微信] " + fromUser + ": " + text);
                                 handleMessage(msg);
@@ -124,17 +126,17 @@ public class IlinkService {
             if (lowerText.startsWith("weather ")) {
                 String city = text.substring("weather ".length()).trim();
                 reply = weatherService.queryWeather(city);
-                aiService.addExchange(msg.getFromUserId(), text, reply);
+                aiService.addExchange(msg.fromUserId(), text, reply);
             } else if (lowerText.startsWith("天气 ")) {
                 String city = text.substring("天气 ".length()).trim();
                 reply = weatherService.queryWeather(city);
-                aiService.addExchange(msg.getFromUserId(), text, reply);
+                aiService.addExchange(msg.fromUserId(), text, reply);
             } else {
-                reply = aiService.chat(msg.getFromUserId(), text);
+                reply = aiService.chat(msg.fromUserId(), text);
             }
 
-            client.sendMessage(msg.getFromUserId(), msg.getContextToken(), reply);
-            log.info("已回复 {}: {}", msg.getFromUserId(), reply);
+            client.sendMessage(msg.fromUserId(), msg.contextToken(), List.of(MessageItem.text(reply)));
+            log.info("已回复 {}: {}", msg.fromUserId(), reply);
 
         } catch (Exception e) {
             log.error("处理消息失败", e);
@@ -158,11 +160,11 @@ public class IlinkService {
     }
 
     private String extractText(WeixinMessage msg) {
-        if (msg.getItemList() == null) return null;
-        return msg.getItemList().stream()
-                .filter(item -> item.getTextItem() != null)
+        if (msg.itemList() == null) return null;
+        return msg.itemList().stream()
+                .filter(item -> item.textItem() != null)
                 .findFirst()
-                .map(item -> item.getTextItem().getText())
+                .map(item -> item.textItem().text())
                 .orElse(null);
     }
 }

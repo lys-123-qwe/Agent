@@ -2,8 +2,10 @@ package com.example.youkeda_project.client;
 
 import com.example.youkeda_project.protocol.GetUpdatesResponse;
 import com.example.youkeda_project.protocol.LoginResult;
+import com.example.youkeda_project.protocol.MessageItem;
 import com.example.youkeda_project.protocol.QRCodeResponse;
 import com.example.youkeda_project.protocol.SendMessageRequest;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -71,8 +73,8 @@ public class IlinkProtocolClient {
         return parseJson(json, GetUpdatesResponse.class);
     }
 
-    public String sendMessage(String toUserId, String contextToken, String text) {
-        SendMessageRequest request = new SendMessageRequest(toUserId, contextToken, text);
+    public String sendMessage(String toUserId, String contextToken, List<MessageItem> items) {
+        SendMessageRequest request = SendMessageRequest.items(toUserId, contextToken, items);
         try {
             String body = objectMapper.writeValueAsString(request);
             log.info("发送消息请求: {}", body);
