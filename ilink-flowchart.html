@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>iLink 协议实现流程图</title>
+    <title>Claw助手 流程图</title>
     <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -13,295 +13,504 @@
             padding: 40px 20px;
         }
         .container {
-            max-width: 1400px;
+            max-width: 900px;
             margin: 0 auto;
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 2px 20px rgba(0,0,0,0.08);
-            padding: 40px 30px;
         }
         h1 {
             font-size: 24px;
             color: #1a1a2e;
-            margin-bottom: 8px;
+            margin-bottom: 4px;
             padding-left: 8px;
             border-left: 4px solid #4a90d9;
         }
         .subtitle {
             color: #666;
             font-size: 14px;
-            margin-bottom: 30px;
+            margin-bottom: 36px;
             padding-left: 12px;
         }
-        .mermaid-wrapper {
-            overflow-x: auto;
-            padding: 20px 0;
+        .section {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 16px rgba(0,0,0,0.06);
+            margin-bottom: 24px;
+            overflow: hidden;
         }
-        .mermaid-wrapper svg {
-            max-width: none;
-        }
-        .legend {
-            margin-top: 30px;
-            display: flex;
-            gap: 24px;
-            flex-wrap: wrap;
-            padding: 16px 20px;
-            background: #f8f9fc;
-            border-radius: 8px;
-            border: 1px solid #e8ecf1;
-        }
-        .legend-item {
+        .section-header {
             display: flex;
             align-items: center;
-            gap: 8px;
-            font-size: 13px;
-            color: #444;
-        }
-        .legend-color {
-            width: 20px;
-            height: 14px;
-            border-radius: 3px;
-            border: 1px solid rgba(0,0,0,0.1);
-        }
-        .qa-section {
-            margin-top: 36px;
-        }
-        .qa-section h2 {
-            font-size: 18px;
-            color: #1a1a2e;
-            margin-bottom: 16px;
-            padding-left: 8px;
-            border-left: 4px solid #f5a623;
-        }
-        .qa-item {
-            margin-bottom: 14px;
-            padding: 14px 18px;
-            background: #fafbfc;
-            border-radius: 8px;
-            border: 1px solid #eef1f5;
-        }
-        .qa-q {
+            gap: 10px;
+            padding: 14px 20px;
+            background: #f8f9fc;
+            border-bottom: 1px solid #eef1f5;
+            font-size: 15px;
             font-weight: 600;
-            color: #2c3e50;
-            margin-bottom: 4px;
-            font-size: 14px;
-        }
-        .qa-a {
-            color: #555;
-            font-size: 13px;
-            line-height: 1.6;
-        }
-        .file-structure {
-            margin-top: 36px;
-        }
-        .file-structure h2 {
-            font-size: 18px;
             color: #1a1a2e;
-            margin-bottom: 12px;
-            padding-left: 8px;
-            border-left: 4px solid #27ae60;
         }
-        .file-tree {
-            background: #1e1e2e;
-            color: #cdd6f4;
-            padding: 20px 24px;
-            border-radius: 8px;
-            font-family: "Cascadia Code", "Fira Code", monospace;
-            font-size: 13px;
-            line-height: 1.8;
+        .section-header .step-num {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: #4a90d9;
+            color: white;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .section-header .step-tag {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .tag-entry { background: #e1f5fe; color: #0288d1; }
+        .tag-process { background: #fff3e0; color: #e65100; }
+        .tag-api { background: #e8f5e9; color: #2e7d32; }
+        .tag-decision { background: #fce4ec; color: #c62828; }
+        .tag-external { background: #f3e5f5; color: #7b1fa2; }
+
+        .mermaid-wrap {
+            padding: 20px;
             overflow-x: auto;
-            white-space: pre;
         }
-        .file-tree .folder { color: #89b4fa; }
-        .file-tree .file { color: #a6e3a1; }
-        .file-tree .highlight { color: #f9e2af; font-weight: bold; }
-        .file-tree .dim { color: #6c7086; }
+        .mermaid-wrap svg { max-width: none; }
+
+        .explanation {
+            padding: 16px 20px;
+            border-top: 1px dashed #e0e4ea;
+            background: #fafbfc;
+        }
+        .explanation .exp-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 6px;
+        }
+        .explanation .exp-body {
+            font-size: 13px;
+            color: #555;
+            line-height: 1.7;
+        }
+        .explanation .exp-body code {
+            background: #f0f2f5;
+            padding: 1px 6px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-family: "Cascadia Code", "Fira Code", monospace;
+            color: #d63384;
+        }
+        .arrow-connector {
+            text-align: center;
+            padding: 4px 0;
+            color: #999;
+            font-size: 20px;
+        }
+
         @media (max-width: 768px) {
-            .container { padding: 20px 12px; }
-            h1 { font-size: 20px; }
+            body { padding: 20px 10px; }
+            .section-header { font-size: 14px; padding: 12px 16px; }
+            .mermaid-wrap { padding: 12px; }
+            .explanation { padding: 12px 16px; }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Claw助手 流程图</h1>
-        <p class="subtitle">iLink 协议 + 天气查询 + DeepSeek AI 对话 · 整体项目流程</p>
+        <p class="subtitle">WeChat Bot · iLink 协议 · 和风天气 · DeepSeek AI</p>
 
-        <div class="mermaid-wrapper">
-            <div class="mermaid">
-flowchart TB
-    classDef entry fill:#e1f5fe,stroke:#0288d1,stroke-width:2px
-    classDef process fill:#fff3e0,stroke:#f57c00,stroke-width:1px
-    classDef api fill:#e8f5e9,stroke:#388e3c,stroke-width:1px
-    classDef decision fill:#fce4ec,stroke:#c62828,stroke-width:1px
-    classDef external fill:#f3e5f5,stroke:#7b1fa2,stroke-width:1px
-    classDef future fill:#e0e0e0,stroke:#9e9e9e,stroke-width:1px,stroke-dasharray:8 4
-
-    MAIN["程序入口 main()<br>YoukedaProjectApplication.java"]:::entry
-    MAIN --> CONSOLE{"输入命令"}:::decision
+        <!-- ============================================================ -->
+        <!-- 0. 程序入口 -->
+        <!-- ============================================================ -->
+        <div class="section">
+            <div class="section-header">
+                <span class="step-num">0</span>
+                程序入口
+                <span class="step-tag tag-entry">entry</span>
+            </div>
+            <div class="mermaid-wrap">
+                <div class="mermaid">
+flowchart LR
+    MAIN["main()<br>YoukedaProjectApplication.java:14"]:::entry
+    MAIN --> INIT["Spring Boot 启动<br>SpringApplication.run()"]:::process
+    INIT --> CTX["获取 Bean<br>CommandHandler + WeatherService"]:::process
+    CTX --> CONSOLE{"Scanner 控制台<br>scanner.hasNextLine()"}:::decision
     CONSOLE --> |"exit"| EXIT["退出程序"]:::entry
-    CONSOLE --> |"help / version / status"| CMD["CommandHandler<br>CommandHandler.java"]:::entry
-    CONSOLE --> |"weather"| WEATHER_CMD["WeatherService<br>控制台查询"]:::entry
-    CONSOLE --> |"ilink login"| ILINK_START["IlinkService.start()"]:::entry
-    CONSOLE --> |"ilink stop"| ILINK_STOP1["IlinkService.stop()"]:::entry
+    CONSOLE --> |"help/version/status"| CMD["CommandHandler<br>CommandHandler.java:17"]:::entry
+    CONSOLE --> |"weather"| W0["WeatherService<br>控制台查询"]:::entry
+    CONSOLE --> |"ilink login"| L0["→ iLink 登录"]:::entry
+    CONSOLE --> |"ilink status/stop"| S0["→ 状态/断开"]:::entry
 
-    subgraph LOGIN["① iLink 登录流程"]
-        QR["getQRCode()<br>GET /get_bot_qrcode<br>IlinkProtocolClient.java:52"]:::api
-        QR_RESP["返回 { qrcode,<br>qrcode_img_content }"]:::api
-        PRINT["打印二维码 URL 到控制台"]:::process
-        POLL_API["pollQRStatus(qrcode)<br>每 2 秒 GET /get_qrcode_status<br>IlinkProtocolClient.java:60"]:::api
-        STATUS{"status 字段?"}:::decision
-        EXPIRED["二维码过期 → 结束"]:::process
-        WAITING["等待中..."]:::process
-        CONFIRMED["扫码确认成功!"]:::process
-        CRED["setCredentials()<br>保存 bot_token<br>更新 baseUrl<br>connected = true"]:::process
-
-        QR --> QR_RESP --> PRINT
-        PRINT --> POLL_API --> STATUS
-        STATUS --> |"waiting"| WAITING --> POLL_API
-        STATUS --> |"expired"| EXPIRED
-        STATUS --> |"confirmed"| CONFIRMED --> CRED
-    end
-
-    subgraph POLLING["② 消息轮询（独立线程）"]
-        POLL_START["startPolling()<br>new Thread → daemon<br>IlinkService.java:76"]:::entry
-        UPDATES["getUpdates(cursor)<br>POST /getupdates<br>长轮询 35 秒超时<br>IlinkProtocolClient.java:68"]:::api
-        UPDATES_RESP["返回 { msgs,<br>get_updates_buf }"]:::api
-        HAS_MSG{"msgs 不为空?"}:::decision
-        FOR_MSG["遍历 msgs<br>提取文本 + contextToken"]:::process
-        ERR{"抛异常?"}:::decision
-        ERR_HANDLE["日志警告<br>sleep 6s 继续"]:::process
-        POLL_CHECK{"polling 状态<br>仍为 true?"}:::decision
-
-        POLL_START --> UPDATES
-        UPDATES --> ERR
-        ERR --> |"是"| ERR_HANDLE --> POLL_CHECK
-        ERR --> |"否"| UPDATES_RESP --> HAS_MSG
-        HAS_MSG --> |"否"| POLL_CHECK
-        HAS_MSG --> |"是"| FOR_MSG
-        POLL_CHECK --> |"是"| UPDATES
-    end
-
-    subgraph ROUTE["③ 消息路由"]
-        HANDLE["handleMessage(msg)<br>IlinkService.java:118"]:::process
-        EXTRACT["extractText(msg)<br>从 item_list 取 text"]:::process
-        DECIDE{"text 以什么开头?"}:::decision
-        W_PATH["weather / 天气"]:::external
-        AI_PATH["其他消息"]:::external
-        MORE["... 后续可扩展更多分支"]:::future
-        HANDLE --> EXTRACT --> DECIDE
-        DECIDE --> W_PATH
-        DECIDE --> AI_PATH
-        DECIDE --> MORE
-    end
-
-    subgraph WEATHER["④ 天气查询"]
-        W_CITY["取城市名"]:::process
-        W_MAP{"CITY_MAP<br>查到 cityId?"}:::decision
-        W_API_REQ["和风天气 API<br>GET /v7/weather/now<br>?location=cityId&key=xxx"]:::api
-        W_PARSE["解析 JSON<br>温度 / 天气 / 湿度 / 风向"]:::process
-        W_INJECT["addExchange()<br>注入 AI 对话历史"]:::process
-        W_ERR["暂不支持该城市"]:::process
-        W_CITY --> W_MAP
-        W_MAP --> |"是"| W_API_REQ --> W_PARSE --> W_INJECT
-        W_MAP --> |"否"| W_ERR
-    end
-
-    subgraph AI["⑤ DeepSeek AI 对话"]
-        AI_SESSION["获取或创建用户 session<br>（ConcurrentHashMap）"]:::process
-        AI_ADD["追加 user 消息到历史"]:::process
-        AI_TRIM["trimHistory()<br>保留最近 10 轮"]:::process
-        AI_REQ["POST /chat/completions<br>model: deepseek-chat<br>Authorization: Bearer xxx"]:::api
-        AI_RESP["解析 choices[0]<br>追加 assistant 回复"]:::process
-        AI_SESSION --> AI_ADD --> AI_TRIM --> AI_REQ --> AI_RESP
-    end
-
-    subgraph SEND["⑥ 发送回复到微信"]
-        SEND_REQ["sendMessage(toUserId,<br>contextToken, text)<br>IlinkProtocolClient.java:74"]:::entry
-        BUILD["构建 JSON<br>{ msg: {<br>  client_id: UUID(唯一),<br>  context_token: 原值带回,<br>  item_list: [{ type:1,<br>    text_item:{text} }]<br>}}"]:::process
-        AUTH["加三个认证头<br>① AuthorizationType<br>② Authorization: Bearer<br>③ X-WECHAT-UIN: Base64"]:::process
-        ENCODE["body = byte[] (UTF-8)<br>→ 防 Windows 乱码"]:::process
-        SEND_API["POST /sendmessage"]:::api
-        SEND_RESP["响应 {} 即接受成功"]:::api
-        SEND_REQ --> BUILD --> AUTH --> ENCODE --> SEND_API --> SEND_RESP
-    end
-
-    ILINK_START --> QR
-    CRED --> POLL_START
-    FOR_MSG --> HANDLE
-    W_PATH --> W_CITY
-    AI_PATH --> AI_SESSION
-    W_INJECT --> SEND_REQ
-    W_ERR --> SEND_REQ
-    AI_RESP --> SEND_REQ
-    SEND_RESP --> POLL_CHECK
-    </div>
-        </div>
-
-        <div class="legend">
-            <div class="legend-item">
-                <div class="legend-color" style="background:#e1f5fe;border-color:#0288d1;"></div>
-                入口/起点
+    classDef entry fill:#e1f5fe,stroke:#0288d1;
+    classDef process fill:#fff3e0,stroke:#f57c00;
+    classDef decision fill:#fce4ec,stroke:#c62828;
+                </div>
             </div>
-            <div class="legend-item">
-                <div class="legend-color" style="background:#fff3e0;border-color:#f57c00;"></div>
-                处理过程
-            </div>
-            <div class="legend-item">
-                <div class="legend-color" style="background:#e8f5e9;border-color:#388e3c;"></div>
-                API 调用
-            </div>
-            <div class="legend-item">
-                <div class="legend-color" style="background:#fce4ec;border-color:#c62828;"></div>
-                判断分支
-            </div>
-            <div class="legend-item">
-                <div class="legend-color" style="background:#f3e5f5;border-color:#7b1fa2;"></div>
-                外部服务
-            </div>
-            <div class="legend-item">
-                <div class="legend-color" style="background:#fffde7;border-color:#f9a825;"></div>
-                注解
+            <div class="explanation">
+                <div class="exp-title">📌 程序启动与控制台循环</div>
+                <div class="exp-body">
+                    Spring Boot 启动后进入 <code>main()</code>，使用 <code>Scanner</code> 监听控制台输入。
+                    用户可输入命令：<code>help</code> / <code>version</code> / <code>status</code> /
+                    <code>weather &lt;城市&gt;</code> / <code>ilink login</code> / <code>ilink stop</code> / <code>exit</code>。
+                    其中 <code>ilink login</code> 是最核心的入口，开启微信 Bot 连接。
+                </div>
             </div>
         </div>
 
-        <div class="file-structure">
-            <h2>项目文件结构</h2>
-            <div class="file-tree">
+        <div class="arrow-connector">▼</div>
 
-<span class="folder">入口层</span>
-└── <span class="highlight">YoukedaProjectApplication.java</span>  <span class="dim">  —  main() 入口 + 控制台循环</span>
+        <!-- ============================================================ -->
+        <!-- 1. iLink 登录 -->
+        <!-- ============================================================ -->
+        <div class="section">
+            <div class="section-header">
+                <span class="step-num">1</span>
+                iLink 登录流程
+                <span class="step-tag tag-api">API</span>
+                <span class="step-tag tag-process">process</span>
+            </div>
+            <div class="mermaid-wrap">
+                <div class="mermaid">
+flowchart LR
+    subgraph L[" "]
+        QR["getQRCode()<br>GET /get_bot_qrcode?bot_type=3<br>IlinkProtocolClient.java:52"]:::api
+        QR_R["← { qrcode, qrcode_img_content }"]:::api
+        PRINT["打印二维码 URL<br>提示扫码登录"]:::process
+        QR --> QR_R --> PRINT
+        POLL["每 2 秒轮询状态<br>pollQRStatus(qrcode)<br>GET /get_qrcode_status<br>IlinkProtocolClient.java:60"]:::api
+        PRINT --> POLL
+        STATUS{"status?"}:::decision
+        POLL --> STATUS
+        STATUS --> |"waiting"| W["等待中"]:::process
+        W -.->|"继续轮询"| POLL
+        STATUS --> |"expired"| E["二维码过期"]:::process
+        STATUS --> |"confirmed"| C["扫码确认!"]:::process
+        C --> CRED["setCredentials(botToken, baseUrl)<br>保存 token，更新 baseUrl<br>connected = true"]:::process
+    end
 
-<span class="folder">协议层 ─ iLink DTO（7 个文件）</span>
-├── <span class="file">QRCodeResponse.java</span>            <span class="dim">  —  get_bot_qrcode 响应</span>
-├── <span class="file">LoginResult.java</span>               <span class="dim">  —  登录结果（含 bot_token）</span>
-├── <span class="file">GetUpdatesResponse.java</span>        <span class="dim">  —  消息拉取响应 + 游标</span>
-├── <span class="file">WeixinMessage.java</span>             <span class="dim">  —  单条微信消息结构</span>
-├── <span class="file">MessageItem.java</span>               <span class="dim">  —  消息条目</span>
-├── <span class="file">TextItem.java</span>                  <span class="dim">  —  文本内容</span>
-└── <span class="file">SendMessageRequest.java</span>        <span class="dim">  —  发送消息请求体</span>
-
-<span class="folder">客户端层</span>
-└── <span class="highlight">IlinkProtocolClient.java</span>      <span class="dim">  —  iLink HTTP 客户端（认证头 + 4个API）</span>
-
-<span class="folder">服务编排层</span>
-├── <span class="highlight">IlinkService.java</span>             <span class="dim">  —  登录 + 轮询线程 + 消息路由</span>
-└── <span class="file">WeatherService.java</span>            <span class="dim">  —  和风天气查询（10 城市）</span>
-
-<span class="folder">AI 层 ─ DeepSeek DTO（5 个文件）</span>
-├── <span class="highlight">AIService.java</span>               <span class="dim">  —  DeepSeek 对话（每用户 session）</span>
-├── <span class="file">ChatRequest.java</span>
-├── <span class="file">ChatResponse.java</span>
-├── <span class="file">ChatMessage.java</span>
-└── <span class="file">ChatChoice.java</span>
-
-<span class="folder">配置层</span>
-└── <span class="file">ApiConfig.java</span>                 <span class="dim">  —  读取 weather + ai 配置</span>
-
-<span class="folder">命令层</span>
-└── <span class="file">CommandHandler.java</span>            <span class="dim">  —  控制台命令分发</span>
+    classDef entry fill:#e1f5fe,stroke:#0288d1;
+    classDef process fill:#fff3e0,stroke:#f57c00;
+    classDef api fill:#e8f5e9,stroke:#388e3c;
+    classDef decision fill:#fce4ec,stroke:#c62828;
+                </div>
+            </div>
+            <div class="explanation">
+                <div class="exp-title">📌 扫码登录原理</div>
+                <div class="exp-body">
+                    请求微信 iLink 服务器获取二维码 → 服务器返回 <code>qrcode_id</code> 和二维码图片 URL →
+                    打印到控制台供用户扫码 → 每 2 秒轮询二维码状态 → 用户扫码确认后返回
+                    <code>bot_token</code>（身份凭证）和 <code>baseUrl</code>（可能变化，用于负载均衡）。
+                    <br><br>
+                    ★ <strong>关键</strong>：<code>bot_token</code> 是后续所有请求的密码，
+                    <code>baseUrl</code> 可能从 <code>ilinkai</code> 变为 <code>ilinkii</code>，需要动态重建 RestClient。
+                </div>
             </div>
         </div>
+
+        <div class="arrow-connector">▼</div>
+
+        <!-- ============================================================ -->
+        <!-- 2. 消息轮询 -->
+        <!-- ============================================================ -->
+        <div class="section">
+            <div class="section-header">
+                <span class="step-num">2</span>
+                消息轮询（独立线程）
+                <span class="step-tag tag-process">process</span>
+                <span class="step-tag tag-api">长轮询</span>
+            </div>
+            <div class="mermaid-wrap">
+                <div class="mermaid">
+flowchart LR
+    subgraph P[" "]
+        PS["startPolling()<br>new Thread → daemon<br>IlinkService.java:76"]:::entry
+        PI["初始化 cursor = ''"]:::process
+        PS --> PI
+        PL{"polling && connected?"}:::decision
+        PI --> PL
+        PL --> |"否"| PE["线程结束"]:::process
+        PL --> |"是"| GET["getUpdates(cursor)<br>POST /getupdates<br>IlinkProtocolClient.java:68"]:::api
+        GET --> LP["长轮询 35 秒<br>有消息立即返回<br>超时空返回"]:::process
+        LP --> RESP["← { msgs,<br>get_updates_buf }"]:::api
+        RESP --> CU["更新 cursor"]:::process
+        CU --> HM{"msgs 不为空?"}:::decision
+        HM --> |"否"| PL
+        HM --> |"是"| FOR["for 遍历 msgs"]:::process
+        FOR --> EXT["extractText(msg)<br>取 item_list.text"]:::process
+        EXT --> VAL{"有文本?<br>有contextToken?"}:::decision
+        VAL --> |"否"| SK["跳过"]:::process
+        SK -.->|"继续"| FOR
+        VAL --> |"是"| LOG["日志 + 打印<br>→ handleMessage"]:::process
+        GET -.-> ERR{"异常?"}:::decision
+        ERR --> |"是"| EL["sleep 6s"]:::process
+        EL --> PL
+        ERR --> |"否"| LP
+    end
+
+    classDef entry fill:#e1f5fe,stroke:#0288d1;
+    classDef process fill:#fff3e0,stroke:#f57c00;
+    classDef api fill:#e8f5e9,stroke:#388e3c;
+    classDef decision fill:#fce4ec,stroke:#c62828;
+                </div>
+            </div>
+            <div class="explanation">
+                <div class="exp-title">📌 长轮询消息拉取</div>
+                <div class="exp-body">
+                    登录成功后启动独立线程，每 3 秒发起一次 <code>getUpdates</code> 请求。
+                    这是<strong>长轮询（Long Polling）</strong>：服务器挂起连接最多 35 秒，
+                    有消息到达立即返回，无消息则超时空返回。
+                    <br><br>
+                    每次返回 <code>get_updates_buf</code>（游标），下次请求时带回，
+                    确保不重复消费消息 → 用 <code>cursor</code> 变量维护。
+                    收到消息后提取文本和 <code>contextToken</code>，进入路由处理。
+                </div>
+            </div>
+        </div>
+
+        <div class="arrow-connector">▼</div>
+
+        <!-- ============================================================ -->
+        <!-- 3. 消息路由 -->
+        <!-- ============================================================ -->
+        <div class="section">
+            <div class="section-header">
+                <span class="step-num">3</span>
+                消息路由分发
+                <span class="step-tag tag-decision">decision</span>
+            </div>
+            <div class="mermaid-wrap">
+                <div class="mermaid">
+flowchart LR
+    subgraph R[" "]
+        H["handleMessage(msg)<br>IlinkService.java:118"]:::process
+        T["extractText(msg)"]:::process
+        L["text.toLowerCase().trim()"]:::process
+        H --> T --> L
+        D{"以什么开头?"}:::decision
+        L --> D
+        D --> |"weather 或 天气"| W["→ 天气查询<br>WeatherService"]:::external
+        D --> |"其他"| A["→ AI 对话<br>AIService"]:::external
+        D --> |"..."| F["未来扩展"]:::future
+    end
+
+    classDef process fill:#fff3e0,stroke:#f57c00;
+    classDef decision fill:#fce4ec,stroke:#c62828;
+    classDef external fill:#f3e5f5,stroke:#7b1fa2;
+    classDef future fill:#e0e0e0,stroke:#9e9e9e,stroke-dasharray:8 4;
+                </div>
+            </div>
+            <div class="explanation">
+                <div class="exp-title">📌 消息路由逻辑</div>
+                <div class="exp-body">
+                    从微信消息的 <code>item_list</code> 中提取文本内容 →
+                    转为小写判断开头：<code>weather</code> 或 <code>天气</code> 开头走天气查询，
+                    其他全部走 DeepSeek AI 对话。
+                    <br><br>
+                    ★ 路由分支用 <code>startsWith</code> 判断（非精确匹配），
+                    未来可在此处扩展更多命令（如翻译、新闻等），灰色虚线节点表示扩展点。
+                </div>
+            </div>
+        </div>
+
+        <div class="arrow-connector">▼</div>
+
+        <!-- ============================================================ -->
+        <!-- 4. 天气查询 -->
+        <!-- ============================================================ -->
+        <div class="section">
+            <div class="section-header">
+                <span class="step-num">4</span>
+                天气查询（和风天气）
+                <span class="step-tag tag-api">API</span>
+            </div>
+            <div class="mermaid-wrap">
+                <div class="mermaid">
+flowchart LR
+    subgraph W[" "]
+        WS["WeatherService.queryWeather(city)<br>WeatherService.java:55"]:::process
+        WE{"空?"}:::decision
+        WS --> WE
+        WE --> |"是"| WEE["返回: 请输入城市名"]:::process
+        WE --> |"否"| WM{"CITY_MAP<br>查到 cityId?"}:::decision
+        WM --> |"否"| WEC["返回: 暂不支持"]:::process
+        WM --> |"是"| WA["GET 和风天气<br>/v7/weather/now<br>?location=cityId&key=xxx"]:::api
+        WA --> WR["← JSON<br>{now:{text,temp,<br>feelsLike,humidity,...}}"]:::api
+        WR --> WC{"code==200?"}:::decision
+        WC --> |"否"| WEA["返回: API异常"]:::process
+        WC --> |"是"| WF["格式化天气文本<br>'北京天气: 晴 25℃'"]:::process
+        WF --> WI["addExchange()<br>注入 AI 对话历史"]:::process
+        WI --> WOK["reply = 天气文本"]:::process
+        WEE --> WER["reply = 错误文本"]:::process
+        WEC --> WER
+        WEA --> WER
+    end
+
+    classDef process fill:#fff3e0,stroke:#f57c00;
+    classDef decision fill:#fce4ec,stroke:#c62828;
+    classDef api fill:#e8f5e9,stroke:#388e3c;
+                </div>
+            </div>
+            <div class="explanation">
+                <div class="exp-title">📌 天气查询流程</div>
+                <div class="exp-body">
+                    通过城市名在 <code>CITY_MAP</code> 中查找对应的 <code>cityId</code>
+                    （预置北京/上海/广州/深圳/杭州/成都/武汉/南京/西安/重庆）。
+                    <br><br>
+                    查到后请求和风天气 API（自定义域名 <code>na3h2taynf.re.qweatherapi.com</code>），
+                    返回 JSON 格式的实时天气数据。解析后格式化为可读文本。
+                    <br><br>
+                    ★ 查询结果会通过 <code>addExchange()</code> 注入 AI 对话历史，
+                    这样用户接下来问"明天呢"时 AI 知道上下文。
+                </div>
+            </div>
+        </div>
+
+        <div class="arrow-connector">▼</div>
+
+        <!-- ============================================================ -->
+        <!-- 5. AI 对话 -->
+        <!-- ============================================================ -->
+        <div class="section">
+            <div class="section-header">
+                <span class="step-num">5</span>
+                DeepSeek AI 对话
+                <span class="step-tag tag-api">API</span>
+            </div>
+            <div class="mermaid-wrap">
+                <div class="mermaid">
+flowchart LR
+    subgraph A[" "]
+        AS["sessions.computeIfAbsent(userId)<br>ConcurrentHashMap<br>AIService.java:42"]:::process
+        AE{"首次对话?"}:::decision
+        AS --> AE
+        AE --> |"是"| AN["创建 session<br>添加 system 消息"]:::process
+        AE --> |"否"| AO["使用现有历史"]:::process
+        AN --> AA
+        AO --> AA
+        AA["追加 user 消息到历史"]:::process
+        AT["trimHistory()<br>保留最近 10 轮"]:::process
+        AR["POST /chat/completions<br>model: deepseek-chat<br>Authorization: Bearer xxx"]:::api
+        AX["← choices[0].message.content"]:::api
+        AA --> AT --> AR --> AX
+        AX --> AC{"有内容?"}:::decision
+        AC --> |"否"| AER["返回: 无内容"]:::process
+        AC --> |"是"| AAS["追加 assistant 回复<br>到历史"]:::process
+        AAS --> AOK["reply = AI 回复"]:::process
+    end
+
+    classDef process fill:#fff3e0,stroke:#f57c00;
+    classDef decision fill:#fce4ec,stroke:#c62828;
+    classDef api fill:#e8f5e9,stroke:#388e3c;
+                </div>
+            </div>
+            <div class="explanation">
+                <div class="exp-title">📌 DeepSeek AI 对话机制</div>
+                <div class="exp-body">
+                    每个微信用户独立对话 session，存储为 <code>ConcurrentHashMap&lt;String, List&lt;ChatMessage&gt;&gt;</code>。
+                    session 结构：<code>[system消息, user消息, assistant回复, user消息, ...]</code>。
+                    <br><br>
+                    最多保留 10 轮对话，超出后删除最早的历史（保留 system 消息），
+                    这是 <code>trimHistory()</code> 方法的作用。
+                    <br><br>
+                    ★ HTTP 请求同样使用 <code>byte[]</code> 编解码，防止 Windows 乱码。
+                </div>
+            </div>
+        </div>
+
+        <div class="arrow-connector">▼</div>
+
+        <!-- ============================================================ -->
+        <!-- 6. 发送回复 -->
+        <!-- ============================================================ -->
+        <div class="section">
+            <div class="section-header">
+                <span class="step-num">6</span>
+                发送回复到微信
+                <span class="step-tag tag-api">API</span>
+                <span class="step-tag tag-process">auth</span>
+            </div>
+            <div class="mermaid-wrap">
+                <div class="mermaid">
+flowchart LR
+    subgraph S[" "]
+        SR["sendMessage(toUserId,<br>contextToken, text)<br>IlinkProtocolClient.java:74"]:::entry
+        SB["构建 SendMessageRequest<br>• client_id = UUID（唯一）<br>• context_token = 原值带回<br>• item_list = [{type:1,text}]"]:::process
+        SE["byte[] body = UTF-8<br>★ 防 Windows GBK 乱码"]:::process
+        SA["三个认证头<br>① AuthorizationType: ilink_bot_token<br>② Authorization: Bearer {token}<br>③ X-WECHAT-UIN: Base64(随机)"]:::process
+        SU["X-WECHAT-UIN 生成:<br>randomInt → toUnsignedString<br>→ Base64.encode<br>每次不同，防重放"]:::process
+        SI["POST /sendmessage<br>RestClient.post().body(byte[])"]:::api
+        SP["← {} 接受成功<br>（不代表已送达用户）"]:::api
+        SL["日志: 已回复 userId"]:::process
+        SR --> SB --> SE --> SA --> SU --> SI --> SP --> SL
+    end
+
+    classDef entry fill:#e1f5fe,stroke:#0288d1;
+    classDef process fill:#fff3e0,stroke:#f57c00;
+    classDef api fill:#e8f5e9,stroke:#388e3c;
+                </div>
+            </div>
+            <div class="explanation">
+                <div class="exp-title">📌 发送回复的关键细节</div>
+                <div class="exp-body">
+                    <strong>client_id：</strong> 每次发送必须使用不同的 UUID，微信用来去重（幂等性）。
+                    <br>
+                    <strong>context_token：</strong> 必须原值带回接收消息时的 token，用于关联原消息。
+                    <br>
+                    <strong>X-WECHAT-UIN：</strong> 每次请求生成新的随机数，防重放攻击。
+                    生成逻辑：随机整数 → 无符号十进制字符串 → Base64 编码。
+                    <br>
+                    <strong>byte[]：</strong> Windows 默认 GBK 编码，<code>body(String.class)</code>
+                    会乱码。用 <code>byte[]</code> 拿到原始字节再 UTF-8 解码。
+                    <br><br>
+                    ★ 响应 <code>{}</code> 仅表示服务器接受，不代表消息已送达用户微信。
+                </div>
+            </div>
+        </div>
+
+        <div class="arrow-connector">▼</div>
+
+        <!-- ============================================================ -->
+        <!-- 7. 断开流程 -->
+        <!-- ============================================================ -->
+        <div class="section">
+            <div class="section-header">
+                <span class="step-num">7</span>
+                iLink 断开
+                <span class="step-tag tag-process">process</span>
+            </div>
+            <div class="mermaid-wrap">
+                <div class="mermaid">
+flowchart LR
+    subgraph ST[" "]
+        SP["polling.set(false)"]:::process
+        SC["connected.set(false)"]:::process
+        STH["pollThread.interrupt()"]:::process
+        SCL["清除 bot_token"]:::process
+        SRR["返回: iLink 已断开"]:::process
+        SP --> SC
+        SC --> SCL --> SRR
+        SP --> STH
+    end
+
+    classDef process fill:#fff3e0,stroke:#f57c00;
+                </div>
+            </div>
+            <div class="explanation">
+                <div class="exp-title">📌 断开清理</div>
+                <div class="exp-body">
+                    <code>polling.set(false)</code> 使轮询循环条件不满足 → 线程自然退出。
+                    <code>connected.set(false)</code> 标记连接断开。
+                    调用 <code>pollThread.interrupt()</code> 中断可能的 sleep 等待。
+                    最后清除 <code>bot_token</code> 使认证失效。
+                    <br><br>
+                    ★ 线程标记为 <code>daemon</code>，即使忘记调用 stop，程序退出时也会自动结束。
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <script>
@@ -319,15 +528,15 @@ flowchart TB
                 tertiaryColor: '#fce4ec',
                 mainBkg: '#ffffff',
                 nodeBorder: '#ccc',
-                clusterBkg: '#f8f9fc',
-                clusterBorder: '#e0e4ea',
+                clusterBkg: '#fafbfc',
+                clusterBorder: '#eef1f5',
                 titleColor: '#333',
             },
             flowchart: {
                 useMaxWidth: true,
                 htmlLabels: true,
                 curve: 'basis',
-                padding: 16,
+                padding: 12,
             }
         });
     </script>
