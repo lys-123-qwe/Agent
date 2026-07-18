@@ -50,6 +50,8 @@ public class AIService {
     /**
      * 发送纯文本消息给 DeepSeek，返回 AI 回复。
      * 自动维护用户 session 历史，保留 system prompt 并截断超出部分。
+     * 注意：历史记录中可能包含通义千问 VL 的 image_url 内容，
+     * DeepSeek 不支持这种格式，需要过滤掉非文本内容。
      */
     public String chat(String userId, String userMessage) {
         if (apiConfig.getAiApiKey() == null || apiConfig.getAiApiKey().isBlank()) {
@@ -67,8 +69,9 @@ public class AIService {
         trimHistory(history);
 
         try {
-            // 使用新 ArrayList 包裹，避免 subList 视图导致的 ConcurrentModificationException
-            ChatRequest request = new ChatRequest(MODEL, new ArrayList<>(history));
+            // 过滤历史记录，只保留纯文本内容（DeepSeek 不支持 image_url）
+            List<ChatMessage> filteredHistory = filterForTextOnly(history);
+            ChatRequest request = new ChatRequest(MODEL, filteredHistory);
             String body = objectMapper.writeValueAsString(request);
             log.info("DeepSeek请求: {}", body);
 
@@ -95,7 +98,14 @@ public class AIService {
 
         } catch (Exception e) {
             log.error("DeepSeek调用失败", e);
-            return "AI 服务异常: " + e.getMessage();
+            // 返回用户友好的错误提示，技术细节记录在日志中
+            if (e.getMessage() != null && e.getMessage().contains("image_url")) {
+                return "抱歉，对话历史中包含不支持的内容类型，请发送 /clear 清除对话历史后重试";
+            }
+            if (e.getMessage() != null && e.getMessage().contains("400")) {
+                return "抱歉，AI 服务请求失败，请稍后再试";
+            }
+            return "抱歉，AI 服务暂时不可用，请稍后再试";
         }
     }
 
@@ -158,7 +168,11 @@ public class AIService {
 
         } catch (Exception e) {
             log.error("通义千问VL调用失败", e);
-            return "图片识别失败: " + e.getMessage();
+            // 返回用户友好的错误提示
+            if (e.getMessage() != null && e.getMessage().contains("400")) {
+                return "抱歉，图片识别请求失败，请稍后再试";
+            }
+            return "抱歉，图片识别服务暂时不可用，请稍后再试";
         }
     }
 
@@ -187,6 +201,43 @@ public class AIService {
             history.add(system);
             history.addAll(recent);
         }
+    }
+
+    /**
+     * 过滤对话历史，只保留纯文本内容供 DeepSeek 使用。
+     * 通义千问 VL 的图片消息包含 image_url 内容，DeepSeek 不支持。
+     * 解决方案：将多模态内容转换为纯文本（只保留文字部分）。
+     */
+    @SuppressWarnings("unchecked")
+    private List<ChatMessage> filterForTextOnly(List<ChatMessage> history) {
+        List<ChatMessage> filtered = new ArrayList<>();
+        for (ChatMessage msg : history) {
+            Object content = msg.content();
+            if (content instanceof String) {
+                // 纯文本消息，直接保留
+                filtered.add(msg);
+            } else if (content instanceof List<?> parts) {
+                // 多模态消息（来自通义千问 VL），提取文字部分
+                StringBuilder textContent = new StringBuilder();
+                for (Object part : parts) {
+                    if (part instanceof Map<?, ?> map) {
+                        Object type = map.get("type");
+                        if ("text".equals(type) && map.get("text") != null) {
+                            if (!textContent.isEmpty()) textContent.append("\n");
+                            textContent.append(map.get("text"));
+                        }
+                    }
+                }
+                if (!textContent.isEmpty()) {
+                    filtered.add(new ChatMessage(msg.role(), textContent.toString()));
+                }
+                // 如果没有文字内容，跳过这条消息（避免发送空消息给 DeepSeek）
+            } else {
+                // 未知类型，跳过
+                log.warn("跳过未知消息内容类型: {}", content != null ? content.getClass().getSimpleName() : "null");
+            }
+        }
+        return filtered;
     }
 
     /**

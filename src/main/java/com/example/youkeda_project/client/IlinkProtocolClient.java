@@ -7,6 +7,7 @@ import com.example.youkeda_project.protocol.LoginResult;
 import com.example.youkeda_project.protocol.MessageItem;
 import com.example.youkeda_project.protocol.QRCodeResponse;
 import com.example.youkeda_project.protocol.SendMessageRequest;
+import com.example.youkeda_project.protocol.VoiceItem;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -356,6 +357,173 @@ public class IlinkProtocolClient {
                 .retrieve()
                 .body(byte[].class);
         return new String(responseBytes, StandardCharsets.UTF_8);
+    }
+
+    /**
+     * 从 VoiceItem 中提取公开可访问的 CDN 下载 URL（用于传给外部 ASR 服务）。
+     * <p>
+     * 优先通过 media.encrypt_query_param 拼接 URL（避免 fullUrl 中的 taskid 等追踪参数），
+     * 否则使用 media.fullUrl 并去除 taskid，最后降级到 voice_url 直链。
+     */
+    public String getVoiceDownloadUrl(VoiceItem voiceItem) {
+        if (voiceItem == null) {
+            throw new RuntimeException("语音项为空");
+        }
+
+        CDNMedia media = voiceItem.media();
+
+        // 优先用 encryptQueryParam 构造，避免 fullUrl 里的 taskid 等额外参数
+        if (media != null && media.encryptQueryParam() != null && !media.encryptQueryParam().isBlank()) {
+            return CDN_BASE + "/download?encrypted_query_param="
+                + URLEncoder.encode(media.encryptQueryParam(), StandardCharsets.UTF_8);
+        }
+
+        if (media != null && media.fullUrl() != null && !media.fullUrl().isBlank()) {
+            return stripTrackingParams(media.fullUrl());
+        }
+
+        if (voiceItem.voiceUrl() != null && !voiceItem.voiceUrl().isBlank()) {
+            return voiceItem.voiceUrl();
+        }
+
+        throw new RuntimeException("语音无下载 URL（media 和 voice_url 均为空）");
+    }
+
+    /**
+     * 去掉 URL 中的 taskid 等追踪参数，缩短 URL 长度。
+     */
+    private String stripTrackingParams(String url) {
+        try {
+            URI uri = URI.create(url);
+            String query = uri.getQuery();
+            if (query == null || query.isBlank()) {
+                return url;
+            }
+            StringBuilder newQuery = new StringBuilder();
+            for (String param : query.split("&")) {
+                if (param.startsWith("taskid=")) continue;
+                if (!newQuery.isEmpty()) newQuery.append("&");
+                newQuery.append(param);
+            }
+            return uri.getScheme() + "://" + uri.getHost() + uri.getPath()
+                + (newQuery.isEmpty() ? "" : "?" + newQuery);
+        } catch (Exception e) {
+            return url;
+        }
+    }
+
+    /**
+     * 从微信 CDN 下载语音文件并 AES-ECB 解密（和图片下载逻辑相同）。
+     * <p>
+     * 优先从 VoiceItem.media 构造 CDN 下载 URL（fullUrl 或 encrypt_query_param），
+     * 降级到 voiceUrl 直链。AES key 从 media.aesKey 获取。
+     */
+    public byte[] downloadVoice(VoiceItem voiceItem) {
+        String url = getVoiceDownloadUrl(voiceItem);
+
+        log.info("下载语音: {}", url);
+        byte[] encryptedBytes = RestClient.create().get()
+            .uri(URI.create(url))
+            .retrieve()
+            .body(byte[].class);
+        log.info("语音下载完成: {} bytes", encryptedBytes != null ? encryptedBytes.length : 0);
+
+        // 如果有 AES key 则解密，否则直接返回原始字节
+        CDNMedia media = voiceItem.media();
+        if (media == null || media.aesKey() == null || media.aesKey().isBlank()) {
+            return encryptedBytes;
+        }
+
+        try {
+            byte[] key = deriveAesKey(media.aesKey());
+            Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
+            cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"));
+            byte[] decrypted = cipher.doFinal(encryptedBytes);
+            int pad = decrypted[decrypted.length - 1];
+            if (pad > 0 && pad <= 16) {
+                decrypted = Arrays.copyOf(decrypted, decrypted.length - pad);
+            }
+
+            // 记录原始和已解密前 16 字节以便比较 AES 是否必要
+            StringBuilder rawHex = new StringBuilder();
+            for (int i = 0; i < Math.min(16, encryptedBytes.length); i++) {
+                rawHex.append(String.format("%02X ", encryptedBytes[i]));
+            }
+            StringBuilder decHex = new StringBuilder();
+            for (int i = 0; i < Math.min(16, decrypted.length); i++) {
+                decHex.append(String.format("%02X ", decrypted[i]));
+            }
+            log.info("语音原始字节(hex): {} | 解密后(hex): {}", rawHex, decHex);
+            log.info("语音解密后前32字符: {}", new String(decrypted, 0, Math.min(32, decrypted.length), StandardCharsets.ISO_8859_1));
+
+            return decrypted;
+        } catch (Exception e) {
+            throw new RuntimeException("语音 AES 解密失败", e);
+        }
+    }
+
+    /**
+     * 将音频字节上传到微信 CDN，返回可公开访问的下载 URL。
+     * 用于语音识别降级策略：当原始语音 URL 需要鉴权无法被 ASR 服务访问时，
+     * 先通过 CDN 上传获取公开 URL，再传给 dashscope。
+     */
+    public String uploadAudioToCdn(byte[] audioBytes, String toUserId) {
+        try {
+            byte[] aesKeyBytes = new byte[16];
+            ThreadLocalRandom.current().nextBytes(aesKeyBytes);
+            String aesKeyHex = HexFormat.of().formatHex(aesKeyBytes);
+
+            String fileKey = generateFileKey();
+
+            byte[] md5Bytes = MessageDigest.getInstance("MD5").digest(audioBytes);
+            String md5Hex = HexFormat.of().formatHex(md5Bytes);
+
+            int rawSize = audioBytes.length;
+            int paddedSize = (rawSize / 16 + 1) * 16;
+
+            Map<String, Object> uploadReq = Map.of(
+                "filekey", fileKey,
+                "media_type", 3, // 3=audio
+                "to_user_id", toUserId,
+                "rawsize", rawSize,
+                "rawfilemd5", md5Hex,
+                "filesize", paddedSize,
+                "no_need_thumb", true,
+                "aeskey", aesKeyHex,
+                "base_info", Map.of("channel_version", "1.0.2")
+            );
+
+            String uploadReqJson = objectMapper.writeValueAsString(uploadReq);
+            log.info("getUploadUrl(音频)请求: {}", uploadReqJson);
+            String uploadRespJson = postWithAuth("/ilink/bot/getuploadurl", uploadReqJson, 15000);
+            log.info("getUploadUrl(音频)响应: {}", uploadRespJson);
+
+            JsonNode uploadResp = objectMapper.readTree(uploadRespJson);
+            JsonNode baseResp = uploadResp.path("base_resp");
+            if (baseResp.has("ret") && baseResp.get("ret").asInt() != 0) {
+                throw new RuntimeException("获取上传URL失败: ret=" + baseResp.get("ret"));
+            }
+
+            Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
+            cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(aesKeyBytes, "AES"));
+            byte[] encryptedBytes = cipher.doFinal(audioBytes);
+
+            String uploadFullUrl = uploadResp.has("upload_full_url")
+                ? uploadResp.get("upload_full_url").asText() : null;
+            String uploadParam = uploadResp.has("upload_param")
+                ? uploadResp.get("upload_param").asText() : null;
+
+            String encryptQueryParam = uploadToCdn(encryptedBytes, uploadFullUrl, uploadParam, fileKey);
+
+            // 构造 CDN 下载 URL（含 encrypt_query_param，公开可访问）
+            String cdnDownloadUrl = CDN_BASE + "/download?encrypted_query_param="
+                + URLEncoder.encode(encryptQueryParam, StandardCharsets.UTF_8);
+            log.info("音频已上传到CDN: {}", cdnDownloadUrl);
+            return cdnDownloadUrl;
+
+        } catch (Exception e) {
+            throw new RuntimeException("音频 CDN 上传失败", e);
+        }
     }
 
     /**

@@ -6,7 +6,7 @@ import org.springframework.context.annotation.Configuration;
 /**
  * 外部 API 配置，从 application.properties 读取各服务的 Key 和 URL。
  * <p>
- * 包含: 和风天气、DeepSeek AI、通义万相（生图）、通义千问 VL（图识）四个外部服务。
+ * 包含: 和风天气、DeepSeek AI、通义万相（生图）、通义千问 VL（图识）、Paraformer（语音识别）五个外部服务。
  */
 @Configuration
 public class ApiConfig {
@@ -49,6 +49,14 @@ public class ApiConfig {
     @Value("${vision.api.url:https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions}")
     private String visionApiUrl;
 
+    // 语音识别 Paraformer API 地址
+    @Value("${voice.api.url:https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcriptions}")
+    private String voiceApiUrl;
+
+    // 语音识别模型：paraformer-v2 / paraformer-v1 / fun-asr-mtl 等
+    @Value("${voice.api.model:paraformer-v2}")
+    private String voiceApiModel;
+
     public String getDeepSeekApiKey() {
         return aiApiKey;
     }
@@ -72,5 +80,18 @@ public class ApiConfig {
 
     public String getVisionApiUrl() {
         return visionApiUrl;
+    }
+
+    // 语音识别复用 image.api.key（阿里云账号共用）
+    public String getVoiceApiKey() {
+        return imageApiKey;
+    }
+
+    public String getVoiceApiUrl() {
+        return voiceApiUrl;
+    }
+
+    public String getVoiceApiModel() {
+        return voiceApiModel;
     }
 }

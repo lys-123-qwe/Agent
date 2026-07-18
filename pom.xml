@@ -46,6 +46,13 @@
 			<scope>test</scope>
 		</dependency>
 
+		<!-- SILK 音频编解码（JNI，捆绑各平台原生库）-->
+		<dependency>
+			<groupId>io.github.kasukusakura</groupId>
+			<artifactId>silk-codec</artifactId>
+			<version>0.0.5</version>
+		</dependency>
+
 	</dependencies>
 
 	<build>
