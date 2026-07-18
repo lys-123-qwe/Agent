@@ -13,6 +13,12 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
+/**
+ * 通义万相图片生成服务。
+ * <p>
+ * 调用阿里云通义万相 wan2.6-t2i 模型生图，返回图片下载 URL，
+ * 并提供下载图片字节流的能力（供后续 CDN 上传发送到微信）。
+ */
 @Service
 public class ImageService {
 
@@ -29,6 +35,11 @@ public class ImageService {
         this.restClient = RestClient.create();
     }
 
+    /**
+     * 调用通义万相生图 API，返回图片 URL 或错误信息。
+     * 请求使用 byte[] + UTF-8 编解码避免乱码。
+     * 使用阿里云 dashscope 的多模态生成接口。
+     */
     public String generateImage(String prompt) {
         if (apiConfig.getImageApiKey() == null || apiConfig.getImageApiKey().isBlank()) {
             return "错误: 未配置通义万相 API Key，请在 application.properties 中设置 image.api.key";
@@ -38,6 +49,7 @@ public class ImageService {
         }
 
         try {
+            // 通义万相请求体：model + input.messages[{role, content[{text}]}] + parameters
             Map<String, Object> requestBody = Map.of(
                 "model", MODEL,
                 "input", Map.of("messages", java.util.List.of(
@@ -77,6 +89,9 @@ public class ImageService {
         }
     }
 
+    /**
+     * 从图片 URL 下载原始字节流，用于后续 AES 加密上传到微信 CDN。
+     */
     public byte[] downloadImage(String url) {
         log.info("下载图片: {}", url);
         ResponseEntity<byte[]> resp = restClient.get()
@@ -88,10 +103,17 @@ public class ImageService {
         return bytes;
     }
 
+    /**
+     * 解析通义万相响应 JSON，提取图片 URL。
+     * 兼容两种响应格式：
+     * - 新版: output.choices[0].message.content[{image: "..."}]
+     * - 旧版: output.results[0].image
+     */
     private String parseImageResponse(String json) {
         try {
             JsonNode root = objectMapper.readTree(json);
 
+            // 新版响应格式: output.choices[0].message.content[{image: "..."}]
             JsonNode choices = root.path("output").path("choices");
             if (choices.isArray() && !choices.isEmpty()) {
                 JsonNode content = choices.get(0).path("message").path("content");
@@ -111,6 +133,7 @@ public class ImageService {
                 }
             }
 
+            // 旧版响应格式: output.results[0].image
             JsonNode output = root.path("output");
             if (output.has("results") && output.path("results").isArray()) {
                 JsonNode first = output.path("results").get(0);

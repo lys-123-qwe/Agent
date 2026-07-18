@@ -14,12 +14,22 @@ import org.springframework.stereotype.Service;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
+/**
+ * iLink 微信 Bot 核心服务。
+ * <p>
+ * 管理完整的 iLink 生命周期：扫码登录、消息轮询（长轮询 3s 间隔）、
+ * 消息路由分发（天气/AI对话/图片生成/图片识别）、首条消息欢迎机制。
+ * <p>
+ * 由于 iLink 协议不支持主动推送，采用轮询方式拉取消息。
+ * 欢迎消息通过登录时记录 ownerId，在其发送的首条消息时回复。
+ */
 @Service
 public class IlinkService {
 
     private static final Logger log = LoggerFactory.getLogger(IlinkService.class);
     private static final long POLL_INTERVAL_MS = 3000;
 
+    // 首条消息欢迎语（消耗首条消息，因为 iLink 不支持 Bot 主动推送）
     private static final String WELCOME_TEXT = """
         欢迎使用 Claw助手！\n\n\
         可用功能：\n\
@@ -37,8 +47,8 @@ public class IlinkService {
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicBoolean polling = new AtomicBoolean(false);
     private final AtomicBoolean welcomeSent = new AtomicBoolean(false);
-    private String ownerId;
-    private Thread pollThread;
+    private String ownerId;       // 登录者的微信用户 ID，用于识别首条消息
+    private Thread pollThread;     // 独立的消息轮询线程
 
     public IlinkService(IlinkProtocolClient client, WeatherService weatherService, AIService aiService, ImageService imageService) {
         this.client = client;
@@ -47,6 +57,12 @@ public class IlinkService {
         this.imageService = imageService;
     }
 
+    /**
+     * 启动 iLink 登录流程：
+     * 1. 获取 QR 码展示给用户
+     * 2. 每 2s 轮询扫码状态
+     * 3. 状态 confirmed 后保存凭据，启动消息轮询
+     */
     public String start() {
         if (connected.get()) {
             return "iLink 已经连接";
@@ -90,6 +106,11 @@ public class IlinkService {
         }
     }
 
+    /**
+     * 启动消息轮询线程（daemon）。
+     * 使用 getUpdates 长轮询拉取消息，将 cursor 带回以实现增量拉取。
+     * 对每条消息提取文本/图片，检查有 contextToken 后交给 handleMessage 处理。
+     */
     private void startPolling() {
         polling.set(true);
         pollThread = new Thread(() -> {
@@ -108,6 +129,7 @@ public class IlinkService {
                             String fromUser = msg.fromUserId();
                             String text = extractText(msg);
                             boolean hasImage = extractFirstImage(msg) != null;
+                            // 只处理有 contextToken 的消息（纯图片消息需要单独判断）
                             if (msg.contextToken() != null && (text != null || hasImage)) {
                                 if (text != null) {
                                     log.info("微信消息 from={}, text={}", fromUser, text);
@@ -139,10 +161,19 @@ public class IlinkService {
         pollThread.start();
     }
 
+    /**
+     * 消息路由分发核心逻辑：
+     * 1. 首条消息 -> 发送欢迎语（消耗消息）
+     * 2. 含图片 -> 调用通义千问 VL 识别
+     * 3. weather / 天气 前缀 -> 和风天气查询
+     * 4. 图片生成 -> 通义万相生图 -> CDN 上传
+     * 5. 其他 -> DeepSeek AI 对话
+     */
     private void handleMessage(WeixinMessage msg) {
         try {
             String fromUser = msg.fromUserId();
 
+            // 首条消息欢迎机制：iLink 不支持主动推送，通过登录时记录的 ownerId 判断
             if (!welcomeSent.get() && ownerId != null && ownerId.equals(fromUser)) {
                 client.sendMessage(fromUser, msg.contextToken(), List.of(MessageItem.text(WELCOME_TEXT)));
                 welcomeSent.set(true);
@@ -151,6 +182,7 @@ public class IlinkService {
                 return;
             }
 
+            // 图片识别优先处理
             MessageItem imageItem = extractFirstImage(msg);
             if (imageItem != null) {
                 String textPrompt = extractText(msg);
@@ -170,7 +202,7 @@ public class IlinkService {
             if (lowerText.startsWith("weather ")) {
                 String city = text.substring("weather ".length()).trim();
                 reply = weatherService.queryWeather(city);
-                aiService.addExchange(fromUser, text, reply);
+                aiService.addExchange(fromUser, text, reply); // 天气结果注入 AI session 实现上下文感知
             } else if (lowerText.startsWith("天气 ")) {
                 String city = text.substring("天气 ".length()).trim();
                 reply = weatherService.queryWeather(city);
@@ -208,6 +240,9 @@ public class IlinkService {
         }
     }
 
+    /**
+     * 断开 iLink 连接，停止轮询线程，清除凭据。
+     */
     public String stop() {
         polling.set(false);
         connected.set(false);
@@ -224,6 +259,9 @@ public class IlinkService {
         return connected.get();
     }
 
+    /**
+     * 从消息的 itemList 中提取第一段文本内容。
+     */
     private String extractText(WeixinMessage msg) {
         if (msg.itemList() == null) return null;
         return msg.itemList().stream()
@@ -233,6 +271,10 @@ public class IlinkService {
                 .orElse(null);
     }
 
+    /**
+     * 从消息的 itemList 中提取第一张图片项。
+     * 纯图片消息不会附带文本，在 polling 中通过 hasImage 单独判断避免漏掉。
+     */
     private MessageItem extractFirstImage(WeixinMessage msg) {
         if (msg.itemList() == null) return null;
         return msg.itemList().stream()

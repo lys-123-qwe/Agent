@@ -3,6 +3,11 @@ package com.example.youkeda_project.config;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 
+/**
+ * 外部 API 配置，从 application.properties 读取各服务的 Key 和 URL。
+ * <p>
+ * 包含: 和风天气、DeepSeek AI、通义万相（生图）、通义千问 VL（图识）四个外部服务。
+ */
 @Configuration
 public class ApiConfig {
 
@@ -40,6 +45,7 @@ public class ApiConfig {
     @Value("${image.api.url:https://dashscope.aliyuncs.com}")
     private String imageApiUrl;
 
+    // 通义千问 VL 使用 dashscope 的兼容模式地址，与 OpenAI 格式通用
     @Value("${vision.api.url:https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions}")
     private String visionApiUrl;
 
@@ -59,6 +65,7 @@ public class ApiConfig {
         return imageApiUrl;
     }
 
+    // 通义千问 VL 复用 image.api.key 作为鉴权
     public String getVisionApiKey() {
         return imageApiKey;
     }

@@ -2,6 +2,15 @@ package com.example.youkeda_project.protocol;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+/**
+ * 微信消息中的图片项。
+ * <p>
+ * media: CDN 媒体元数据；
+ * aeskey: 图片 AES 解密密钥（可能在此字段也可能在 CDNMedia 中，两处兼容）；
+ * url: 图片直链（旧格式）。
+ * <p>
+ * fromCdn() 用于构造发送图片时的 ImageItem。
+ */
 public record ImageItem(
     @JsonProperty("media") CDNMedia media,
     @JsonProperty("mid_size") Integer midSize,

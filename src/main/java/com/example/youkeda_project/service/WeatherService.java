@@ -10,6 +10,13 @@ import org.springframework.web.client.RestClient;
 
 import java.util.Map;
 
+/**
+ * 和风天气查询服务。
+ * <p>
+ * 预置 10 个中国主要城市 ID，支持中英文城市名。
+ * 调用和风天气实时天气 API（devapi.qweather.com），
+ * 返回格式化天气信息字符串。
+ */
 @Service
 public class WeatherService {
 
@@ -19,6 +26,7 @@ public class WeatherService {
     private final ApiConfig apiConfig;
     private final ObjectMapper objectMapper;
 
+    // 预置 10 个城市的中英文名到和风城市 ID 的映射
     private static final Map<String, String> CITY_MAP;
 
     static {
@@ -52,6 +60,11 @@ public class WeatherService {
         this.restClient = RestClient.create();
     }
 
+    /**
+     * 查询指定城市的实时天气。
+     * 先在预置 CITY_MAP 中查找城市 ID，找不到返回错误信息。
+     * 查询结果解析后返回格式化的天气字符串。
+     */
     public String queryWeather(String cityName) {
         if (cityName == null || cityName.trim().isEmpty()) {
             log.warn("天气查询失败: 城市名为空");
@@ -59,6 +72,7 @@ public class WeatherService {
         }
 
         String cityNameTrimmed = cityName.trim();
+        // 不区分大小写匹配
         String cityId = CITY_MAP.get(cityNameTrimmed.toLowerCase());
 
         if (cityId == null) {
@@ -87,6 +101,10 @@ public class WeatherService {
         }
     }
 
+    /**
+     * 解析和风天气 API 的 JSON 响应。
+     * 提取天气状况、温度、体感温度、湿度、风向、风力等级。
+     */
     private String parseWeatherResponse(String json, String cityName) {
         try {
             JsonNode root = objectMapper.readTree(json);

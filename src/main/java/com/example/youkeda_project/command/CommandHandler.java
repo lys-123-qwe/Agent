@@ -3,6 +3,12 @@ package com.example.youkeda_project.command;
 import com.example.youkeda_project.service.IlinkService;
 import org.springframework.stereotype.Component;
 
+/**
+ * 控制台命令路由处理器。
+ * <p>
+ * 解析用户在控制台输入的文本命令，分发给对应逻辑：
+ * help/version/status/ilink login/ilink stop 等。
+ */
 @Component
 public class CommandHandler {
 
@@ -14,6 +20,10 @@ public class CommandHandler {
         this.ilinkService = ilinkService;
     }
 
+    /**
+     * 入口：解析并执行命令，返回结果字符串。
+     * ilink 子命令单独路由，其余走 switch 匹配。
+     */
     public String handle(String input) {
         if (input == null || input.trim().isEmpty()) {
             return "请输入命令，输入 help 查看帮助";
@@ -38,6 +48,9 @@ public class CommandHandler {
         }
     }
 
+    /**
+     * 处理 ilink 子命令: login/start/stop/status。
+     */
     private String handleIlink(String subCommand) {
         return switch (subCommand) {
             case "login", "start" -> ilinkService.start();
@@ -70,6 +83,9 @@ public class CommandHandler {
         return "Claw 助手 " + VERSION;
     }
 
+    /**
+     * 通过 Runtime 获取 JVM 内存和处理器信息，组合显示状态。
+     */
     private String showStatus() {
         Runtime runtime = Runtime.getRuntime();
         long usedMemory = (runtime.totalMemory() - runtime.freeMemory()) / 1024 / 1024;

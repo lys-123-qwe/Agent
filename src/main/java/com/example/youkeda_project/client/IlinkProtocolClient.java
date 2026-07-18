@@ -27,6 +27,18 @@ import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+/**
+ * iLink 协议 HTTP 客户端。
+ * <p>
+ * 自实现 iLink 协议所有关键接口，无官方 SDK：
+ * - 扫码登录：getQRCode → pollQRStatus
+ * - 消息拉取：getUpdates（长轮询 35s）
+ * - 消息发送：sendMessage（文本/图片）
+ * - 图片收发完整链路：通义万相生图 → OSS 下载 → AES-128-ECB 加密 → CDN 上传 → 发送 image_item
+ * - 图片接收：CDN 下载 → deriveAesKey() 兼容 3 种 key 格式 → AES 解密 → 传给通义千问 VL
+ * <p>
+ * 所有 HTTP 请求/响应使用 byte[] + UTF-8 编解码，避免 Windows 控制台 GBK 编码污染 JSON。
+ */
 @Component
 public class IlinkProtocolClient {
 
@@ -38,7 +50,7 @@ public class IlinkProtocolClient {
     private final ObjectMapper objectMapper;
 
     private RestClient restClient;
-    private String botToken;
+    private String botToken;       // 登录后获取的 Bot 鉴权 Token
     private String baseUrl = DEFAULT_BASE_URL;
 
     public IlinkProtocolClient(ObjectMapper objectMapper) {
@@ -46,6 +58,9 @@ public class IlinkProtocolClient {
         this.restClient = buildRestClient(DEFAULT_BASE_URL);
     }
 
+    /**
+     * 设置登录后的凭据（botToken + baseUrl），baseUrl 变化时重建 RestClient。
+     */
     public void setCredentials(String botToken, String baseUrl) {
         this.botToken = botToken;
         if (baseUrl != null && !baseUrl.isBlank()) {
@@ -63,6 +78,9 @@ public class IlinkProtocolClient {
         return baseUrl;
     }
 
+    /**
+     * 获取登录二维码 bot_type=3 表示第三方 Bot。
+     */
     public QRCodeResponse getQRCode() {
         String json = restClient.get()
                 .uri("/ilink/bot/get_bot_qrcode?bot_type=3")
@@ -71,6 +89,9 @@ public class IlinkProtocolClient {
         return parseJson(json, QRCodeResponse.class);
     }
 
+    /**
+     * 轮询二维码扫码状态。
+     */
     public LoginResult pollQRStatus(String qrcode) {
         String json = restClient.get()
                 .uri("/ilink/bot/get_qrcode_status?qrcode=" + qrcode)
@@ -79,12 +100,19 @@ public class IlinkProtocolClient {
         return parseJson(json, LoginResult.class);
     }
 
+    /**
+     * 长轮询拉取消息（35s 超时），通过 cursor 实现增量拉取。
+     */
     public GetUpdatesResponse getUpdates(String cursor) {
         String body = "{\"get_updates_buf\":\"" + (cursor != null ? cursor : "") + "\"}";
         String json = postWithAuth("/ilink/bot/getupdates", body, LONG_POLL_TIMEOUT_MS);
         return parseJson(json, GetUpdatesResponse.class);
     }
 
+    /**
+     * 发送文本消息（可包含多项内容，如图文混排）。
+     * 使用 SendMessageRequest.items() 构造请求体。
+     */
     public String sendMessage(String toUserId, String contextToken, List<MessageItem> items) {
         SendMessageRequest request = SendMessageRequest.items(toUserId, contextToken, items);
         try {
@@ -98,6 +126,11 @@ public class IlinkProtocolClient {
         }
     }
 
+    /**
+     * 从微信 CDN 下载图片并 AES-ECB 解密。
+     * 优先使用 fullUrl，否则使用 encryptQueryParam 拼装下载 URL。
+     * AES key 可能出现在 ImageItem.aeskey 或 CDNMedia.aesKey 中，两处都检查。
+     */
     public byte[] downloadAndDecryptImage(MessageItem item) {
         ImageItem imageItem = item.imageItem();
         if (imageItem == null || imageItem.media() == null) {
@@ -113,6 +146,7 @@ public class IlinkProtocolClient {
         }
         if (url == null) throw new RuntimeException("图片无下载URL");
 
+        // AES key 可能在 ImageItem 的 aeskey 字段或在 CDNMedia 的 aesKey 字段中
         String aesKeyStr = imageItem.aeskey();
         if (aesKeyStr == null && imageItem.media().aesKey() != null) {
             aesKeyStr = imageItem.media().aesKey();
@@ -132,6 +166,7 @@ public class IlinkProtocolClient {
 
         byte[] key = deriveAesKey(aesKeyStr);
         try {
+            // AES-128-ECB 解密，去除 PKCS5Padding
             Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
             cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"));
             byte[] decrypted = cipher.doFinal(encryptedBytes);
@@ -145,13 +180,22 @@ public class IlinkProtocolClient {
         }
     }
 
+    /**
+     * 将 AES key 从不同格式统一转换为 16 字节密钥。
+     * 兼容格式：
+     * 1. 32 位 hex 字符串直接解析
+     * 2. base64 解码后是 32 字节 hex 字符串
+     * 3. base64 解码后直接是 16 字节密钥
+     */
     private byte[] deriveAesKey(String aesKeyStr) {
         if (aesKeyStr == null) throw new IllegalArgumentException("AES key为空");
 
+        // 情况 1: 32 位 hex 字符串
         if (aesKeyStr.matches("^[0-9a-fA-F]{32}$")) {
             return HexFormat.of().parseHex(aesKeyStr);
         }
 
+        // 尝试 base64 解码
         byte[] decoded;
         try {
             decoded = Base64.getDecoder().decode(aesKeyStr);
@@ -159,6 +203,7 @@ public class IlinkProtocolClient {
             throw new RuntimeException("无法解析AES key: " + aesKeyStr);
         }
 
+        // 情况 2: 解码后是一段 32 位 hex 字符串（如 "aabb..." 的 ASCII 字节）
         if (decoded.length == 32) {
             String asHex = new String(decoded, StandardCharsets.UTF_8);
             if (asHex.matches("^[0-9a-fA-F]{32}$")) {
@@ -166,6 +211,7 @@ public class IlinkProtocolClient {
             }
         }
 
+        // 情况 3: 解码后直接就是 16 字节密钥
         if (decoded.length == 16) {
             return decoded;
         }
@@ -173,14 +219,25 @@ public class IlinkProtocolClient {
         throw new RuntimeException("无法解析AES key，长度不匹配: " + aesKeyStr);
     }
 
+    /**
+     * 完整图片发送链路：
+     * 1. 生成随机 AES 密钥
+     * 2. 调用 getUploadUrl 获取 CDN 上传地址
+     * 3. AES-128-ECB 加密图片字节
+     * 4. POST 密文到 CDN
+     * 5. 从响应 header（x-encrypted-param）获取加密查询参数
+     * 6. 构造 CDNMedia + SendMessageRequest 发送 image_item
+     */
     public void uploadAndSendImage(String toUserId, String contextToken, byte[] imageBytes) {
         try {
+            // 步骤 1: 生成随机 AES 密钥（16 字节）
             byte[] aesKeyBytes = new byte[16];
             ThreadLocalRandom.current().nextBytes(aesKeyBytes);
             String aesKeyHex = HexFormat.of().formatHex(aesKeyBytes);
 
             String fileKey = generateFileKey();
 
+            // 步骤 2: 计算 MD5 和补齐后的文件大小（AES 要求 16 字节对齐）
             byte[] md5Bytes = MessageDigest.getInstance("MD5").digest(imageBytes);
             String md5Hex = HexFormat.of().formatHex(md5Bytes);
 
@@ -211,6 +268,7 @@ public class IlinkProtocolClient {
                     + ", errmsg=" + baseResp.path("errmsg").asText());
             }
 
+            // 步骤 3+4: AES 加密后上传到 CDN
             Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
             cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(aesKeyBytes, "AES"));
             byte[] encryptedBytes = cipher.doFinal(imageBytes);
@@ -220,8 +278,10 @@ public class IlinkProtocolClient {
             String uploadParam = uploadResp.has("upload_param")
                 ? uploadResp.get("upload_param").asText() : null;
 
+            // 步骤 5: 上传 CDN 后从 response header 获取 x-encrypted-param
             String encryptQueryParam = uploadToCdn(encryptedBytes, uploadFullUrl, uploadParam, fileKey);
 
+            // 步骤 6: 构造 CDNMedia + 发送 image_item
             String aesKeyBase64 = Base64.getEncoder().encodeToString(aesKeyHex.getBytes(StandardCharsets.UTF_8));
             CDNMedia media = new CDNMedia(encryptQueryParam, aesKeyBase64);
 
@@ -236,6 +296,11 @@ public class IlinkProtocolClient {
         }
     }
 
+    /**
+     * 将 AES 加密后的图片字节 POST 到微信 CDN。
+     * 支持两种上传方式：upload_full_url（直连）或 CDN_BASE + upload_param。
+     * 上传成功后从响应 header 中获取 x-encrypted-param。
+     */
     private String uploadToCdn(byte[] encryptedBytes, String uploadFullUrl, String uploadParam, String fileKey) {
         String cdnUrl;
         if (uploadFullUrl != null && !uploadFullUrl.isBlank()) {
@@ -262,12 +327,20 @@ public class IlinkProtocolClient {
         return encryptQueryParam;
     }
 
+    /**
+     * 生成随机 16 字节 hex 字符串作为 fileKey。
+     */
     private String generateFileKey() {
         byte[] bytes = new byte[16];
         ThreadLocalRandom.current().nextBytes(bytes);
         return HexFormat.of().formatHex(bytes);
     }
 
+    /**
+     * 带鉴权的 POST 请求。
+     * 使用 byte[] + UTF-8 编解码避免 GBK 编码污染。
+     * 必须携带 Authorization + X-WECHAT-UIN 两个 HTTP header。
+     */
     private String postWithAuth(String path, String body, int timeoutMs) {
         if (botToken == null || botToken.isBlank()) {
             throw new IllegalStateException("未登录，缺少 bot_token");
@@ -285,6 +358,10 @@ public class IlinkProtocolClient {
         return new String(responseBytes, StandardCharsets.UTF_8);
     }
 
+    /**
+     * 生成随机 X-WECHAT-UIN header，iLink 协议要求的客户端标识。
+     * 将 int 转 unsigned decimal string，再 base64 编码。
+     */
     private String generateWechatUin() {
         int random = ThreadLocalRandom.current().nextInt();
         String decimal = Integer.toUnsignedString(random);
@@ -295,6 +372,9 @@ public class IlinkProtocolClient {
         return RestClient.builder().baseUrl(url).build();
     }
 
+    /**
+     * 通用 JSON 反序列化，统一异常处理。
+     */
     private <T> T parseJson(String json, Class<T> clazz) {
         try {
             return objectMapper.readValue(json, clazz);
