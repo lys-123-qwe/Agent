@@ -124,7 +124,7 @@
 <body>
     <div class="container">
         <h1>Claw助手 流程图</h1>
-        <p class="subtitle">WeChat Bot · iLink 协议 · 和风天气 · DeepSeek AI · 通义万相 · 通义千问 VL</p>
+        <p class="subtitle">WeChat Bot · iLink 协议 · 和风天气 · DeepSeek AI · 通义万相 · 通义千问 VL · Apache Tika · CosyVoice TTS</p>
 
         <!-- ============================================================ -->
         <!-- 0. 程序入口 -->
@@ -245,8 +245,8 @@ flowchart LR
         CU --> HM{"msgs 不为空?"}:::decision
         HM --> |"否"| PL
         HM --> |"是"| FOR["for 遍历 msgs"]:::process
-        FOR --> EXT["extractText(msg)<br>extractFirstImage(msg)"]:::process
-        EXT --> VAL{"contextToken 不为空<br>且（有文本/有图片）?"}:::decision
+        FOR --> EXT["extractText(msg)<br>extractFirstImage(msg)<br>extractFirstVoice(msg)<br>extractFirstFile(msg)"]:::process
+        EXT --> VAL{"contextToken 不为空<br>且<br>（有文本/有图片/有语音/有文件）?"}:::decision
         VAL --> |"否"| SK["跳过"]:::process
         SK -.->|"继续"| FOR
         VAL --> |"是"| LOG["日志 + 打印<br>→ handleMessage"]:::process
@@ -269,7 +269,7 @@ flowchart LR
                     服务器挂起连接最多 35 秒，有消息到达立即返回，无消息则超时空返回。
                     <br><br>
                     每次返回 <code>get_updates_buf</code>（游标），下次请求带回，确保不重复消费。
-                    过滤条件：必须有 <code>contextToken</code>，且至少包含文本或图片。
+                    过滤条件：必须有 <code>contextToken</code>，且至少包含文本、图片、语音或文件之一。
                     收到消息后提取内容，进入路由处理。
                 </div>
             </div>
@@ -291,34 +291,45 @@ flowchart LR
                 <div class="mermaid">
 flowchart LR
     subgraph R[" "]
-        H["handleMessage(msg)<br>IlinkService.java:142"]:::entry
+        H["handleMessage(msg)<br>IlinkService.java:187"]:::entry
         H --> W{"是主人首条消息?<br>!welcomeSent &&<br>ownerId==fromUser"}:::decision
         W --> |"是"| WS["发送欢迎语<br>消耗 contextToken<br>welcomeSent=true"]:::process
         WS --> RET["return"]:::process
         W --> |"否"| IMG{"有图片?"}:::decision
         IMG --> |"是"| IR["→ 图片识别<br>通义千问 VL"]:::external
-        IMG --> |"否"| T["取文本 text"]:::process
-        T --> D{"路由判断"}:::decision
-        D --> |"weather/天气"| WE["→ 天气查询<br>和风天气"]:::external
+        IMG --> |"否"| VOICE{"有语音?"}:::decision
+        VOICE --> |"是"| VR["→ 语音识别<br>ASR → AI回复"]:::external
+        VOICE --> |"否"| FILE{"有文件?"}:::decision
+        FILE --> |"是"| FR["→ 文件识别<br>Tika解析 → AI总结"]:::external
+        FILE --> |"否"| T["取文本 text"]:::process
+        T --> TTS_CK{"TTS 会话?"}:::decision
+        TTS_CK --> |"WAITING_TEXT"| TTS1["获取文本→选音色"]:::external
+        TTS_CK --> |"WAITING_VOICE"| TTS2["选音色→合成语音"]:::external
+        TTS_CK --> |"无"| D{"DeepSeek 意图"}:::decision
+        D --> |"weather/天气"| WE["→ 天气查询"]:::external
         D --> |"图片生成"| IG["→ 图片生成<br>通义万相 → CDN"]:::external
+        D --> |"tts"| TTSD["→ TTS 多轮流程"]:::external
         D --> |"其他"| AI["→ AI对话<br>DeepSeek"]:::external
-        D --> |"..."| FT["未来扩展"]:::future
     end
 
     classDef entry fill:#e1f5fe,stroke:#0288d1;
     classDef process fill:#fff3e0,stroke:#f57c00;
     classDef decision fill:#fce4ec,stroke:#c62828;
     classDef external fill:#f3e5f5,stroke:#7b1fa2;
-    classDef future fill:#e0e0e0,stroke:#9e9e9e,stroke-dasharray:8 4;
                 </div>
             </div>
             <div class="explanation">
                 <div class="exp-title">消息路由逻辑</div>
                 <div class="exp-body">
-                    优先检测是否为主人首条消息（用于触发欢迎语）。其次检测图片 → 走图片识别。
-                    文本消息按前缀分发：<code>weather</code> / <code>天气</code> → 天气查询，
-                    <code>图片生成</code> → 通义万相生图并上传 CDN，
-                    其他 → DeepSeek AI 对话。
+                    按优先级检测：首条消息欢迎 → 图片 → 语音 → 文件 → 文本。
+                    <br><br>
+                    <strong>语音消息</strong>：CDN 下载 → ASR 转文字 → AI 回复。
+                    <br>
+                    <strong>文件消息</strong>：CDN 下载 → AES 解密 → Tika 提取文本 → AI 总结。
+                    <br>
+                    <strong>TTS 多轮会话</strong>：检测 TTS 状态机 → 获取文本 → 选择音色 → 合成 → 发送文件。
+                    <br>
+                    <strong>文本消息</strong>：DeepSeek 意图识别 → weather/图片生成/tts/对话。
                 </div>
             </div>
         </div>
@@ -593,11 +604,182 @@ flowchart LR
         <div class="arrow-connector">&#9660;</div>
 
         <!-- ============================================================ -->
-        <!-- 9. 发送回复 -->
+        <!-- 9. 文件识别 -->
         <!-- ============================================================ -->
         <div class="section">
             <div class="section-header">
                 <span class="step-num">9</span>
+                文件识别（Apache Tika）→ CDN 上传 → 发送
+                <span class="step-tag tag-api">API</span>
+                <span class="step-tag tag-process">CDN</span>
+            </div>
+            <div class="mermaid-wrap">
+                <div class="mermaid">
+flowchart LR
+    subgraph F9[" "]
+        FR["handleMessage → 有文件<br>IlinkService.java:248"]:::entry
+        FR --> FV["fileItem = msg.fileItem()<br>获取文件名 + 文件大小"]:::process
+        FV --> SZ{"fileSize > 20MB?"}:::decision
+        SZ --> |"是"| SZR["回复: 文件太大"]:::process
+        SZ --> |"否"| DL["downloadAndDecryptFile(fileItem)<br>IlinkProtocolClient.java:191<br>CDN下载 + AES-ECB解密"]:::process
+        DL --> EXT["fileService.extractText(fileBytes, fileName)<br>FileService.java:41<br>Apache Tika 自动检测格式"]:::process
+        EXT --> PT{"纯文本文件?<br>txt/csv/json/xml/md等"}:::decision
+        PT --> |"是"| FAST["直接 UTF-8 读取<br>跳过 Tika 开销"]:::process
+        PT --> |"否"| TIKA["Tika.parseToString()<br>解析 docx/pdf/xlsx/pptx等"]:::process
+        FAST --> TRUNC["截断到 8000 字符"]:::process
+        TIKA --> TRUNC
+        TRUNC --> AI["aiService.generateWithContext()<br>文件名 + 提取文本<br>→ DeepSeek 总结"]:::external
+        AI --> SEND["sendMessage(text)<br>回复用户"]:::process
+    end
+
+    classDef entry fill:#e1f5fe,stroke:#0288d1;
+    classDef process fill:#fff3e0,stroke:#f57c00;
+    classDef decision fill:#fce4ec,stroke:#c62828;
+    classDef api fill:#e8f5e9,stroke:#388e3c;
+    classDef external fill:#f3e5f5,stroke:#7b1fa2;
+                </div>
+            </div>
+            <div class="explanation">
+                <div class="exp-title">文件识别流程（CDN 下载 → AES 解密 → Tika 提取 → AI 总结）</div>
+                <div class="exp-body">
+                    <strong>下载解密：</strong> 从 <code>file_item.media</code> 获取 CDN URL → 下载 AES 加密字节 →
+                    <code>deriveAesKey()</code> + AES-ECB 解密。
+                    <br><br>
+                    <strong>文本提取（FileService）：</strong>
+                    纯文本文件（txt/csv/json/xml/md/java/py/js）直接 UTF-8 读取，跳过 Tika 开销；
+                    其他格式（docx/xlsx/pptx/pdf/html）通过 Apache Tika 自动检测格式并解析。
+                    提取结果截断到 8000 字符，避免超出 DeepSeek token 限制。
+                    <br><br>
+                    <strong>AI 总结：</strong> 将文件名 + 提取文本发送给 DeepSeek，生成自然语言总结回复。
+                    <br><br>
+                    <strong>★</strong> 文件大小限制 20MB（<code>FileService.MAX_FILE_SIZE</code>）。
+                    <strong>★</strong> <code>tika-core:2.9.4</code> + <code>tika-parsers-standard-package:2.9.4</code> 提供完整解析能力。
+                </div>
+            </div>
+        </div>
+
+        <div class="arrow-connector">&#9660;</div>
+
+        <!-- ============================================================ -->
+        <!-- 10. 语音合成 TTS -->
+        <!-- ============================================================ -->
+        <div class="section">
+            <div class="section-header">
+                <span class="step-num">10</span>
+                语音合成 TTS（CosyVoice-v3-flash）
+                <span class="step-tag tag-api">API</span>
+                <span class="step-tag tag-process">多轮</span>
+            </div>
+            <div class="mermaid-wrap">
+                <div class="mermaid">
+flowchart LR
+    subgraph T10[" "]
+        TTS0["DeepSeek 意图识别<br>intent = 'tts'"]:::entry
+        TTS0 --> CK{"有朗读内容?"}:::decision
+        CK --> |"否"| ASK["追问: 请告诉我你想朗读什么<br>state = WAITING_TEXT"]:::process
+        ASK --> U1["用户回复文本"]:::process
+        U1 --> S1["ttsSession.text = text<br>state = WAITING_VOICE"]:::process
+        S1 --> VOICE["回复: 请选择音色<br>列出 6 种音色"]:::process
+        VOICE --> U2["用户选择音色"]:::process
+        U2 --> S2["resolveVoice(voiceName)<br>→ voiceId"]:::process
+        CK --> |"是"| VOICE2["回复: 请选择音色"]:::process
+        VOICE2 --> U2
+        S2 --> SYN["ttsService.synthesizeMp3(text, voiceId)<br>CosyVoice TTS API<br>→ MP3 音频字节"]:::api
+        SYN --> UPLOAD["client.uploadAndSendFile()<br>media_type=3 (FILE)<br>CDN上传 → file_item(type=4)"]:::process
+        UPLOAD --> DONE["用户收到语音文件"]:::process
+    end
+
+    classDef entry fill:#e1f5fe,stroke:#0288d1;
+    classDef process fill:#fff3e0,stroke:#f57c00;
+    classDef decision fill:#fce4ec,stroke:#c62828;
+    classDef api fill:#e8f5e9,stroke:#388e3c;
+                </div>
+            </div>
+            <div class="explanation">
+                <div class="exp-title">TTS 多轮语音合成流程</div>
+                <div class="exp-body">
+                    <strong>意图检测：</strong> DeepSeek 识别 <code>tts</code>/<code>朗读</code>/<code>语音合成</code> 等意图，返回 <code>intent=tts</code>。
+                    <br><br>
+                    <strong>获取文本（WAITING_TEXT）：</strong> 若未指定朗读内容，追问用户；用户回复后存入 <code>ttsSession.text</code>。
+                    <br><br>
+                    <strong>选择音色（WAITING_VOICE）：</strong> 列出 6 种 CosyVoice 音色供选择。
+                    <br><br>
+                    <strong>合成语音：</strong> 调用 CosyVoice API（<code>cosyvoice-v3-flash</code>）→ 返回 MP3 音频。
+                    <br><br>
+                    <strong>CDN 上传发送：</strong> <code>uploadAndSendFile()</code> 使用 <code>media_type=3</code>（FILE）上传 CDN →
+                    发送 <code>file_item</code>（type=4）。
+                    <br><br>
+                    <strong>★</strong> iLink 协议对 Bot 发送 voice 消息（type=3）静默丢弃，因此 TTS 音频作为 file 消息（type=4）发送。
+                    <strong>★</strong> 音色：热情女声(longxiaochun) / 温柔女声(longxiaoxia) / 甜美女声(longmiao) /
+                    活力女声(longhua) / 磁性男声(longshu) / 青年男声(longjielidou)。
+                </div>
+            </div>
+        </div>
+
+        <div class="arrow-connector">&#9660;</div>
+
+        <!-- ============================================================ -->
+        <!-- 11. 语音识别 ASR -->
+        <!-- ============================================================ -->
+        <div class="section">
+            <div class="section-header">
+                <span class="step-num">11</span>
+                语音识别 ASR（qwen3-asr-flash）
+                <span class="step-tag tag-api">API</span>
+                <span class="step-tag tag-process">encrypt</span>
+            </div>
+            <div class="mermaid-wrap">
+                <div class="mermaid">
+flowchart LR
+    subgraph A11[" "]
+        VR["handleMessage → 有语音<br>IlinkService.java:223"]:::entry
+        VR --> DL["client.downloadVoice(voiceItem)<br>CDN 下载 + AES 解密"]:::process
+        DL --> SILK{"SILK 格式?<br>前缀 0x02?"}:::decision
+        SILK --> |"是"| DECODE["silk-codec JNI<br>SilkCoder.decode()<br>→ PCM"]:::process
+        SILK --> |"否"| WAV["直接作为 WAV 处理"]:::process
+        DECODE --> PCM["PCM → WAV 转换<br>手动写 WAV 头"]:::process
+        PCM --> API["DashScope ASR<br>model: qwen3-asr-flash<br>POST /services/audio/asr"]:::api
+        WAV --> API
+        API --> RESP["← 文本转写结果"]:::api
+        RESP --> ERR{"转写成功?"}:::decision
+        ERR --> |"否"| ERRA["返回友好错误提示"]:::process
+        ERR --> |"是"| AI["aiService.chat(userId, text)<br>DeepSeek AI 回复"]:::external
+        AI --> SEND["sendMessage(text)<br>回复用户"]:::process
+    end
+
+    classDef entry fill:#e1f5fe,stroke:#0288d1;
+    classDef process fill:#fff3e0,stroke:#f57c00;
+    classDef decision fill:#fce4ec,stroke:#c62828;
+    classDef api fill:#e8f5e9,stroke:#388e3c;
+    classDef external fill:#f3e5f5,stroke:#7b1fa2;
+                </div>
+            </div>
+            <div class="explanation">
+                <div class="exp-title">语音识别流程（CDN 下载 → SILK 解码 → ASR → AI 回复）</div>
+                <div class="exp-body">
+                    <strong>下载解密：</strong> 从 <code>voice_item.media</code> 获取 CDN URL → 下载 + AES-ECB 解密。
+                    <br><br>
+                    <strong>格式转换：</strong> 微信语音为 SILK 格式，前缀有 1 字节标记（0x02 = STX）。
+                    剥离前缀后用 <code>silk-codec</code> JNI 解码为 PCM → 手动添加 WAV 头（44 字节）→ WAV 格式。
+                    <br><br>
+                    <strong>ASR 识别：</strong> 发送到阿里云 DashScope（<code>qwen3-asr-flash</code>）→ 返回转写文本。
+                    <br><br>
+                    <strong>AI 回复：</strong> 将转写文本作为用户输入 → DeepSeek 生成回复。
+                    <br><br>
+                    <strong>★</strong> 错误处理：识别失败时返回友好中文提示（如"没听清请再试"），技术错误仅记录日志。
+                    <strong>★</strong> <code>detectAudioFormat()</code> 自动检测音频格式（WAV/SILK/其他），WAV 直接识别。
+                </div>
+            </div>
+        </div>
+
+        <div class="arrow-connector">&#9660;</div>
+
+        <!-- ============================================================ -->
+        <!-- 12. 发送回复 -->
+        <!-- ============================================================ -->
+        <div class="section">
+            <div class="section-header">
+                <span class="step-num">12</span>
                 发送回复到微信
                 <span class="step-tag tag-api">API</span>
                 <span class="step-tag tag-process">auth</span>
@@ -607,7 +789,7 @@ flowchart LR
 flowchart LR
     subgraph S9[" "]
         SR["sendMessage(toUserId,<br>contextToken, items)<br>IlinkProtocolClient.java:88"]:::entry
-        SB["构建 SendMessageRequest<br>• client_id = UUID（去重）<br>• context_token = 原值带回<br>• message_type=2, message_state=2<br>• item_list = [{text}] 或 [{image}]"]:::process
+        SB["构建 SendMessageRequest<br>• client_id = UUID（去重）<br>• context_token = 原值带回<br>• message_type=2, message_state=2<br>• item_list = [{text}] 或 [{image}] 或 [{file}]"]:::process
         SB --> BASE["base_info: {channel_version: '1.0.2'}"]:::process
         BASE --> SE["byte[] body = UTF-8<br>★ 防 Windows GBK 乱码"]:::process
         SE --> SA["三个认证头<br>① AuthorizationType: ilink_bot_token<br>② Authorization: Bearer {token}<br>③ X-WECHAT-UIN: Base64(随机 int)"]:::process
@@ -635,6 +817,10 @@ flowchart LR
                     <br>
                     <strong>byte[]：</strong> Windows 默认 GBK 编码，用 <code>byte[]</code> 拿到原始字节再 UTF-8 解码。
                     <br><br>
+                    <strong>消息类型对照：</strong>
+                    <code>type=1</code> TEXT（文本）/ <code>type=2</code> IMAGE（图片）/
+                    <code>type=3</code> VOICE（语音，Bot发送被丢弃）/ <code>type=4</code> FILE（文件，TTS音频）。
+                    <br><br>
                     <strong>★</strong> 响应 <code>{}</code> 仅表示服务器接受，不代表消息已送达用户微信。
                     iLink 不支持 Bot 主动推送消息（无 <code>contextToken</code> 的请求返回 <code>{}</code> 但微信侧不投递）。
                 </div>
@@ -644,11 +830,11 @@ flowchart LR
         <div class="arrow-connector">&#9660;</div>
 
         <!-- ============================================================ -->
-        <!-- 10. 断开流程 -->
+        <!-- 13. 断开流程 -->
         <!-- ============================================================ -->
         <div class="section">
             <div class="section-header">
-                <span class="step-num">10</span>
+                <span class="step-num">13</span>
                 iLink 断开
                 <span class="step-tag tag-process">process</span>
             </div>
