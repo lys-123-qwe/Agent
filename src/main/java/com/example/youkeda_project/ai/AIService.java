@@ -10,12 +10,13 @@ import tools.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * AI 对话服务，支持 DeepSeek 纯文本对话和通义千问 VL 图片识别。
+ * AI 对话服务，支持 DeepSeek 纯文本对话、通义千问 VL 图片识别、Function Calling 工具调用。
  * <p>
  * 每个用户维护独立 session（最多 10 轮历史），
  * 请求/响应全部使用 byte[] + UTF-8 编解码，避免 Windows 控制台 GBK 编码导致乱码。
@@ -26,14 +27,12 @@ public class AIService {
     private static final Logger log = LoggerFactory.getLogger(AIService.class);
     private static final String MODEL = "deepseek-chat";
     private static final String QWEN_VL_MODEL = "qwen-vl-plus";
-    private static final int MAX_HISTORY = 10; // 每个用户保留的最大对话轮数
+    private static final int MAX_HISTORY = 10;
 
-    private final RestClient restClient;          // 对接 DeepSeek
-    private final RestClient visionRestClient;     // 对接通义千问 VL
+    private final RestClient restClient;
+    private final RestClient visionRestClient;
     private final ObjectMapper objectMapper;
     private final ApiConfig apiConfig;
-
-    // userId -> 对话历史列表，ConcurrentHashMap 保证线程安全
     private final Map<String, List<ChatMessage>> sessions = new ConcurrentHashMap<>();
 
     public AIService(ApiConfig apiConfig, ObjectMapper objectMapper) {
@@ -48,17 +47,16 @@ public class AIService {
     }
 
     /**
-     * 发送纯文本消息给 DeepSeek，返回 AI 回复。
-     * 自动维护用户 session 历史，保留 system prompt 并截断超出部分。
-     * 注意：历史记录中可能包含通义千问 VL 的 image_url 内容，
-     * DeepSeek 不支持这种格式，需要过滤掉非文本内容。
+     * 发送纯文本消息给 DeepSeek，支持 Function Calling 工具调用。
+     * 自动维护用户 session 历史。
+     *
+     * @param tools 可用的工具列表，可为 null（不使用 Function Calling）
      */
-    public String chat(String userId, String userMessage) {
+    public String chat(String userId, String userMessage, List<Tool> tools) {
         if (apiConfig.getAiApiKey() == null || apiConfig.getAiApiKey().isBlank()) {
             return "错误: 未配置 DeepSeek API Key";
         }
 
-        // computeIfAbsent: 首次访问时创建 session 并插入 system prompt
         List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
             List<ChatMessage> list = new ArrayList<>();
             list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，回答简洁。"));
@@ -69,36 +67,90 @@ public class AIService {
         trimHistory(history);
 
         try {
-            // 过滤历史记录，只保留纯文本内容（DeepSeek 不支持 image_url）
-            List<ChatMessage> filteredHistory = filterForTextOnly(history);
-            ChatRequest request = new ChatRequest(MODEL, filteredHistory);
-            String body = objectMapper.writeValueAsString(request);
-            log.info("DeepSeek请求: {}", body);
+            // 循环处理工具调用，最多 5 轮防止死循环
+            int maxRounds = 5;
+            for (int round = 0; round < maxRounds; round++) {
+                List<ChatMessage> filteredHistory = filterForTextOnly(history);
 
-            // byte[] 编解码避免 Windows 控制台 GBK 编码对 JSON 的污染
-            byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
-            byte[] responseBytes = restClient.post()
-                    .header("Content-Type", "application/json; charset=UTF-8")
-                    .header("Authorization", "Bearer " + apiConfig.getAiApiKey())
-                    .body(bodyBytes)
-                    .retrieve()
-                    .body(byte[].class);
+                ChatRequest request = tools != null && !tools.isEmpty()
+                    ? new ChatRequest(MODEL, filteredHistory, tools.stream().map(Tool::toToolDefinition).toList())
+                    : new ChatRequest(MODEL, filteredHistory);
 
-            String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
-            log.info("DeepSeek响应: {}", responseJson);
+                String body = objectMapper.writeValueAsString(request);
+                log.info("DeepSeek请求(round={}): {}", round, body);
 
-            ChatResponse response = objectMapper.readValue(responseJson, ChatResponse.class);
-            if (response.getChoices() == null || response.getChoices().isEmpty()) {
-                return "错误: AI 未返回内容";
+                byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
+                byte[] responseBytes = restClient.post()
+                        .header("Content-Type", "application/json; charset=UTF-8")
+                        .header("Authorization", "Bearer " + apiConfig.getAiApiKey())
+                        .body(bodyBytes)
+                        .retrieve()
+                        .body(byte[].class);
+
+                String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
+                log.info("DeepSeek响应(round={}): {}", round, responseJson);
+
+                ChatResponse response = objectMapper.readValue(responseJson, ChatResponse.class);
+                if (response.getChoices() == null || response.getChoices().isEmpty()) {
+                    return "错误: AI 未返回内容";
+                }
+
+                ChatChoice choice = response.getChoices().get(0);
+
+                // 检查是否为工具调用
+                if (choice.isToolCall()) {
+                    List<ToolCall> calls = ToolCall.fromChoice(choice);
+                    log.info("DeepSeek 请求工具调用: {}", calls);
+
+                    // 构建 tool_calls 结构并加入历史
+                    List<Map<String, Object>> rawToolCalls = new ArrayList<>();
+                    for (ToolCall tc : calls) {
+                        Map<String, Object> raw = new LinkedHashMap<>();
+                        raw.put("id", tc.id());
+                        raw.put("type", "function");
+                        Map<String, Object> func = new LinkedHashMap<>();
+                        func.put("name", tc.functionName());
+                        func.put("arguments", tc.arguments());
+                        raw.put("function", func);
+                        rawToolCalls.add(raw);
+                    }
+                    history.add(ChatMessage.assistantWithToolCalls(rawToolCalls));
+
+                    // 执行每个工具调用
+                    for (ToolCall tc : calls) {
+                        Tool matched = findTool(tc.functionName(), tools);
+                        if (matched == null) {
+                            log.warn("未找到工具: {}", tc.functionName());
+                            history.add(ChatMessage.tool(tc.id(), tc.functionName(), "错误: 未知工具 " + tc.functionName()));
+                            continue;
+                        }
+
+                        // 解析参数
+                        Map<String, Object> args = parseArguments(tc.arguments());
+                        log.info("执行工具: {}({})", tc.functionName(), args);
+
+                        String result = matched.execute(args);
+                        log.info("工具结果: {} -> {}", tc.functionName(), result);
+
+                        history.add(ChatMessage.tool(tc.id(), tc.functionName(), result));
+                    }
+                    trimHistory(history);
+                    // 继续下一轮循环，让模型基于工具结果生成回复
+                    continue;
+                }
+
+                // 正常文本回复
+                String reply = (String) choice.getMessage().content();
+                history.add(new ChatMessage("assistant", reply));
+                return reply;
             }
 
-            String reply = (String) response.getChoices().get(0).getMessage().content();
-            history.add(new ChatMessage("assistant", reply));
-            return reply;
+            // 超过最大轮数，返回最后一条消息
+            log.warn("Function Calling 超过最大轮数({})", maxRounds);
+            return "抱歉，工具调用次数过多，请重新提问";
 
         } catch (Exception e) {
             log.error("DeepSeek调用失败", e);
-            // 返回用户友好的错误提示，技术细节记录在日志中
             if (e.getMessage() != null && e.getMessage().contains("image_url")) {
                 return "抱歉，对话历史中包含不支持的内容类型，请发送 /clear 清除对话历史后重试";
             }
@@ -110,20 +162,24 @@ public class AIService {
     }
 
     /**
+     * 向后兼容：纯文本对话，不使用工具。
+     */
+    public String chat(String userId, String userMessage) {
+        return chat(userId, userMessage, null);
+    }
+
+    /**
      * 发送图片（附带文字 prompt）给通义千问 VL 进行识别分析。
-     * 图片编码为 base64 data URI 放入多模态 content 数组。
      */
     public String chatWithImage(String userId, String textPrompt, byte[] imageBytes) {
         if (apiConfig.getVisionApiKey() == null || apiConfig.getVisionApiKey().isBlank()) {
             return "错误: 未配置通义千问 VL API Key";
         }
 
-        // 将图片字节转为 base64 data URI，用于多模态 API 的 image_url 字段
         String base64 = Base64.getEncoder().encodeToString(imageBytes);
         String mimeType = detectMimeType(imageBytes);
         String dataUrl = "data:" + mimeType + ";base64," + base64;
 
-        // 多模态 content 数组: [{type: "text", text: "..."}, {type: "image_url", image_url: {url: "data:..."}}]
         List<Map<String, Object>> contentParts = new ArrayList<>();
         if (textPrompt != null && !textPrompt.isBlank()) {
             contentParts.add(Map.of("type", "text", "text", textPrompt));
@@ -168,7 +224,6 @@ public class AIService {
 
         } catch (Exception e) {
             log.error("通义千问VL调用失败", e);
-            // 返回用户友好的错误提示
             if (e.getMessage() != null && e.getMessage().contains("400")) {
                 return "抱歉，图片识别请求失败，请稍后再试";
             }
@@ -176,10 +231,27 @@ public class AIService {
         }
     }
 
-    /**
-     * 通过文件魔数（Magic Number）检测图片 MIME 类型，用于构造 data URI。
-     * 只检测 JPEG/PNG/GIF/WebP，默认回退 JPEG。
-     */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> parseArguments(String argumentsJson) {
+        if (argumentsJson == null || argumentsJson.isBlank()) {
+            return Map.of();
+        }
+        try {
+            return objectMapper.readValue(argumentsJson, LinkedHashMap.class);
+        } catch (Exception e) {
+            log.warn("解析工具参数失败: {}", argumentsJson, e);
+            return Map.of();
+        }
+    }
+
+    private Tool findTool(String name, List<Tool> tools) {
+        if (tools == null) return null;
+        return tools.stream()
+                .filter(t -> t.getName().equals(name))
+                .findFirst()
+                .orElse(null);
+    }
+
     private String detectMimeType(byte[] data) {
         if (data.length > 2 && data[0] == (byte) 0xFF && data[1] == (byte) 0xD8) return "image/jpeg";
         if (data.length > 3 && data[0] == (byte) 0x89 && data[1] == (byte) 0x50 && data[2] == (byte) 0x4E) return "image/png";
@@ -188,10 +260,6 @@ public class AIService {
         return "image/jpeg";
     }
 
-    /**
-     * 截断对话历史，保留 system prompt 和最近的 MAX_HISTORY 轮对话。
-     * 注意: subList 返回的是视图，必须 new ArrayList<>(...) 复制后再操作，否则会抛 ConcurrentModificationException。
-     */
     private void trimHistory(List<ChatMessage> history) {
         if (history.size() > MAX_HISTORY + 1) {
             ChatMessage system = history.get(0);
@@ -203,21 +271,14 @@ public class AIService {
         }
     }
 
-    /**
-     * 过滤对话历史，只保留纯文本内容供 DeepSeek 使用。
-     * 通义千问 VL 的图片消息包含 image_url 内容，DeepSeek 不支持。
-     * 解决方案：将多模态内容转换为纯文本（只保留文字部分）。
-     */
     @SuppressWarnings("unchecked")
     private List<ChatMessage> filterForTextOnly(List<ChatMessage> history) {
         List<ChatMessage> filtered = new ArrayList<>();
         for (ChatMessage msg : history) {
             Object content = msg.content();
             if (content instanceof String) {
-                // 纯文本消息，直接保留
                 filtered.add(msg);
             } else if (content instanceof List<?> parts) {
-                // 多模态消息（来自通义千问 VL），提取文字部分
                 StringBuilder textContent = new StringBuilder();
                 for (Object part : parts) {
                     if (part instanceof Map<?, ?> map) {
@@ -229,23 +290,88 @@ public class AIService {
                     }
                 }
                 if (!textContent.isEmpty()) {
-                    filtered.add(new ChatMessage(msg.role(), textContent.toString()));
+                    filtered.add(new ChatMessage(msg.role(), textContent.toString(), msg.toolCallId(), msg.name(), null));
                 }
-                // 如果没有文字内容，跳过这条消息（避免发送空消息给 DeepSeek）
+            } else if (content == null) {
+                // assistant 消息可能 content=null（有 tool_calls 时）
+                filtered.add(msg);
             } else {
-                // 未知类型，跳过
-                log.warn("跳过未知消息内容类型: {}", content != null ? content.getClass().getSimpleName() : "null");
+                log.warn("跳过未知消息内容类型: {}", content.getClass().getSimpleName());
             }
         }
         return filtered;
     }
 
+    public String generateWithContext(String userId, String userMessage, String context) {
+        if (apiConfig.getAiApiKey() == null || apiConfig.getAiApiKey().isBlank()) {
+            return "错误: 未配置 DeepSeek API Key";
+        }
+
+        List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
+            List<ChatMessage> list = new ArrayList<>();
+            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，回答简洁。"));
+            return list;
+        });
+
+        String combinedMessage = "用户的问题：" + userMessage + "\n查询结果：" + context
+            + "\n请根据查询结果用自然语言回复用户。";
+        history.add(new ChatMessage("user", combinedMessage));
+        trimHistory(history);
+
+        try {
+            List<ChatMessage> filteredHistory = filterForTextOnly(history);
+            ChatRequest request = new ChatRequest(MODEL, filteredHistory);
+            String body = objectMapper.writeValueAsString(request);
+            log.info("上下文回复请求: {}", body);
+
+            byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
+            byte[] responseBytes = restClient.post()
+                    .header("Content-Type", "application/json; charset=UTF-8")
+                    .header("Authorization", "Bearer " + apiConfig.getAiApiKey())
+                    .body(bodyBytes)
+                    .retrieve()
+                    .body(byte[].class);
+
+            String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
+            log.info("上下文回复响应: {}", responseJson);
+
+            ChatResponse response = objectMapper.readValue(responseJson, ChatResponse.class);
+            if (response.getChoices() == null || response.getChoices().isEmpty()) {
+                return "错误: AI 未返回内容";
+            }
+
+            String reply = (String) response.getChoices().get(0).getMessage().content();
+            history.add(new ChatMessage("assistant", reply));
+            return reply;
+
+        } catch (Exception e) {
+            log.error("上下文回复生成失败", e);
+            return "抱歉，AI 回复生成失败，请稍后再试";
+        }
+    }
+
+    public void addExchange(String userId, String userMessage, String assistantReply) {
+        List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
+            List<ChatMessage> list = new ArrayList<>();
+            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，回答简洁。"));
+            return list;
+        });
+        history.add(new ChatMessage("user", userMessage));
+        history.add(new ChatMessage("assistant", assistantReply));
+        trimHistory(history);
+    }
+
+    public boolean hasSession(String userId) {
+        return sessions.containsKey(userId);
+    }
+
+    public void clearSession(String userId) {
+        sessions.remove(userId);
+    }
+
     /**
-     * 分析用户意图，不修改对话历史。
-     * 返回 IntentResult：
-     * - chat：一般对话，reply 为直接回复
-     * - weather：天气查询，city 为城市名
-     * - image：图片生成，description 为图片描述
+     * 分析用户意图（用于图片生成和语音合成检测）。
+     * 天气查询已由 Function Calling 通过 WeatherTool 处理，此方法不再返回 weather 意图。
      */
     public IntentResult detectIntent(String userMessage) {
         if (apiConfig.getAiApiKey() == null || apiConfig.getAiApiKey().isBlank()) {
@@ -254,10 +380,9 @@ public class AIService {
 
         String systemPrompt = """
             分析用户意图，仅返回 JSON，不要包含其他文字。
-            如果用户询问某个地点或城市的天气：{"intent":"weather","city":"城市名"}
             如果用户要求生成、画图或创建图片：{"intent":"image","description":"图片描述"}
             如果用户要求语音合成、朗读、读出来：{"intent":"tts","description":"要朗读的文本内容"}（如用户未指定朗读内容，description 留空字符串）
-            如果是一般对话：{"intent":"chat","reply":"你的回复"}
+            如果是一般对话（包括天气查询等）：{"intent":"chat","reply":"你的回复"}
             """;
 
         try {
@@ -299,17 +424,12 @@ public class AIService {
      */
     private IntentResult parseIntentResult(String json) {
         try {
-            // 提取 JSON 部分（可能被 ```json ... ``` 包裹）
             if (json.contains("```")) {
                 json = json.replaceAll("(?s)```(?:json)?\\s*", "").trim();
             }
             tools.jackson.databind.JsonNode root = objectMapper.readTree(json);
             String intent = root.path("intent").asText("chat");
             switch (intent) {
-                case "weather" -> {
-                    String city = root.path("city").asText("");
-                    return city.isBlank() ? IntentResult.chat(json) : IntentResult.weather(city);
-                }
                 case "image" -> {
                     String desc = root.path("description").asText("");
                     return desc.isBlank() ? IntentResult.chat(json) : IntentResult.image(desc);
@@ -327,80 +447,5 @@ public class AIService {
             log.warn("解析意图 JSON 失败，降级为一般对话: {}", json);
             return IntentResult.chat(json);
         }
-    }
-
-    /**
-     * 带上下文的回复生成：将 API 查询结果作为上下文发给 DeepSeek 生成自然语言回复。
-     * 会写入 session 历史。
-     */
-    public String generateWithContext(String userId, String userMessage, String context) {
-        if (apiConfig.getAiApiKey() == null || apiConfig.getAiApiKey().isBlank()) {
-            return "错误: 未配置 DeepSeek API Key";
-        }
-
-        List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
-            List<ChatMessage> list = new ArrayList<>();
-            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，回答简洁。"));
-            return list;
-        });
-
-        // 将用户问题和查询结果一起作为 user 消息
-        String combinedMessage = "用户的问题：" + userMessage + "\n查询结果：" + context
-            + "\n请根据查询结果用自然语言回复用户。";
-        history.add(new ChatMessage("user", combinedMessage));
-        trimHistory(history);
-
-        try {
-            List<ChatMessage> filteredHistory = filterForTextOnly(history);
-            ChatRequest request = new ChatRequest(MODEL, filteredHistory);
-            String body = objectMapper.writeValueAsString(request);
-            log.info("上下文回复请求: {}", body);
-
-            byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
-            byte[] responseBytes = restClient.post()
-                    .header("Content-Type", "application/json; charset=UTF-8")
-                    .header("Authorization", "Bearer " + apiConfig.getAiApiKey())
-                    .body(bodyBytes)
-                    .retrieve()
-                    .body(byte[].class);
-
-            String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
-            log.info("上下文回复响应: {}", responseJson);
-
-            ChatResponse response = objectMapper.readValue(responseJson, ChatResponse.class);
-            if (response.getChoices() == null || response.getChoices().isEmpty()) {
-                return "错误: AI 未返回内容";
-            }
-
-            String reply = (String) response.getChoices().get(0).getMessage().content();
-            history.add(new ChatMessage("assistant", reply));
-            return reply;
-
-        } catch (Exception e) {
-            log.error("上下文回复生成失败", e);
-            return "抱歉，AI 回复生成失败，请稍后再试";
-        }
-    }
-
-    /**
-     * 手动向 session 注入一组对话（用于天气等非 AI 回复也进入上下文）。
-     */
-    public void addExchange(String userId, String userMessage, String assistantReply) {
-        List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
-            List<ChatMessage> list = new ArrayList<>();
-            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，回答简洁。"));
-            return list;
-        });
-        history.add(new ChatMessage("user", userMessage));
-        history.add(new ChatMessage("assistant", assistantReply));
-        trimHistory(history);
-    }
-
-    public boolean hasSession(String userId) {
-        return sessions.containsKey(userId);
-    }
-
-    public void clearSession(String userId) {
-        sessions.remove(userId);
     }
 }

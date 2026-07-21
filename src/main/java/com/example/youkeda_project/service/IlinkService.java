@@ -2,6 +2,8 @@ package com.example.youkeda_project.service;
 
 import com.example.youkeda_project.ai.AIService;
 import com.example.youkeda_project.ai.IntentResult;
+import com.example.youkeda_project.ai.Tool;
+import com.example.youkeda_project.ai.WeatherTool;
 import com.example.youkeda_project.client.IlinkProtocolClient;
 import com.example.youkeda_project.protocol.GetUpdatesResponse;
 import com.example.youkeda_project.protocol.LoginResult;
@@ -52,6 +54,7 @@ public class IlinkService {
     private final VoiceService voiceService;
     private final TtsService ttsService;
     private final FileService fileService;
+    private final WeatherTool weatherTool;
 
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicBoolean polling = new AtomicBoolean(false);
@@ -61,7 +64,7 @@ public class IlinkService {
 
     public IlinkService(IlinkProtocolClient client, WeatherService weatherService,
                         AIService aiService, ImageService imageService, VoiceService voiceService,
-                        TtsService ttsService, FileService fileService) {
+                        TtsService ttsService, FileService fileService, WeatherTool weatherTool) {
         this.client = client;
         this.weatherService = weatherService;
         this.aiService = aiService;
@@ -69,6 +72,7 @@ public class IlinkService {
         this.voiceService = voiceService;
         this.ttsService = ttsService;
         this.fileService = fileService;
+        this.weatherTool = weatherTool;
     }
 
     /**
@@ -313,18 +317,11 @@ public class IlinkService {
                 ttsService.clearSession(fromUser);
             }
 
-            // DeepSeek 判断意图：天气/图片/语音合成/一般对话
+            // DeepSeek 判断意图：图片/语音合成/一般对话（天气由 Function Calling 处理）
             IntentResult intent = aiService.detectIntent(text);
             log.info("意图识别: intent={}, city={}, description={}", intent.intent(), intent.city(), intent.description());
 
-            if ("weather".equals(intent.intent()) && intent.city() != null) {
-                String weatherResult = weatherService.queryWeather(intent.city());
-                log.info("天气查询结果: {}", weatherResult);
-                String reply = aiService.generateWithContext(fromUser, text, weatherResult);
-                client.sendMessage(fromUser, msg.contextToken(), List.of(MessageItem.text(reply)));
-                log.info("已回复天气 {}: {}", fromUser, reply);
-
-            } else if ("image".equals(intent.intent()) && intent.description() != null) {
+            if ("image".equals(intent.intent()) && intent.description() != null) {
                 String prompt = intent.description();
                 String imageUrl = imageService.generateImage(prompt);
                 if (!imageUrl.startsWith("http://") && !imageUrl.startsWith("https://")) {
@@ -370,10 +367,12 @@ public class IlinkService {
                 return;
 
             } else {
-                // 一般对话
-                String reply = aiService.chat(fromUser, text);
+                // 天气查询 + 一般对话 → Function Calling（DeepSeek 自动决定是否调用天气工具）
+                System.out.println("[系统] " + fromUser + " 正在等待 AI 回复...");
+                String reply = aiService.chat(fromUser, text, List.of(weatherTool));
                 client.sendMessage(fromUser, msg.contextToken(), List.of(MessageItem.text(reply)));
                 log.info("已回复 {}: {}", fromUser, reply);
+                System.out.println("[微信] " + fromUser + ": " + reply);
             }
 
         } catch (Exception e) {
