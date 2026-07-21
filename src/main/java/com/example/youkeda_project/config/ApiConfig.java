@@ -57,6 +57,14 @@ public class ApiConfig {
     @Value("${voice.api.model:paraformer-v2}")
     private String voiceApiModel;
 
+    // 语音合成（TTS）非实时 HTTP API 地址
+    private static final String TTS_API_URL =
+        "https://dashscope.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer";
+
+    // 语音合成模型
+    @Value("${tts.api.model:cosyvoice-v3-flash}")
+    private String ttsApiModel;
+
     public String getDeepSeekApiKey() {
         return aiApiKey;
     }
@@ -93,5 +101,13 @@ public class ApiConfig {
 
     public String getVoiceApiModel() {
         return voiceApiModel;
+    }
+
+    public String getTtsApiUrl() {
+        return TTS_API_URL;
+    }
+
+    public String getTtsApiModel() {
+        return ttsApiModel;
     }
 }

@@ -241,6 +241,148 @@ public class AIService {
     }
 
     /**
+     * 分析用户意图，不修改对话历史。
+     * 返回 IntentResult：
+     * - chat：一般对话，reply 为直接回复
+     * - weather：天气查询，city 为城市名
+     * - image：图片生成，description 为图片描述
+     */
+    public IntentResult detectIntent(String userMessage) {
+        if (apiConfig.getAiApiKey() == null || apiConfig.getAiApiKey().isBlank()) {
+            return IntentResult.chat(null);
+        }
+
+        String systemPrompt = """
+            分析用户意图，仅返回 JSON，不要包含其他文字。
+            如果用户询问某个地点或城市的天气：{"intent":"weather","city":"城市名"}
+            如果用户要求生成、画图或创建图片：{"intent":"image","description":"图片描述"}
+            如果用户要求语音合成、朗读、读出来：{"intent":"tts","description":"要朗读的文本内容"}（如用户未指定朗读内容，description 留空字符串）
+            如果是一般对话：{"intent":"chat","reply":"你的回复"}
+            """;
+
+        try {
+            List<ChatMessage> messages = new ArrayList<>();
+            messages.add(new ChatMessage("system", systemPrompt));
+            messages.add(new ChatMessage("user", userMessage));
+
+            ChatRequest request = new ChatRequest(MODEL, messages);
+            String body = objectMapper.writeValueAsString(request);
+            log.info("意图检测请求: {}", body);
+
+            byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
+            byte[] responseBytes = restClient.post()
+                    .header("Content-Type", "application/json; charset=UTF-8")
+                    .header("Authorization", "Bearer " + apiConfig.getAiApiKey())
+                    .body(bodyBytes)
+                    .retrieve()
+                    .body(byte[].class);
+
+            String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
+            log.info("意图检测响应: {}", responseJson);
+
+            ChatResponse response = objectMapper.readValue(responseJson, ChatResponse.class);
+            if (response.getChoices() == null || response.getChoices().isEmpty()) {
+                return IntentResult.chat(null);
+            }
+
+            String content = (String) response.getChoices().get(0).getMessage().content();
+            return parseIntentResult(content);
+
+        } catch (Exception e) {
+            log.error("意图检测失败，降级为一般对话", e);
+            return IntentResult.chat(null);
+        }
+    }
+
+    /**
+     * 解析 DeepSeek 返回的意图 JSON 字符串。
+     */
+    private IntentResult parseIntentResult(String json) {
+        try {
+            // 提取 JSON 部分（可能被 ```json ... ``` 包裹）
+            if (json.contains("```")) {
+                json = json.replaceAll("(?s)```(?:json)?\\s*", "").trim();
+            }
+            tools.jackson.databind.JsonNode root = objectMapper.readTree(json);
+            String intent = root.path("intent").asText("chat");
+            switch (intent) {
+                case "weather" -> {
+                    String city = root.path("city").asText("");
+                    return city.isBlank() ? IntentResult.chat(json) : IntentResult.weather(city);
+                }
+                case "image" -> {
+                    String desc = root.path("description").asText("");
+                    return desc.isBlank() ? IntentResult.chat(json) : IntentResult.image(desc);
+                }
+                case "tts" -> {
+                    String text = root.path("description").asText("");
+                    return IntentResult.tts(text);
+                }
+                default -> {
+                    String reply = root.path("reply").asText("");
+                    return IntentResult.chat(reply.isBlank() ? json : reply);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("解析意图 JSON 失败，降级为一般对话: {}", json);
+            return IntentResult.chat(json);
+        }
+    }
+
+    /**
+     * 带上下文的回复生成：将 API 查询结果作为上下文发给 DeepSeek 生成自然语言回复。
+     * 会写入 session 历史。
+     */
+    public String generateWithContext(String userId, String userMessage, String context) {
+        if (apiConfig.getAiApiKey() == null || apiConfig.getAiApiKey().isBlank()) {
+            return "错误: 未配置 DeepSeek API Key";
+        }
+
+        List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
+            List<ChatMessage> list = new ArrayList<>();
+            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，回答简洁。"));
+            return list;
+        });
+
+        // 将用户问题和查询结果一起作为 user 消息
+        String combinedMessage = "用户的问题：" + userMessage + "\n查询结果：" + context
+            + "\n请根据查询结果用自然语言回复用户。";
+        history.add(new ChatMessage("user", combinedMessage));
+        trimHistory(history);
+
+        try {
+            List<ChatMessage> filteredHistory = filterForTextOnly(history);
+            ChatRequest request = new ChatRequest(MODEL, filteredHistory);
+            String body = objectMapper.writeValueAsString(request);
+            log.info("上下文回复请求: {}", body);
+
+            byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
+            byte[] responseBytes = restClient.post()
+                    .header("Content-Type", "application/json; charset=UTF-8")
+                    .header("Authorization", "Bearer " + apiConfig.getAiApiKey())
+                    .body(bodyBytes)
+                    .retrieve()
+                    .body(byte[].class);
+
+            String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
+            log.info("上下文回复响应: {}", responseJson);
+
+            ChatResponse response = objectMapper.readValue(responseJson, ChatResponse.class);
+            if (response.getChoices() == null || response.getChoices().isEmpty()) {
+                return "错误: AI 未返回内容";
+            }
+
+            String reply = (String) response.getChoices().get(0).getMessage().content();
+            history.add(new ChatMessage("assistant", reply));
+            return reply;
+
+        } catch (Exception e) {
+            log.error("上下文回复生成失败", e);
+            return "抱歉，AI 回复生成失败，请稍后再试";
+        }
+    }
+
+    /**
      * 手动向 session 注入一组对话（用于天气等非 AI 回复也进入上下文）。
      */
     public void addExchange(String userId, String userMessage, String assistantReply) {

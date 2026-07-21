@@ -34,6 +34,14 @@ public record SendMessageRequest(
         return items(toUserId, contextToken, List.of(MessageItem.cdnImage(media, midSize)));
     }
 
+    public static SendMessageRequest cdnVoice(String toUserId, String contextToken, CDNMedia media, String voiceUrl, Integer duration) {
+        return items(toUserId, contextToken, List.of(MessageItem.cdnVoice(media, voiceUrl, duration)));
+    }
+
+    public static SendMessageRequest cdnFile(String toUserId, String contextToken, CDNMedia media, String fileName, long fileSize) {
+        return items(toUserId, contextToken, List.of(MessageItem.cdnFile(media, fileName, fileSize)));
+    }
+
     /**
      * 消息内部结构。
      * fromUserId: 发送方（Bot）ID，通常填空字符串由服务端填充；

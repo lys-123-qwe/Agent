@@ -14,13 +14,22 @@ public record MessageItem(
     int type,
     @JsonProperty("text_item") TextItem textItem,
     @JsonProperty("image_item") ImageItem imageItem,
-    @JsonProperty("voice_item") VoiceItem voiceItem
+    @JsonProperty("voice_item") VoiceItem voiceItem,
+    @JsonProperty("file_item") FileItem fileItem
 ) {
     public static MessageItem text(String text) {
-        return new MessageItem(1, new TextItem(text), null, null);
+        return new MessageItem(1, new TextItem(text), null, null, null);
     }
 
     public static MessageItem cdnImage(CDNMedia media, int midSize) {
-        return new MessageItem(2, null, ImageItem.fromCdn(media, midSize), null);
+        return new MessageItem(2, null, ImageItem.fromCdn(media, midSize), null, null);
+    }
+
+    public static MessageItem cdnVoice(CDNMedia media, String voiceUrl, Integer duration) {
+        return new MessageItem(3, null, null, new VoiceItem(voiceUrl, media, duration), null);
+    }
+
+    public static MessageItem cdnFile(CDNMedia media, String fileName, long fileSize) {
+        return new MessageItem(4, null, null, null, new FileItem(media, fileName, String.valueOf(fileSize)));
     }
 }

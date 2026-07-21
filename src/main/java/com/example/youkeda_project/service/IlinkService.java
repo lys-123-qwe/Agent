@@ -1,11 +1,13 @@
 package com.example.youkeda_project.service;
 
 import com.example.youkeda_project.ai.AIService;
+import com.example.youkeda_project.ai.IntentResult;
 import com.example.youkeda_project.client.IlinkProtocolClient;
 import com.example.youkeda_project.protocol.GetUpdatesResponse;
 import com.example.youkeda_project.protocol.LoginResult;
 import com.example.youkeda_project.protocol.MessageItem;
 import com.example.youkeda_project.protocol.QRCodeResponse;
+import com.example.youkeda_project.protocol.FileItem;
 import com.example.youkeda_project.protocol.VoiceItem;
 import com.example.youkeda_project.protocol.WeixinMessage;
 import java.util.List;
@@ -30,22 +32,26 @@ public class IlinkService {
     private static final Logger log = LoggerFactory.getLogger(IlinkService.class);
     private static final long POLL_INTERVAL_MS = 3000;
 
-    // 首条消息欢迎语（消耗首条消息，因为 iLink 不支持 Bot 主动推送）
+    // 首条消息欢迎语（iLink 不支持 Bot 主动推送，在用户首条消息时回复）
     private static final String WELCOME_TEXT = """
         欢迎使用 Claw助手！\n\n\
         可用功能：\n\
         - AI对话：直接发送消息与我聊天\n\
-        - 天气查询：发送"天气 城市名"（如：天气 北京）\n\
-        - 图片生成：发送"图片生成 描述"（如：图片生成 一只可爱的猫）\n\
+        - 天气查询：直接告诉我城市名，我会帮你查询天气\n\
+        - 图片生成：直接描述你想要生成的图片\n\
         - 图片识别：直接发送图片给我\n\
-        - 语音识别：直接发送语音消息，自动转文字后 AI 回复\n\n\
-        开始试试吧！""";
+        - 语音识别：直接发送语音消息，自动转文字后 AI 回复\n\
+        - 语音合成：告诉我你想朗读的内容，我帮你合成语音\n\
+        - 文件识别：直接发送文件（doc/txt/pdf等），AI 自动提取内容并总结\n\n\
+        直接说话就行，不需要任何命令前缀！""";
 
     private final IlinkProtocolClient client;
     private final WeatherService weatherService;
     private final AIService aiService;
     private final ImageService imageService;
     private final VoiceService voiceService;
+    private final TtsService ttsService;
+    private final FileService fileService;
 
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicBoolean polling = new AtomicBoolean(false);
@@ -54,12 +60,15 @@ public class IlinkService {
     private Thread pollThread;     // 独立的消息轮询线程
 
     public IlinkService(IlinkProtocolClient client, WeatherService weatherService,
-                        AIService aiService, ImageService imageService, VoiceService voiceService) {
+                        AIService aiService, ImageService imageService, VoiceService voiceService,
+                        TtsService ttsService, FileService fileService) {
         this.client = client;
         this.weatherService = weatherService;
         this.aiService = aiService;
         this.imageService = imageService;
         this.voiceService = voiceService;
+        this.ttsService = ttsService;
+        this.fileService = fileService;
     }
 
     /**
@@ -135,8 +144,9 @@ public class IlinkService {
                             String text = extractText(msg);
                             boolean hasImage = extractFirstImage(msg) != null;
                             boolean hasVoice = extractFirstVoice(msg) != null;
+                            boolean hasFile = extractFirstFile(msg) != null;
                             // 只处理有 contextToken 的消息
-                            if (msg.contextToken() != null && (text != null || hasImage || hasVoice)) {
+                            if (msg.contextToken() != null && (text != null || hasImage || hasVoice || hasFile)) {
                                 if (text != null) {
                                     log.info("微信消息 from={}, text={}", fromUser, text);
                                     System.out.println("\n[微信] " + fromUser + ": " + text);
@@ -148,6 +158,10 @@ public class IlinkService {
                                 if (hasVoice) {
                                     log.info("微信消息 from={}, [语音]", fromUser);
                                     System.out.println("\n[微信] " + fromUser + ": [语音]");
+                                }
+                                if (hasFile) {
+                                    log.info("微信消息 from={}, [文件]", fromUser);
+                                    System.out.println("\n[微信] " + fromUser + ": [文件]");
                                 }
                                 handleMessage(msg);
                             }
@@ -184,7 +198,8 @@ public class IlinkService {
         try {
             String fromUser = msg.fromUserId();
 
-            // 首条消息欢迎机制：iLink 不支持主动推送，通过登录时记录的 ownerId 判断
+            // 首条消息欢迎机制：iLink 不支持 Bot 主动推送，通过登录时记录的 ownerId 判断
+            // 首条消息用于发送欢迎语（contextToken 只能使用一次，发完无法再回复同一条消息内容）
             if (!welcomeSent.get() && ownerId != null && ownerId.equals(fromUser)) {
                 client.sendMessage(fromUser, msg.contextToken(), List.of(MessageItem.text(WELCOME_TEXT)));
                 welcomeSent.set(true);
@@ -231,20 +246,86 @@ public class IlinkService {
                 return;
             }
 
-            String text = extractText(msg);
-            String reply;
+            // 文件识别：下载 → 提取文本 → AI 总结回复
+            MessageItem fileMsgItem = extractFirstFile(msg);
+            if (fileMsgItem != null) {
+                FileItem fileItem = fileMsgItem.fileItem();
+                String fileName = fileItem.fileName();
+                long fileSize = 0;
+                try { fileSize = Long.parseLong(fileItem.len()); } catch (NumberFormatException ignored) {}
+                System.out.println("[微信] " + fromUser + " 发送了文件: " + fileName + " (" + fileSize + " bytes)");
+                if (fileSize > FileService.MAX_FILE_SIZE) {
+                    client.sendMessage(fromUser, msg.contextToken(),
+                        List.of(MessageItem.text("文件太大了，我只能处理 20MB 以内的文件")));
+                    return;
+                }
+                try {
+                    byte[] fileBytes = client.downloadAndDecryptFile(fileItem);
+                    System.out.println("[系统] 文件下载完成: " + fileBytes.length + " bytes，正在解析...");
+                    String extractedText = fileService.extractText(fileBytes, fileName);
+                    log.info("文件文本提取完成: {}, {} 字符", fileName, extractedText.length());
+                    System.out.println("[系统] 文本提取完成: " + extractedText.length() + " 字符");
+                    String reply = aiService.generateWithContext(fromUser,
+                        "请帮我总结这个文件的内容", "文件名：" + fileName + "\n\n文件内容：\n" + extractedText);
+                    client.sendMessage(fromUser, msg.contextToken(), List.of(MessageItem.text(reply)));
+                    log.info("已回复文件识别 {}: {}", fromUser, reply);
+                    System.out.println("[微信] " + fromUser + ": " + reply);
+                } catch (Exception e) {
+                    log.error("文件处理失败: {}", fileName, e);
+                    client.sendMessage(fromUser, msg.contextToken(),
+                        List.of(MessageItem.text("文件处理失败: " + e.getMessage())));
+                }
+                return;
+            }
 
-            String lowerText = text.toLowerCase().trim();
-            if (lowerText.startsWith("weather ")) {
-                String city = text.substring("weather ".length()).trim();
-                reply = weatherService.queryWeather(city);
-                aiService.addExchange(fromUser, text, reply); // 天气结果注入 AI session 实现上下文感知
-            } else if (lowerText.startsWith("天气 ")) {
-                String city = text.substring("天气 ".length()).trim();
-                reply = weatherService.queryWeather(city);
-                aiService.addExchange(fromUser, text, reply);
-            } else if (lowerText.startsWith("图片生成 ")) {
-                String prompt = text.substring("图片生成 ".length()).trim();
+            String text = extractText(msg);
+
+            // TTS 多轮状态检查
+            TtsService.TtsSession ttsSession = ttsService.getOrCreateSession(fromUser);
+            if (ttsSession.state == TtsService.TtsState.WAITING_TEXT) {
+                ttsSession.text = text;
+                ttsSession.state = TtsService.TtsState.WAITING_VOICE;
+                log.info("TTS 已获取文本: {}", text);
+                client.sendMessage(fromUser, msg.contextToken(),
+                    List.of(MessageItem.text(ttsService.getVoicePrompt())));
+                return;
+            }
+            if (ttsSession.state == TtsService.TtsState.WAITING_VOICE) {
+                if ("取消".equals(text.trim())) {
+                    ttsService.clearSession(fromUser);
+                    client.sendMessage(fromUser, msg.contextToken(),
+                        List.of(MessageItem.text("已取消语音合成")));
+                    return;
+                }
+                String voiceId = ttsService.resolveVoice(text);
+                if (voiceId != null) {
+                    log.info("TTS 音色已选择: {} -> {}", text, voiceId);
+                    System.out.println("[系统] 正在合成语音...");
+                    TtsService.TtsResult ttsResult = ttsService.synthesizeMp3(ttsSession.text, voiceId);
+                    System.out.println("[系统] 语音合成完成，正在上传发送...");
+                    client.uploadAndSendFile(fromUser, msg.contextToken(), ttsResult.audioBytes(), "tts.mp3", ttsResult.audioBytes().length);
+                    ttsService.clearSession(fromUser);
+                    log.info("已发送 TTS 语音给 {}", fromUser);
+                    System.out.println("[微信] " + fromUser + ": [语音合成消息]");
+                    return;
+                }
+                // 非音色选择，当作一般对话处理（清除 TTS 会话）
+                ttsService.clearSession(fromUser);
+            }
+
+            // DeepSeek 判断意图：天气/图片/语音合成/一般对话
+            IntentResult intent = aiService.detectIntent(text);
+            log.info("意图识别: intent={}, city={}, description={}", intent.intent(), intent.city(), intent.description());
+
+            if ("weather".equals(intent.intent()) && intent.city() != null) {
+                String weatherResult = weatherService.queryWeather(intent.city());
+                log.info("天气查询结果: {}", weatherResult);
+                String reply = aiService.generateWithContext(fromUser, text, weatherResult);
+                client.sendMessage(fromUser, msg.contextToken(), List.of(MessageItem.text(reply)));
+                log.info("已回复天气 {}: {}", fromUser, reply);
+
+            } else if ("image".equals(intent.intent()) && intent.description() != null) {
+                String prompt = intent.description();
                 String imageUrl = imageService.generateImage(prompt);
                 if (!imageUrl.startsWith("http://") && !imageUrl.startsWith("https://")) {
                     client.sendMessage(fromUser, msg.contextToken(), List.of(MessageItem.text(imageUrl)));
@@ -263,13 +344,37 @@ public class IlinkService {
                     client.sendMessage(fromUser, msg.contextToken(),
                         List.of(MessageItem.text("图片上传失败: " + e.getMessage())));
                 }
+                // 图片生成结果通知 DeepSeek 生成自然语言回复
+                String context = "已根据用户描述生成了图片，图片描述：" + prompt;
+                String reply = aiService.generateWithContext(fromUser, text, context);
+                client.sendMessage(fromUser, msg.contextToken(), List.of(MessageItem.text(reply)));
+                log.info("已回复图片文字说明 {}: {}", fromUser, reply);
                 return;
-            } else {
-                reply = aiService.chat(fromUser, text);
-            }
 
-            client.sendMessage(fromUser, msg.contextToken(), List.of(MessageItem.text(reply)));
-            log.info("已回复 {}: {}", fromUser, reply);
+            } else if ("tts".equals(intent.intent())) {
+                String ttsText = intent.description();
+                if (ttsText == null || ttsText.isBlank()) {
+                    // 未指定朗读内容，追问
+                    ttsSession.state = TtsService.TtsState.WAITING_TEXT;
+                    String promptMsg = "请告诉我你想让我朗读什么内容？\n（回复 \"取消\" 取消操作）";
+                    client.sendMessage(fromUser, msg.contextToken(), List.of(MessageItem.text(promptMsg)));
+                    log.info("TTS 追问文本: {}", fromUser);
+                    return;
+                }
+                // 已有朗读内容，让用户选择音色
+                ttsSession.text = ttsText;
+                ttsSession.state = TtsService.TtsState.WAITING_VOICE;
+                client.sendMessage(fromUser, msg.contextToken(),
+                    List.of(MessageItem.text("已收到，请选择音色：\n" + ttsService.getVoicePrompt())));
+                log.info("TTS 文本已提取: {}", ttsText);
+                return;
+
+            } else {
+                // 一般对话
+                String reply = aiService.chat(fromUser, text);
+                client.sendMessage(fromUser, msg.contextToken(), List.of(MessageItem.text(reply)));
+                log.info("已回复 {}: {}", fromUser, reply);
+            }
 
         } catch (Exception e) {
             log.error("处理消息失败", e);
@@ -326,6 +431,17 @@ public class IlinkService {
         if (msg.itemList() == null) return null;
         return msg.itemList().stream()
                 .filter(item -> item.voiceItem() != null)
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * 从消息的 itemList 中提取第一个文件项。
+     */
+    private MessageItem extractFirstFile(WeixinMessage msg) {
+        if (msg.itemList() == null) return null;
+        return msg.itemList().stream()
+                .filter(item -> item.fileItem() != null)
                 .findFirst()
                 .orElse(null);
     }
