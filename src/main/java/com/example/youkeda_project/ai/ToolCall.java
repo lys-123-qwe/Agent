@@ -24,10 +24,14 @@ public record ToolCall(
 
     /**
      * 从 ChatChoice 中提取 tool_calls 列表。
+     * 优先取 choice 层级的 tool_calls，若为 null 则从 message 层级获取。
      */
     @SuppressWarnings("unchecked")
     public static List<ToolCall> fromChoice(ChatChoice choice) {
         Object raw = choice.getToolCalls();
+        if (raw == null && choice.getMessage() != null) {
+            raw = choice.getMessage().toolCalls();
+        }
         if (raw instanceof List<?> list) {
             return list.stream()
                 .filter(e -> e instanceof java.util.Map)

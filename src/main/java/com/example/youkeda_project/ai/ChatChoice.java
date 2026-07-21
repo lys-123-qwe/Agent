@@ -49,6 +49,8 @@ public class ChatChoice {
     }
 
     public boolean isToolCall() {
-        return "tool_calls".equals(finishReason) && toolCalls != null;
+        if (!"tool_calls".equals(finishReason)) return false;
+        if (toolCalls != null) return true;
+        return message != null && message.toolCalls() != null;
     }
 }

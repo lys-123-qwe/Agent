@@ -11,6 +11,7 @@ import org.springframework.web.client.RestClient;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.Map;
 
 /**
@@ -87,6 +88,72 @@ public class ImageService {
             log.error("通义万相调用失败", e);
             return "图片生成失败: " + e.getMessage();
         }
+    }
+
+    /**
+     * 通义万相图生图编辑（wan2.6-image）。
+     * 传入参考图片字节 + 文字描述，返回编辑后的图片 URL。
+     */
+    public String editImage(byte[] refImage, String prompt) {
+        if (apiConfig.getImageApiKey() == null || apiConfig.getImageApiKey().isBlank()) {
+            return "错误: 未配置通义万相 API Key";
+        }
+        if (prompt == null || prompt.trim().isEmpty()) {
+            return "错误: 请提供编辑描述";
+        }
+        if (refImage == null || refImage.length == 0) {
+            return "错误: 参考图片数据为空";
+        }
+
+        try {
+            String mimeType = detectMimeType(refImage);
+            String base64 = Base64.getEncoder().encodeToString(refImage);
+            String dataUrl = "data:" + mimeType + ";base64," + base64;
+
+            Map<String, Object> requestBody = Map.of(
+                "model", "wan2.6-image",
+                "input", Map.of("messages", java.util.List.of(
+                    Map.of("role", "user",
+                        "content", java.util.List.of(
+                            Map.of("text", prompt.trim()),
+                            Map.of("image", dataUrl)
+                        ))
+                )),
+                "parameters", Map.of(
+                    "n", 1,
+                    "size", "1K"
+                )
+            );
+
+            String body = objectMapper.writeValueAsString(requestBody);
+            log.info("通义万相图编辑请求: {}", body);
+
+            byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
+            byte[] responseBytes = restClient.post()
+                    .uri(apiConfig.getImageApiUrl() + "/api/v1/services/aigc/multimodal-generation/generation")
+                    .header("Content-Type", "application/json; charset=UTF-8")
+                    .header("Authorization", "Bearer " + apiConfig.getImageApiKey())
+                    .body(bodyBytes)
+                    .retrieve()
+                    .body(byte[].class);
+
+            String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
+            log.info("通义万相图编辑响应: {}", responseJson);
+
+            return parseImageResponse(responseJson);
+
+        } catch (Exception e) {
+            log.error("通义万相图编辑调用失败", e);
+            return "图片编辑失败: " + e.getMessage();
+        }
+    }
+
+    private String detectMimeType(byte[] data) {
+        if (data.length > 2 && data[0] == (byte) 0xFF && data[1] == (byte) 0xD8) return "image/jpeg";
+        if (data.length > 3 && data[0] == (byte) 0x89 && data[1] == (byte) 0x50 && data[2] == (byte) 0x4E) return "image/png";
+        if (data.length > 3 && data[0] == (byte) 0x47 && data[1] == (byte) 0x49 && data[2] == (byte) 0x46) return "image/gif";
+        if (data.length > 4 && data[0] == (byte) 0x52 && data[1] == (byte) 0x49 && data[2] == (byte) 0x46 && data[3] == (byte) 0x46) return "image/webp";
+        return "image/jpeg";
     }
 
     /**

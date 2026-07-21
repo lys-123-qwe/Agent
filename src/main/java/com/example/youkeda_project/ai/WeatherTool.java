@@ -52,12 +52,12 @@ public class WeatherTool implements Tool {
     }
 
     @Override
-    public String execute(Map<String, Object> arguments) {
+    public ToolResult execute(Map<String, Object> arguments) {
         String location = arguments != null ? (String) arguments.get("location") : null;
         if (location == null || location.isBlank()) {
-            return "错误: 请指定城市名";
+            return ToolResult.text("错误: 请指定城市名");
         }
         log.info("WeatherTool 执行: location={}", location);
-        return weatherService.queryWeather(location);
+        return ToolResult.text(weatherService.queryWeather(location));
     }
 }

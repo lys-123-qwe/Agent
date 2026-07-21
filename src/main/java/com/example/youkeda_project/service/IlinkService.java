@@ -1,8 +1,13 @@
 package com.example.youkeda_project.service;
 
 import com.example.youkeda_project.ai.AIService;
-import com.example.youkeda_project.ai.IntentResult;
+import com.example.youkeda_project.ai.ChatResult;
+import com.example.youkeda_project.ai.EditImageTool;
+import com.example.youkeda_project.ai.ImageTool;
+import com.example.youkeda_project.ai.RecognizeImageTool;
 import com.example.youkeda_project.ai.Tool;
+import com.example.youkeda_project.ai.ToolResult;
+import com.example.youkeda_project.ai.TtsTool;
 import com.example.youkeda_project.ai.WeatherTool;
 import com.example.youkeda_project.client.IlinkProtocolClient;
 import com.example.youkeda_project.protocol.GetUpdatesResponse;
@@ -55,16 +60,20 @@ public class IlinkService {
     private final TtsService ttsService;
     private final FileService fileService;
     private final WeatherTool weatherTool;
+    private final ImageTool imageTool;
+    private final TtsTool ttsTool;
 
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicBoolean polling = new AtomicBoolean(false);
     private final AtomicBoolean welcomeSent = new AtomicBoolean(false);
-    private String ownerId;       // 登录者的微信用户 ID，用于识别首条消息
-    private Thread pollThread;     // 独立的消息轮询线程
+    private final java.util.concurrent.ConcurrentHashMap<String, byte[]> pendingImages = new java.util.concurrent.ConcurrentHashMap<>();
+    private String ownerId;
+    private Thread pollThread;
 
     public IlinkService(IlinkProtocolClient client, WeatherService weatherService,
                         AIService aiService, ImageService imageService, VoiceService voiceService,
-                        TtsService ttsService, FileService fileService, WeatherTool weatherTool) {
+                        TtsService ttsService, FileService fileService,
+                        WeatherTool weatherTool, ImageTool imageTool, TtsTool ttsTool) {
         this.client = client;
         this.weatherService = weatherService;
         this.aiService = aiService;
@@ -73,6 +82,8 @@ public class IlinkService {
         this.ttsService = ttsService;
         this.fileService = fileService;
         this.weatherTool = weatherTool;
+        this.imageTool = imageTool;
+        this.ttsTool = ttsTool;
     }
 
     /**
@@ -212,16 +223,24 @@ public class IlinkService {
                 return;
             }
 
-            // 图片识别优先处理
+            // 图片处理：不再直接识别，交由 DeepSeek 判断（识图 or 编辑）
             MessageItem imageItem = extractFirstImage(msg);
             if (imageItem != null) {
-                String textPrompt = extractText(msg);
-                System.out.println("[微信] " + fromUser + " 发送了图片，正在识别...");
                 byte[] imageBytes = client.downloadAndDecryptImage(imageItem);
-                String reply = aiService.chatWithImage(fromUser, textPrompt, imageBytes);
-                client.sendMessage(fromUser, msg.contextToken(), List.of(MessageItem.text(reply)));
-                log.info("已回复图片识别 {}: {}", fromUser, reply);
-                System.out.println("[微信] " + fromUser + ": " + reply);
+                String textPrompt = extractText(msg);
+
+                if (textPrompt != null && !textPrompt.isBlank()) {
+                    // 同一条消息中带了文字指令 → 直接处理
+                    System.out.println("[微信] " + fromUser + " 发送了图片+指令，正在处理...");
+                    processImageWithInstruction(fromUser, msg.contextToken(), imageBytes, textPrompt);
+                } else {
+                    // 纯图片 → 存储等待文字指令
+                    pendingImages.put(fromUser, imageBytes);
+                    client.sendMessage(fromUser, msg.contextToken(),
+                        List.of(MessageItem.text("图片已收到，请发送文字告诉我你想做什么？\n- 识别图片内容\n- 编辑图片（如：把猫换成狗、改变背景颜色）")));
+                    log.info("已存储 {} 的待处理图片，等待指令", fromUser);
+                    System.out.println("[微信] " + fromUser + ": [系统] 图片已收到，请发送文字告诉我你想做什么");
+                }
                 return;
             }
 
@@ -284,96 +303,52 @@ public class IlinkService {
 
             String text = extractText(msg);
 
-            // TTS 多轮状态检查
-            TtsService.TtsSession ttsSession = ttsService.getOrCreateSession(fromUser);
-            if (ttsSession.state == TtsService.TtsState.WAITING_TEXT) {
-                ttsSession.text = text;
-                ttsSession.state = TtsService.TtsState.WAITING_VOICE;
-                log.info("TTS 已获取文本: {}", text);
-                client.sendMessage(fromUser, msg.contextToken(),
-                    List.of(MessageItem.text(ttsService.getVoicePrompt())));
+            // 检查是否有待处理的图片（用户先发图，再发文字指令）
+            byte[] pendingImage = pendingImages.remove(fromUser);
+            if (pendingImage != null) {
+                processImageWithInstruction(fromUser, msg.contextToken(), pendingImage, text);
                 return;
             }
-            if (ttsSession.state == TtsService.TtsState.WAITING_VOICE) {
-                if ("取消".equals(text.trim())) {
-                    ttsService.clearSession(fromUser);
-                    client.sendMessage(fromUser, msg.contextToken(),
-                        List.of(MessageItem.text("已取消语音合成")));
-                    return;
-                }
-                String voiceId = ttsService.resolveVoice(text);
-                if (voiceId != null) {
-                    log.info("TTS 音色已选择: {} -> {}", text, voiceId);
-                    System.out.println("[系统] 正在合成语音...");
-                    TtsService.TtsResult ttsResult = ttsService.synthesizeMp3(ttsSession.text, voiceId);
-                    System.out.println("[系统] 语音合成完成，正在上传发送...");
-                    client.uploadAndSendFile(fromUser, msg.contextToken(), ttsResult.audioBytes(), "tts.mp3", ttsResult.audioBytes().length);
-                    ttsService.clearSession(fromUser);
-                    log.info("已发送 TTS 语音给 {}", fromUser);
-                    System.out.println("[微信] " + fromUser + ": [语音合成消息]");
-                    return;
-                }
-                // 非音色选择，当作一般对话处理（清除 TTS 会话）
-                ttsService.clearSession(fromUser);
-            }
 
-            // DeepSeek 判断意图：图片/语音合成/一般对话（天气由 Function Calling 处理）
-            IntentResult intent = aiService.detectIntent(text);
-            log.info("意图识别: intent={}, city={}, description={}", intent.intent(), intent.city(), intent.description());
+            // Function Calling：将所有工具传递给 DeepSeek，由模型自主决定调用哪些
+            System.out.println("[系统] " + fromUser + " 正在等待 AI 回复...");
+            List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool);
+            ChatResult result = aiService.chat(fromUser, text, allTools);
+            String reply = result.getReplyText();
 
-            if ("image".equals(intent.intent()) && intent.description() != null) {
-                String prompt = intent.description();
-                String imageUrl = imageService.generateImage(prompt);
-                if (!imageUrl.startsWith("http://") && !imageUrl.startsWith("https://")) {
-                    client.sendMessage(fromUser, msg.contextToken(), List.of(MessageItem.text(imageUrl)));
-                    log.info("图片生成失败: {}", imageUrl);
-                    return;
-                }
-                log.info("图片已生成: {}", imageUrl);
+            // 处理工具产生的媒体侧效应（图片 CDN 上传、音频文件发送）
+            if (result.hasPendingImage()) {
+                String imageUrl = result.getFirstPendingImageUrl();
                 System.out.println("[系统] 图片已生成，正在上传到微信CDN...");
                 try {
                     byte[] imageBytes = imageService.downloadImage(imageUrl);
                     client.uploadAndSendImage(fromUser, msg.contextToken(), imageBytes);
-                    log.info("已回复图片 {}", fromUser);
+                    log.info("已发送图片 {}", fromUser);
                     System.out.println("[系统] 图片已发送到微信");
                 } catch (Exception e) {
                     log.error("图片上传发送失败", e);
-                    client.sendMessage(fromUser, msg.contextToken(),
-                        List.of(MessageItem.text("图片上传失败: " + e.getMessage())));
+                    reply += "\n\n（图片上传失败: " + e.getMessage() + "）";
                 }
-                // 图片生成结果通知 DeepSeek 生成自然语言回复
-                String context = "已根据用户描述生成了图片，图片描述：" + prompt;
-                String reply = aiService.generateWithContext(fromUser, text, context);
-                client.sendMessage(fromUser, msg.contextToken(), List.of(MessageItem.text(reply)));
-                log.info("已回复图片文字说明 {}: {}", fromUser, reply);
-                return;
-
-            } else if ("tts".equals(intent.intent())) {
-                String ttsText = intent.description();
-                if (ttsText == null || ttsText.isBlank()) {
-                    // 未指定朗读内容，追问
-                    ttsSession.state = TtsService.TtsState.WAITING_TEXT;
-                    String promptMsg = "请告诉我你想让我朗读什么内容？\n（回复 \"取消\" 取消操作）";
-                    client.sendMessage(fromUser, msg.contextToken(), List.of(MessageItem.text(promptMsg)));
-                    log.info("TTS 追问文本: {}", fromUser);
-                    return;
-                }
-                // 已有朗读内容，让用户选择音色
-                ttsSession.text = ttsText;
-                ttsSession.state = TtsService.TtsState.WAITING_VOICE;
-                client.sendMessage(fromUser, msg.contextToken(),
-                    List.of(MessageItem.text("已收到，请选择音色：\n" + ttsService.getVoicePrompt())));
-                log.info("TTS 文本已提取: {}", ttsText);
-                return;
-
-            } else {
-                // 天气查询 + 一般对话 → Function Calling（DeepSeek 自动决定是否调用天气工具）
-                System.out.println("[系统] " + fromUser + " 正在等待 AI 回复...");
-                String reply = aiService.chat(fromUser, text, List.of(weatherTool));
-                client.sendMessage(fromUser, msg.contextToken(), List.of(MessageItem.text(reply)));
-                log.info("已回复 {}: {}", fromUser, reply);
-                System.out.println("[微信] " + fromUser + ": " + reply);
             }
+
+            if (result.hasPendingAudio()) {
+                ToolResult audio = result.getFirstPendingAudio();
+                System.out.println("[系统] 语音合成完成，正在上传发送...");
+                try {
+                    client.uploadAndSendFile(fromUser, msg.contextToken(),
+                        audio.getAudioBytes(), audio.getAudioFileName(), audio.getAudioBytes().length);
+                    log.info("已发送语音 {}", fromUser);
+                    System.out.println("[微信] " + fromUser + ": [语音合成消息]");
+                } catch (Exception e) {
+                    log.error("语音上传发送失败", e);
+                    reply += "\n\n（语音上传失败: " + e.getMessage() + "）";
+                }
+            }
+
+            // 发送文本回复
+            client.sendMessage(fromUser, msg.contextToken(), List.of(MessageItem.text(reply)));
+            log.info("已回复 {}: {}", fromUser, reply);
+            System.out.println("[微信] " + fromUser + ": " + reply);
 
         } catch (Exception e) {
             log.error("处理消息失败", e);
@@ -393,6 +368,46 @@ public class IlinkService {
         client.setCredentials(null, null);
         log.info("iLink 已断开");
         return "iLink 已断开";
+    }
+
+    /**
+     * 处理带图片的指令：由 DeepSeek 通过 Function Calling 判断是识图还是编辑，
+     * 调用对应的工具（RecognizeImageTool / EditImageTool），处理媒体结果。
+     */
+    private void processImageWithInstruction(String fromUser, String contextToken, byte[] imageBytes, String instruction) {
+        System.out.println("[系统] " + fromUser + " 正在处理图片指令...");
+
+        RecognizeImageTool recognizeTool = new RecognizeImageTool(aiService, fromUser, imageBytes);
+        EditImageTool editTool = new EditImageTool(imageService, imageBytes);
+        List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, recognizeTool, editTool);
+
+        String contextMessage = "[系统提示：当前有一张待处理的图片。请根据用户的指令选择合适的工具。]\n"
+            + "[如果用户想识别图片内容（这是什么、描述图片、提取文字等），请调用 recognize_image 工具]\n"
+            + "[如果用户想编辑图片（修改物体、颜色、背景、风格等），请调用 edit_image 工具]\n"
+            + "用户指令：" + instruction;
+
+        ChatResult result = aiService.chat(fromUser, contextMessage, allTools);
+        String reply = result.getReplyText();
+
+        // 处理编辑后的图片（CDN 上传 → 发送到微信）
+        if (result.hasPendingImage()) {
+            String imageUrl = result.getFirstPendingImageUrl();
+            System.out.println("[系统] 图片编辑完成，正在上传到微信CDN...");
+            try {
+                byte[] editedImageBytes = imageService.downloadImage(imageUrl);
+                client.uploadAndSendImage(fromUser, contextToken, editedImageBytes);
+                log.info("已发送编辑后的图片 {}", fromUser);
+                System.out.println("[系统] 图片已发送到微信");
+            } catch (Exception e) {
+                log.error("编辑图片上传发送失败", e);
+                reply += "\n\n（编辑图片上传失败: " + e.getMessage() + "）";
+            }
+        }
+
+        // 发送文本回复
+        client.sendMessage(fromUser, contextToken, List.of(MessageItem.text(reply)));
+        log.info("已回复图片指令 {}: {}", fromUser, reply);
+        System.out.println("[微信] " + fromUser + ": " + reply);
     }
 
     public boolean isConnected() {
