@@ -67,6 +67,7 @@ public class IlinkService {
     private final AtomicBoolean polling = new AtomicBoolean(false);
     private final AtomicBoolean welcomeSent = new AtomicBoolean(false);
     private final java.util.concurrent.ConcurrentHashMap<String, byte[]> pendingImages = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.ConcurrentHashMap<String, String> lastGeneratedImageUrl = new java.util.concurrent.ConcurrentHashMap<>();
     private String ownerId;
     private Thread pollThread;
 
@@ -262,7 +263,62 @@ public class IlinkService {
                 }
                 log.info("语音转文字结果: {}", transcribedText);
                 System.out.println("[微信] " + fromUser + " (语音转文字): " + transcribedText);
-                String reply = aiService.chat(fromUser, transcribedText);
+
+                // 检查是否有待处理的图片（先发图，再发语音指令）
+                byte[] pendingImage = pendingImages.remove(fromUser);
+                if (pendingImage != null) {
+                    processImageWithInstruction(fromUser, msg.contextToken(), pendingImage, transcribedText);
+                    return;
+                }
+
+                // 检查是否有最近生成的图片可识别/编辑
+                String lastGenUrl = lastGeneratedImageUrl.get(fromUser);
+                if (lastGenUrl != null) {
+                    System.out.println("[系统] 找到最近生成的图片，下载中...");
+                    try {
+                        byte[] genImageBytes = imageService.downloadImage(lastGenUrl);
+                        processImageWithInstruction(fromUser, msg.contextToken(), genImageBytes, transcribedText);
+                        return;
+                    } catch (Exception e) {
+                        log.warn("下载最近生成的图片失败，回退到普通对话: {}", e.getMessage());
+                        lastGeneratedImageUrl.remove(fromUser);
+                    }
+                }
+
+                // 无图片上下文，走普通对话
+                List<Tool> voiceTools = List.of(weatherTool, imageTool, ttsTool);
+                ChatResult result = aiService.chat(fromUser, transcribedText, voiceTools);
+                String reply = result.getReplyText();
+
+                if (result.hasPendingImage()) {
+                    String imageUrl = result.getFirstPendingImageUrl();
+                    lastGeneratedImageUrl.put(fromUser, imageUrl);
+                    System.out.println("[系统] 图片已生成，正在上传到微信CDN...");
+                    try {
+                        byte[] imageBytes = imageService.downloadImage(imageUrl);
+                        client.uploadAndSendImage(fromUser, msg.contextToken(), imageBytes);
+                        log.info("已发送图片 {}", fromUser);
+                        System.out.println("[系统] 图片已发送到微信");
+                    } catch (Exception e) {
+                        log.error("图片上传发送失败", e);
+                        reply += "\n\n（图片上传失败: " + e.getMessage() + "）";
+                    }
+                }
+
+                if (result.hasPendingAudio()) {
+                    ToolResult audio = result.getFirstPendingAudio();
+                    System.out.println("[系统] 语音合成完成，正在上传发送...");
+                    try {
+                        client.uploadAndSendFile(fromUser, msg.contextToken(),
+                            audio.getAudioBytes(), audio.getAudioFileName(), audio.getAudioBytes().length);
+                        log.info("已发送语音 {}", fromUser);
+                        System.out.println("[微信] " + fromUser + ": [语音合成消息]");
+                    } catch (Exception e) {
+                        log.error("语音上传发送失败", e);
+                        reply += "\n\n（语音上传失败: " + e.getMessage() + "）";
+                    }
+                }
+
                 client.sendMessage(fromUser, msg.contextToken(), List.of(MessageItem.text(reply)));
                 log.info("已回复语音 {}: {}", fromUser, reply);
                 System.out.println("[微信] " + fromUser + ": " + reply);
@@ -319,6 +375,7 @@ public class IlinkService {
             // 处理工具产生的媒体侧效应（图片 CDN 上传、音频文件发送）
             if (result.hasPendingImage()) {
                 String imageUrl = result.getFirstPendingImageUrl();
+                lastGeneratedImageUrl.put(fromUser, imageUrl);
                 System.out.println("[系统] 图片已生成，正在上传到微信CDN...");
                 try {
                     byte[] imageBytes = imageService.downloadImage(imageUrl);
@@ -392,6 +449,7 @@ public class IlinkService {
         // 处理编辑后的图片（CDN 上传 → 发送到微信）
         if (result.hasPendingImage()) {
             String imageUrl = result.getFirstPendingImageUrl();
+            lastGeneratedImageUrl.put(fromUser, imageUrl);
             System.out.println("[系统] 图片编辑完成，正在上传到微信CDN...");
             try {
                 byte[] editedImageBytes = imageService.downloadImage(imageUrl);
