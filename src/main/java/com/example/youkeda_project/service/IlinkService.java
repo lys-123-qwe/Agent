@@ -6,6 +6,7 @@ import com.example.youkeda_project.ai.EditImageTool;
 import com.example.youkeda_project.ai.HotNewsTool;
 import com.example.youkeda_project.ai.ImageTool;
 import com.example.youkeda_project.ai.RecognizeImageTool;
+import com.example.youkeda_project.ai.StockTool;
 import com.example.youkeda_project.ai.Tool;
 import com.example.youkeda_project.ai.ToolResult;
 import com.example.youkeda_project.ai.TtsTool;
@@ -44,18 +45,9 @@ public class IlinkService {
     private static final Logger log = LoggerFactory.getLogger(IlinkService.class);
     private static final long POLL_INTERVAL_MS = 3000;
 
-    // 首条消息欢迎语（iLink 不支持 Bot 主动推送，在用户首条消息时回复）
     private static final String WELCOME_TEXT = """
-        欢迎使用 Claw助手！\n\n\
-        可用功能：\n\
-        - AI对话：直接发送消息与我聊天\n\
-        - 天气查询：直接告诉我城市名，我会帮你查询天气\n\
-        - 图片生成：直接描述你想要生成的图片\n\
-        - 图片识别：直接发送图片给我\n\
-        - 语音识别：直接发送语音消息，自动转文字后 AI 回复\n\
-        - 语音合成：告诉我你想朗读的内容，我帮你合成语音\n\
-        - 文件识别：直接发送文件（doc/txt/pdf等），AI 自动提取内容并总结\n\n\
-        直接说话就行，不需要任何命令前缀！""";
+        嗨！我是 Claw 小助手 😊\n\
+        查天气、看股票、搜新闻、聊天、画图……有啥需要直接跟我说就行～""";
 
     private final IlinkProtocolClient client;
     private final WeatherService weatherService;
@@ -68,6 +60,7 @@ public class IlinkService {
     private final ImageTool imageTool;
     private final TtsTool ttsTool;
     private final HotNewsTool hotNewsTool;
+    private final StockTool stockTool;
     private final ExchangeRateTool exchangeRateTool;
     private final DateTimeTool dateTimeTool;
     private final ConstellationTool constellationTool;
@@ -75,17 +68,17 @@ public class IlinkService {
 
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicBoolean polling = new AtomicBoolean(false);
-    private final AtomicBoolean welcomeSent = new AtomicBoolean(false);
     private final java.util.concurrent.ConcurrentHashMap<String, byte[]> pendingImages = new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.concurrent.ConcurrentHashMap<String, String> lastGeneratedImageUrl = new java.util.concurrent.ConcurrentHashMap<>();
     private String ownerId;
+    private boolean ownerWelcomed = false;
     private Thread pollThread;
 
     public IlinkService(IlinkProtocolClient client, WeatherService weatherService,
                         AIService aiService, ImageService imageService, VoiceService voiceService,
                         TtsService ttsService, FileService fileService,
                         WeatherTool weatherTool, ImageTool imageTool, TtsTool ttsTool,
-                        HotNewsTool hotNewsTool,
+                        HotNewsTool hotNewsTool, StockTool stockTool,
                         ExchangeRateTool exchangeRateTool, DateTimeTool dateTimeTool,
                         ConstellationTool constellationTool, PhoneLocationTool phoneLocationTool) {
         this.client = client;
@@ -99,6 +92,7 @@ public class IlinkService {
         this.imageTool = imageTool;
         this.ttsTool = ttsTool;
         this.hotNewsTool = hotNewsTool;
+        this.stockTool = stockTool;
         this.exchangeRateTool = exchangeRateTool;
         this.dateTimeTool = dateTimeTool;
         this.constellationTool = constellationTool;
@@ -133,7 +127,7 @@ public class IlinkService {
                     client.setCredentials(result.botToken(), result.baseurl());
                     connected.set(true);
                     ownerId = result.userId();
-                    welcomeSent.set(false);
+                    ownerWelcomed = false;
                     log.info("登录成功, botId={}, userId={}", result.botId(), ownerId);
                     System.out.println("\n[系统] iLink 登录成功! BotID=" + result.botId());
                     startPolling();
@@ -221,26 +215,15 @@ public class IlinkService {
 
     /**
      * 消息路由分发核心逻辑：
-     * 1. 首条消息 -> 发送欢迎语（消耗消息）
-     * 2. 含图片 -> 调用通义千问 VL 识别
-     * 3. 含语音 -> 下载语音→Paraformer 转文字→AI 回复
-     * 4. weather / 天气 前缀 -> 和风天气查询
-     * 5. 图片生成 -> 通义万相生图 -> CDN 上传
-     * 6. 其他 -> DeepSeek AI 对话
+     * 1. 含图片 -> 通义千问 VL 识别 / 编辑
+     * 2. 含语音 -> 下载语音→Paraformer 转文字→AI 回复
+     * 3. 含文件 -> 下载→提取文本→AI 总结
+     * 4. 文字 -> DeepSeek AI 对话（Function Calling）
+     * 5. 首条文字消息附带欢迎语（不消耗消息）
      */
     private void handleMessage(WeixinMessage msg) {
         try {
             String fromUser = msg.fromUserId();
-
-            // 首条消息欢迎机制：iLink 不支持 Bot 主动推送，通过登录时记录的 ownerId 判断
-            // 首条消息用于发送欢迎语（contextToken 只能使用一次，发完无法再回复同一条消息内容）
-            if (!welcomeSent.get() && ownerId != null && ownerId.equals(fromUser)) {
-                client.sendMessage(fromUser, msg.contextToken(), List.of(MessageItem.text(WELCOME_TEXT)));
-                welcomeSent.set(true);
-                log.info("已向 {} 发送欢迎消息（消耗首条消息）", fromUser);
-                System.out.println("[微信] " + fromUser + ": [系统] 已发送欢迎消息");
-                return;
-            }
 
             // 图片处理：不再直接识别，交由 DeepSeek 判断（识图 or 编辑）
             MessageItem imageItem = extractFirstImage(msg);
@@ -304,7 +287,7 @@ public class IlinkService {
                 }
 
                 // 无图片上下文，走普通对话
-                List<Tool> voiceTools = List.of(weatherTool, imageTool, ttsTool, hotNewsTool);
+                List<Tool> voiceTools = List.of(weatherTool, imageTool, ttsTool, hotNewsTool, stockTool);
                 ChatResult result = aiService.chat(fromUser, transcribedText, voiceTools);
                 String reply = result.getReplyText();
 
@@ -386,7 +369,7 @@ public class IlinkService {
 
             // Function Calling：将所有工具传递给 DeepSeek，由模型自主决定调用哪些
             System.out.println("[系统] " + fromUser + " 正在等待 AI 回复...");
-            List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, hotNewsTool,
+            List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, hotNewsTool, stockTool,
                 exchangeRateTool, dateTimeTool, constellationTool, phoneLocationTool);
             ChatResult result = aiService.chat(fromUser, text, allTools);
             String reply = result.getReplyText();
@@ -419,6 +402,13 @@ public class IlinkService {
                     log.error("语音上传发送失败", e);
                     reply += "\n\n（语音上传失败: " + e.getMessage() + "）";
                 }
+            }
+
+            // 首条消息附带欢迎语
+            if (!ownerWelcomed && ownerId != null && ownerId.equals(fromUser)) {
+                reply = WELCOME_TEXT + "\n\n" + reply;
+                ownerWelcomed = true;
+                log.info("已向 {} 发送欢迎语", fromUser);
             }
 
             // 发送文本回复

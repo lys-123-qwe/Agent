@@ -23,8 +23,11 @@ public class ConstellationTool implements Tool {
 
     @Override
     public String getDescription() {
-        return "星座查询和每日运势。支持：根据出生日期查星座，查询某个星座的今日运势。"
-            + "如：3月15日是什么星座、今天双子座运势如何";
+        return "星座查询和每日运势。支持：根据出生日期查星座（传入 month+day），查询某个星座的今日运势（传入 sign）。"
+            + "注意：如果你不知道今天的日期，请先调用 date_time 工具的 now 操作获取当前日期，"
+            + "再将获取到的月、日作为 month 和 day 参数传入本工具进行星座查询。"
+            + "如：先调 date_time(now) 得到今天日期，再调 constellation(month=X, day=X) 查星座。"
+            + "或者：用户问'今天双子座运势'则直接传 sign='双子座'。";
     }
 
     @Override

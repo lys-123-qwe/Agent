@@ -122,6 +122,10 @@ public class ApiConfig {
         return ttsApiModel;
     }
 
+    @Value("${bocha.api.key:}")
+    private String bochaApiKey;
+
+
     @Value("${exchange.api.key:}")
     private String exchangeApiKey;
 
@@ -178,8 +182,6 @@ public class ApiConfig {
         return phoneApiUrl;
     }
 
-    @Value("${bocha.api.key:}")
-    private String bochaApiKey;
 
     public String getBochaApiKey() {
         return bochaApiKey;
