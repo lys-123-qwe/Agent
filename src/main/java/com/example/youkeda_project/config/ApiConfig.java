@@ -11,6 +11,9 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class ApiConfig {
 
+    @Value("${amap.api.key:}")
+    private String amapApiKey;
+
     @Value("${weather.api.key:}")
     private String weatherApiKey;
 
@@ -22,6 +25,14 @@ public class ApiConfig {
 
     @Value("${ai.api.url:https://api.deepseek.com/chat/completions}")
     private String aiApiUrl;
+
+    public String getAmapApiKey() {
+        return amapApiKey;
+    }
+
+    public String getAmapGeoUrl() {
+        return "https://restapi.amap.com/v3/geocode/geo";
+    }
 
     public String getWeatherApiKey() {
         return weatherApiKey;
@@ -64,20 +75,6 @@ public class ApiConfig {
     // 语音合成模型
     @Value("${tts.api.model:cosyvoice-v3-flash}")
     private String ttsApiModel;
-
-    @Value("${news.api.key:}")
-    private String newsApiKey;
-
-    @Value("${news.sdk.api-key:}")
-    private String newsSdkApiKey;
-
-    public String getNewsApiKey() {
-        return newsApiKey;
-    }
-
-    public String getNewsSdkApiKey() {
-        return newsSdkApiKey;
-    }
 
     public String getDeepSeekApiKey() {
         return aiApiKey;
@@ -125,4 +122,81 @@ public class ApiConfig {
         return ttsApiModel;
     }
 
+    @Value("${bocha.api.key:}")
+    private String bochaApiKey;
+
+    @Value("${news.api.key:}")
+    private String newsApiKey;
+
+    @Value("${news.sdk.api-key:}")
+    private String newsSdkApiKey;
+
+    @Value("${exchange.api.key:}")
+    private String exchangeApiKey;
+
+    @Value("${exchange.api.url:https://v6.exchangerate-api.com/v6}")
+    private String exchangeApiUrl;
+
+    public String getExchangeApiKey() {
+        return exchangeApiKey;
+    }
+
+    public String getExchangeApiUrl() {
+        return exchangeApiUrl;
+    }
+
+    @Value("${constellation.query.api.key:}")
+    private String constellationQueryKey;
+
+    @Value("${constellation.query.api.url:http://web.juhe.cn:8080/constellation/getAll}")
+    private String constellationQueryUrl;
+
+    @Value("${constellation.horoscope.api.key:}")
+    private String constellationHoroscopeKey;
+
+    @Value("${constellation.horoscope.api.url:https://web.juhe.cn/constellation/getAll}")
+    private String constellationHoroscopeUrl;
+
+    @Value("${phone.api.key:}")
+    private String phoneApiKey;
+
+    @Value("${phone.api.url:http://op.juhe.cn/phone/get}")
+    private String phoneApiUrl;
+
+    public String getConstellationQueryKey() {
+        return constellationQueryKey;
+    }
+
+    public String getConstellationQueryUrl() {
+        return constellationQueryUrl;
+    }
+
+    public String getConstellationHoroscopeKey() {
+        return constellationHoroscopeKey;
+    }
+
+    public String getConstellationHoroscopeUrl() {
+        return constellationHoroscopeUrl;
+    }
+
+    public String getPhoneApiKey() {
+        return phoneApiKey;
+    }
+
+    public String getPhoneApiUrl() {
+        return phoneApiUrl;
+    }
+
+
+    public String getBochaApiKey() {
+        return bochaApiKey;
+    }
+
+    public String getNewsApiKey() {
+        return newsApiKey;
+    }
+
+    public String getNewsSdkApiKey() {
+        return newsSdkApiKey;
+    }
 }
