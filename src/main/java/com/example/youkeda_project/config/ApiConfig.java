@@ -65,6 +65,21 @@ public class ApiConfig {
     @Value("${tts.api.model:cosyvoice-v3-flash}")
     private String ttsApiModel;
 
+    @Value("${news.api.key:}")
+    private String newsApiKey;
+
+    // 天聚数行（tianapi.com）新闻 API key
+    @Value("${news.sdk.api-key:}")
+    private String newsSdkApiKey;
+
+    public String getNewsApiKey() {
+        return newsApiKey;
+    }
+
+    public String getNewsSdkApiKey() {
+        return newsSdkApiKey;
+    }
+
     public String getDeepSeekApiKey() {
         return aiApiKey;
     }
@@ -110,4 +125,5 @@ public class ApiConfig {
     public String getTtsApiModel() {
         return ttsApiModel;
     }
+
 }

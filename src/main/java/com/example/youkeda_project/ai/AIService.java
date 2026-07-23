@@ -54,6 +54,25 @@ public class AIService {
      *
      * @param tools 可用的工具列表，可为 null 或空（不使用 Function Calling）
      */
+    /**
+     * 多工具编排对话。
+     * <p>
+     * 调用模型：
+     * <pre>
+     * Round 1: DeepSeek 返回 [toolA, toolB] (同轮并行)
+     *   → 去重检查，跳过已调工具
+     *   → 顺序执行每个工具，结果写入 history + 媒体收集
+     * Round 2: DeepSeek 看到所有结果，或继续调新工具（串行链式），或返回文本
+     * Round N: 最多 5 轮
+     * </pre>
+     * 数据返回路径：
+     * <pre>
+     * Tool.execute() → ToolResult{text, imageUrl, audioBytes}
+     *   → text → ChatMessage.tool() → 给 DeepSeek 下轮参考
+     *   → imageUrl/audioBytes → allPendingMedia → ChatResult
+     *     → IlinkService: CDN上传 → 微信
+     * </pre>
+     */
     public ChatResult chat(String userId, String userMessage, List<Tool> tools) {
         if (apiConfig.getAiApiKey() == null || apiConfig.getAiApiKey().isBlank()) {
             return new ChatResult("错误: 未配置 DeepSeek API Key");
@@ -61,7 +80,14 @@ public class AIService {
 
         List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
             List<ChatMessage> list = new ArrayList<>();
-            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，回答简洁。"));
+            list.add(new ChatMessage("system", """
+                你是一个 helpful 的 AI 助手，擅长组合使用多个工具完成任务。
+                当用户指令涉及多个需求时，你应该在同一次回复中调用多个不同的工具来一次性完成。
+                例如：
+                - 查天气并读出来 → 同时调用 get_weather + text_to_speech
+                - 搜索新闻并播报 → 同时调用 web_search + text_to_speech
+                - 查多个城市天气 → 同时调用多次 get_weather
+                每次调用都使用不同的工具，工具返回中的链接必须完整保留在回答中。"""));
             return list;
         });
 
@@ -69,11 +95,11 @@ public class AIService {
         trimHistory(history);
 
         try {
-            // 收集本轮所有工具执行产生的媒体结果（图片URL、音频等）
             List<ToolResult> allPendingMedia = new ArrayList<>();
             int maxRounds = 5;
 
             for (int round = 0; round < maxRounds; round++) {
+                java.util.Set<String> roundTools = new java.util.LinkedHashSet<>();
                 List<ChatMessage> filteredHistory = filterForTextOnly(history);
 
                 ChatRequest request = tools != null && !tools.isEmpty()
@@ -119,8 +145,15 @@ public class AIService {
                     }
                     history.add(ChatMessage.assistantWithToolCalls(rawToolCalls));
 
-                    // 执行每个工具调用，收集结果和媒体
                     for (ToolCall tc : calls) {
+                        // 去重：同一轮并行调用中同工具只调一次（跨轮允许不同参数重试）
+                        if (!roundTools.add(tc.functionName())) {
+                            String dupMsg = "工具 " + tc.functionName() + " 已在本次指令中调用过，结果见上，不再重复执行";
+                            log.info("跳过重复工具: {}", tc.functionName());
+                            history.add(ChatMessage.tool(tc.id(), tc.functionName(), dupMsg));
+                            continue;
+                        }
+
                         Tool matched = findTool(tc.functionName(), tools);
                         if (matched == null) {
                             log.warn("未找到工具: {}", tc.functionName());
@@ -135,23 +168,19 @@ public class AIService {
                         log.info("工具结果: {} -> {}, hasImage={}, hasAudio={}",
                             tc.functionName(), toolResult.getText(), toolResult.hasImage(), toolResult.hasAudio());
 
-                        // 收集媒体结果
                         if (toolResult.hasImage() || toolResult.hasAudio()) {
                             allPendingMedia.add(toolResult);
                         }
 
-                        // 将文本结果加入对话历史（供 LLM 下一轮使用）
                         history.add(ChatMessage.tool(tc.id(), tc.functionName(), toolResult.getText()));
                     }
                     trimHistory(history);
                     continue;
                 }
 
-                // 正常文本回复
                 String reply = (String) choice.getMessage().content();
                 history.add(new ChatMessage("assistant", reply));
 
-                // 收集本轮所有工具产生的媒体，返回给调用方处理
                 return allPendingMedia.isEmpty()
                     ? new ChatResult(reply)
                     : new ChatResult(reply, allPendingMedia);
@@ -201,7 +230,8 @@ public class AIService {
 
         List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
             List<ChatMessage> list = new ArrayList<>();
-            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，能够识别图片内容。回答简洁。"));
+            list.add(new ChatMessage("system", """
+                你是一个新闻助手。当工具返回搜索结果时，先判断哪些结果与用户问题相关，过滤无关内容，然后用自然语言回答用户。工具返回中的链接必须完整保留在回答中，不要省略或修改。"""));
             return list;
         });
 
@@ -319,7 +349,7 @@ public class AIService {
 
         List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
             List<ChatMessage> list = new ArrayList<>();
-            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，回答简洁。"));
+            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，回答简洁。当使用工具获取到搜索结果时，先判断哪些结果与用户问题相关，过滤无关内容，然后用自然语言回答用户。工具返回中的链接必须完整保留在回答中，不要省略或修改。"));
             return list;
         });
 
@@ -363,7 +393,7 @@ public class AIService {
     public void addExchange(String userId, String userMessage, String assistantReply) {
         List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
             List<ChatMessage> list = new ArrayList<>();
-            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，回答简洁。"));
+            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，回答简洁。工具返回的内容中如有链接，请完整保留并输出给用户。"));
             return list;
         });
         history.add(new ChatMessage("user", userMessage));

@@ -16,6 +16,9 @@ image.api.url=https://dashscope.aliyuncs.com
 # 图像识别 API（通义千问 VL，复用 image.api.key）
 vision.api.url=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
 
+# 新闻搜索 API（博查搜索）
+news.api.key=your_bocha_api_key
+
 # 语音识别 API（Paraformer，复用 image.api.key，有默认值可不填）
 # voice.api.url=https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcriptions
 # voice.api.model=paraformer-v2

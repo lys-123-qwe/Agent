@@ -13,18 +13,27 @@ public class ChatResult {
 
     private final String replyText;
     private final List<ToolResult> pendingMedia;
+    private final String rawToolResult;
 
     public ChatResult(String replyText, List<ToolResult> pendingMedia) {
         this.replyText = replyText;
         this.pendingMedia = pendingMedia != null ? pendingMedia : List.of();
+        this.rawToolResult = null;
     }
 
     public ChatResult(String replyText) {
         this(replyText, List.of());
     }
 
+    public ChatResult(String replyText, List<ToolResult> pendingMedia, String rawToolResult) {
+        this.replyText = replyText;
+        this.pendingMedia = pendingMedia != null ? pendingMedia : List.of();
+        this.rawToolResult = rawToolResult;
+    }
+
     public String getReplyText() { return replyText; }
     public List<ToolResult> getPendingMedia() { return pendingMedia; }
+    public String getRawToolResult() { return rawToolResult; }
 
     /** 是否有图片需要 CDN 上传 */
     public boolean hasPendingImage() {

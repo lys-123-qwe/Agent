@@ -1,6 +1,7 @@
 package com.example.youkeda_project.command;
 
 import com.example.youkeda_project.service.IlinkService;
+import com.example.youkeda_project.service.NewsService;
 import org.springframework.stereotype.Component;
 
 /**
@@ -15,9 +16,11 @@ public class CommandHandler {
     private static final String VERSION = "v1.0.0";
 
     private final IlinkService ilinkService;
+    private final NewsService newsService;
 
-    public CommandHandler(IlinkService ilinkService) {
+    public CommandHandler(IlinkService ilinkService, NewsService newsService) {
         this.ilinkService = ilinkService;
+        this.newsService = newsService;
     }
 
     /**
@@ -41,6 +44,7 @@ public class CommandHandler {
                 case "version" -> showVersion();
                 case "status" -> showStatus();
                 case "ilink" -> showIlinkHelp();
+                case "news" -> newsService.searchOfficialNews();
                 default -> "未知命令: " + command + "\n输入 help 查看可用命令";
             };
         } catch (Exception e) {
@@ -66,6 +70,7 @@ public class CommandHandler {
           help    - 显示此帮助信息
           version - 显示程序版本
           status  - 显示程序运行状态
+          news    - 获取今日新闻
           weather <城市名> - 查询指定城市天气
           ilink   - iLink 微信 Bot 相关命令
           exit    - 退出程序""";

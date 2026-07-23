@@ -1,0 +1,362 @@
+package com.example.youkeda_project.service;
+
+import com.example.youkeda_project.config.ApiConfig;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClient;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+
+import java.net.URI;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+@Service
+public class NewsService {
+
+    private static final Logger log = LoggerFactory.getLogger(NewsService.class);
+    private static final String BOCHA_API_URL = "https://api.bocha.cn/v1/web-search";
+    private static final Pattern TITLE_TAG = Pattern.compile(
+            "<title[^>]*>(.*?)</title>", Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
+    private static final Set<String> EXCLUDE_KW = Set.of(
+            "每日热点", "汇总", "合集", "条新闻", "条热点", "条精选",
+            "新闻联播", "新闻速递", "每天精选",
+            "简报", "要闻简报", "任课通知", "开标", "招标");
+
+    private final RestClient restClient;
+    private final ObjectMapper objectMapper;
+    private final ApiConfig apiConfig;
+    private final NewsSDKService newsSDKService;
+
+    public NewsService(ApiConfig apiConfig, ObjectMapper objectMapper, NewsSDKService newsSDKService) {
+        this.apiConfig = apiConfig;
+        this.objectMapper = objectMapper;
+        this.restClient = RestClient.create();
+        this.newsSDKService = newsSDKService;
+    }
+
+    public String searchNews(int num, String keyword) {
+        return searchNews(num, keyword, null);
+    }
+
+    public String searchOfficialNews() {
+        // 优先用 NewsSDK（NewsAPI.org），没有配置则降级到博查
+        String sdkKey = apiConfig.getNewsSdkApiKey();
+        if (sdkKey != null && !sdkKey.isBlank()) {
+            String result = newsSDKService.getTopHeadlines("general", 20);
+            if (!result.startsWith("错误:") && !result.startsWith("没有找到")) {
+                return result;
+            }
+            log.warn("NewsSDK 返回空，降级到博查: {}", result);
+        }
+
+        String apiKey = apiConfig.getNewsApiKey();
+        if (apiKey == null || apiKey.isBlank()) {
+            return "错误: 未配置博查搜索 API Key";
+        }
+        try {
+            Map<String, Object> params = new LinkedHashMap<>();
+            params.put("query", "今日热点 最新消息");
+            params.put("freshness", "oneDay");
+            params.put("count", 50);
+            params.put("category", "News");
+            String bodyJson = objectMapper.writeValueAsString(params);
+            log.info("博查搜索请求: {}", bodyJson);
+            byte[] responseBytes = restClient.post()
+                    .uri(BOCHA_API_URL)
+                    .header("Content-Type", "application/json; charset=UTF-8")
+                    .header("Authorization", "Bearer " + apiKey)
+                    .body(bodyJson.getBytes(StandardCharsets.UTF_8))
+                    .retrieve()
+                    .body(byte[].class);
+            String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
+            log.info("博查搜索响应: {}", responseJson);
+            JsonNode root = objectMapper.readTree(responseJson);
+            int code = root.path("code").asInt();
+            if (code != 200) {
+                return "错误: " + root.path("msg").asText("未知错误");
+            }
+            JsonNode value = root.path("data").path("webPages").path("value");
+            if (!value.isArray() || value.isEmpty()) {
+                return "没有找到相关结果";
+            }
+
+            List<String[]> items = new ArrayList<>();
+            Set<String> seenUrls = new LinkedHashSet<>();
+
+            for (JsonNode item : value) {
+                String rawTitle = item.path("name").asText("").trim();
+                String url = cleanUrl(item.path("url").asText(""));
+                String snippet = item.path("snippet").asText("");
+                String summary = item.path("summary").asText("");
+
+                if (!isValidArticle(rawTitle, url, snippet, summary)) continue;
+                if (url == null || !seenUrls.add(url)) continue;
+
+                String title = cleanTitle(rawTitle);
+                if (title.length() < 4) continue;
+
+                if (title.matches("^[\\u4e00-\\u9fa5]{2,15}$")) {
+                    String pageTitle = fetchPageTitle(url);
+                    if (pageTitle != null && pageTitle.length() > title.length()) {
+                        title = cleanTitle(pageTitle);
+                    }
+                }
+
+                int cnCount = title.replaceAll("[^\\u4e00-\\u9fa5]", "").length();
+                if (cnCount < 3) continue;
+
+                items.add(new String[]{title, url});
+                if (items.size() >= 20) break;
+            }
+
+            if (items.isEmpty()) {
+                return "没有找到相关的新闻";
+            }
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("今日新闻").append("：\n");
+            for (int i = 0; i < items.size(); i++) {
+                sb.append(i + 1).append(". ").append(items.get(i)[0])
+                        .append(" [详情](").append(items.get(i)[1]).append(")\n");
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            log.error("今日新闻搜索失败", e);
+            return "搜索失败: " + e.getMessage();
+        }
+    }
+
+    private boolean isValidArticle(String title, String url, String snippet, String summary) {
+        if (title.isEmpty() || url == null || url.isBlank()) return false;
+        String urlLower = url.toLowerCase();
+        if (urlLower.contains("toutiao.com") || urlLower.contains("k.sina.com")
+                || urlLower.contains(".gov.cn") || urlLower.contains("/column/")
+                || urlLower.contains("/layout/") || urlLower.contains("/paper/")
+                || urlLower.contains("node_") || urlLower.contains("bbs.hupu.com")
+                || urlLower.contains("tgb.cn") || urlLower.contains("tieba.baidu.com")
+                || urlLower.contains("caifuhao") || urlLower.contains("/content_")
+                || urlLower.contains("yqtweb") || urlLower.contains("stockstar"))
+            return false;
+        for (String kw : EXCLUDE_KW) {
+            if (title.contains(kw)) return false;
+        }
+        // 新闻简报/汇总检测（在 cleanTitle 之前，因为 cleanTitle 会去掉前缀关键词）
+        if (isNewsDigest(title)) return false;
+        String titleClean = cleanTitle(title);
+        if (titleClean.matches("^[\\u4e00-\\u9fa5]{1,4}$")) return false;
+        if (isGenericTitle(titleClean)) return false;
+        return true;
+    }
+
+    /**
+     * 检测是否为新闻简报/汇总页（早读、早新闻、晨报、多主题速览等），
+     * 这类页面列出多条新闻而非一篇独立文章，在 cleanTitle 之前检测原始标题。
+     */
+    private boolean isNewsDigest(String rawTitle) {
+        if (rawTitle == null || rawTitle.isBlank()) return false;
+        // 多个新闻主题用中文/英文分号分隔 → 多主题汇总（强信号）
+        if (rawTitle.split("[；;]").length > 1) return true;
+        // 简报关键词
+        String[] digestKws = {"早新闻", "早读", "晨报", "晚报", "午报", "速览", "一览",
+                "快报", "新闻早餐", "新闻来了", "新闻早班车", "新闻联播",
+                "读报", "夜读", "早间", "今日焦点", "新闻速递",
+                "小报", "小板报", "社区报", "简报", "要闻简报"};
+        String t = rawTitle.toLowerCase();
+        for (String kw : digestKws) {
+            if (t.contains(kw)) return true;
+        }
+        // 多个 ！分隔不同新闻主题（≥3 个 → 简报）
+        int cnt = 0;
+        for (int i = 0; i < rawTitle.length(); i++) {
+            if (rawTitle.charAt(i) == '！') {
+                cnt++;
+                if (cnt >= 3) return true;
+            }
+        }
+        return false;
+    }
+
+    private String fetchPageTitle(String url) {
+        try {
+            byte[] body = restClient.get()
+                    .uri(url)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                            + "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                    .retrieve()
+                    .body(byte[].class);
+            if (body == null || body.length == 0) return null;
+            Charset charset = detectCharset(body);
+            String head = new String(body, charset);
+            Matcher m = TITLE_TAG.matcher(head);
+            if (m.find()) {
+                String t = m.group(1).trim();
+                if (!t.isEmpty()) return t;
+            }
+            String headIso = new String(body, StandardCharsets.ISO_8859_1);
+            Matcher m2 = TITLE_TAG.matcher(headIso);
+            if (m2.find()) {
+                String t = m2.group(1).trim();
+                t = t.replaceAll("\\s+", " ").trim();
+                if (!t.isEmpty()) return t;
+            }
+            return null;
+        } catch (Exception e) {
+            log.debug("获取页面标题失败: {}", url);
+            return null;
+        }
+    }
+
+    private Charset detectCharset(byte[] body) {
+        String head = new String(body, 0, Math.min(body.length, 4096), StandardCharsets.ISO_8859_1);
+        Matcher m = Pattern.compile("charset\\s*=\\s*[\"']?([a-zA-Z0-9\\-]+)", Pattern.CASE_INSENSITIVE).matcher(head);
+        if (m.find()) {
+            try { return Charset.forName(m.group(1).trim()); } catch (Exception ignored) {}
+        }
+        return StandardCharsets.UTF_8;
+    }
+
+    private String cleanTitle(String raw) {
+        if (raw == null || raw.isBlank()) return "";
+        String t = raw.trim();
+        t = t.replaceAll("(?:[_＿][^_＿]+)+$", "").trim();
+        t = t.replaceAll("\\s*[-—]\\s*\\S+$", "").trim();
+        t = t.replaceAll("^[^|\uFF5C]+[|\uFF5C]", "").trim();
+        t = t.replaceAll("^(原标题|快讯|热点|今日关注|最新消息|滚动)[：:]?", "").trim();
+        t = t.replaceAll("（[^）]*图[^）]*）$", "").trim();
+        t = t.replaceAll("\\([^)]*图[^)]*\\)$", "").trim();
+        t = t.replaceAll("[\\[【][^\\]】]*(?:视频|音频|组图|图集|海报|直播|专题)[\\]】]$", "").trim();
+        t = t.replaceAll("^[\\[【][^\\]】]*[\\]】]", "").trim();
+        t = t.replaceAll("\\d+张照片$", "").trim();
+        t = t.replaceAll("\\s+", " ").trim();
+        return t;
+    }
+
+    private String cleanUrl(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        String trimmed = raw.trim();
+        if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://"))
+            trimmed = "https://" + trimmed;
+        return trimmed;
+    }
+
+    private boolean isGenericTitle(String title) {
+        String[] generic = {"首页", "上一页", "下一页", "返回", "更多", "全部", "搜索",
+                "登录", "注册", "关于我们", "联系我们", "网站地图", "版权声明", "免责声明",
+                "隐私政策", "广告服务", "今日头版", "要闻", "综合", "时政", "国际", "财经",
+                "科技", "文化", "体育", "教育", "健康", "汽车", "房产", "娱乐", "军事",
+                "社会", "法治", "专题", "视频", "图片", "热点", "推荐", "头条", "最新",
+                "滚动", "直播", "互动", "投稿", "订阅", "新闻", "评论", "观点", "人物",
+                "深度", "万象", "媒体", "报纸", "网站", "要闻资讯", "热点关注", "腾讯新闻",
+                "网易新闻", "新浪新闻", "搜狐新闻", "凤凰新闻",
+                "每日经济", "每日一股", "每日股市", "股市盘点", "股市总结", "股市分析",
+                "港股收盘", "A股收盘", "收盘点评", "盘前必读", "复盘", "早报", "晚报",
+                "封面早报", "今日早报", "今日晚报", "中原日报", "广州日报", "人民日报",
+                "经济日报", "证券日报", "证券时报", "上海证券报", "中国证券报",
+                "涨停", "跌停", "ETF", "基金"};
+        for (String g : generic) {
+            if (title.contains(g)) return true;
+        }
+        return false;
+    }
+
+    private String searchNews(int num, String keyword, String category) {
+        // 优先用 NewsSDK（天聚数行），没有配置则降级到博查
+        String sdkKey = apiConfig.getNewsSdkApiKey();
+        if (sdkKey != null && !sdkKey.isBlank()) {
+            String result = newsSDKService.searchNews(keyword, num);
+            if (!result.startsWith("错误:") && !result.startsWith("没有找到")) {
+                return result;
+            }
+            log.warn("NewsSDK 搜索返回空，降级到博查: {}", result);
+        }
+
+        String apiKey = apiConfig.getNewsApiKey();
+        if (apiKey == null || apiKey.isBlank()) {
+            return "错误: 未配置博查搜索 API Key";
+        }
+        try {
+            Map<String, Object> params = new LinkedHashMap<>();
+            params.put("query", keyword);
+            params.put("summary", true);
+            params.put("count", 50);
+            if (category != null && !category.isBlank()) {
+                params.put("category", category);
+                params.put("freshness", "oneDay");
+            }
+            String bodyJson = objectMapper.writeValueAsString(params);
+            log.info("博查搜索请求: {}", bodyJson);
+            byte[] responseBytes = restClient.post()
+                    .uri(BOCHA_API_URL)
+                    .header("Content-Type", "application/json; charset=UTF-8")
+                    .header("Authorization", "Bearer " + apiKey)
+                    .body(bodyJson.getBytes(StandardCharsets.UTF_8))
+                    .retrieve()
+                    .body(byte[].class);
+            String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
+            log.info("博查搜索响应: {}", responseJson);
+            String result = parseResponse(responseJson, keyword);
+            // 博查也空，降级为头条新闻
+            if (result.startsWith("没有找到")) {
+                log.warn("博查搜索也返回空，降级到头条新闻");
+                return searchOfficialNews();
+            }
+            return result;
+        } catch (Exception e) {
+            log.error("博查搜索失败", e);
+            return "搜索失败: " + e.getMessage();
+        }
+    }
+
+    private String parseResponse(String json, String keyword) {
+        try {
+            JsonNode root = objectMapper.readTree(json);
+            int code = root.path("code").asInt();
+            if (code != 200) return "错误: " + root.path("msg").asText("未知错误");
+            JsonNode value = root.path("data").path("webPages").path("value");
+            if (!value.isArray() || value.isEmpty()) return "没有找到相关结果";
+            List<String[]> items = new ArrayList<>();
+            Set<String> seenUrls = new LinkedHashSet<>();
+            for (JsonNode item : value) {
+                String rawTitle = item.path("name").asText("").trim();
+                String url = cleanUrl(item.path("url").asText(""));
+                String snippet = item.path("snippet").asText("");
+                String summary = item.path("summary").asText("");
+                if (!isValidArticle(rawTitle, url, snippet, summary)) continue;
+                if (url == null || !seenUrls.add(url)) continue;
+                String title = cleanTitle(rawTitle);
+                if (title.length() < 4) continue;
+                if (title.matches("^[\\u4e00-\\u9fa5]{2,15}$")) {
+                    String pageTitle = fetchPageTitle(url);
+                    if (pageTitle != null && pageTitle.length() > title.length()) {
+                        title = cleanTitle(pageTitle);
+                    }
+                }
+                int cnCount = title.replaceAll("[^\\u4e00-\\u9fa5]", "").length();
+                if (cnCount < 3) continue;
+                items.add(new String[]{title, url});
+                if (items.size() >= 20) break;
+            }
+            if (items.isEmpty()) return "没有找到相关结果";
+            StringBuilder sb = new StringBuilder();
+            sb.append(keyword).append("搜索结果：\n");
+            for (int i = 0; i < items.size(); i++) {
+                sb.append(i + 1).append(". ").append(items.get(i)[0])
+                        .append(" [详情](").append(items.get(i)[1]).append(")\n");
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            log.error("解析搜索响应失败", e);
+            return "解析搜索结果失败: " + e.getMessage();
+        }
+    }
+}

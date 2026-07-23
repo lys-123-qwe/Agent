@@ -4,6 +4,8 @@ import com.example.youkeda_project.ai.AIService;
 import com.example.youkeda_project.ai.ChatResult;
 import com.example.youkeda_project.ai.EditImageTool;
 import com.example.youkeda_project.ai.ImageTool;
+import com.example.youkeda_project.ai.NewsTool;
+import com.example.youkeda_project.ai.WechatSearchTool;
 import com.example.youkeda_project.ai.RecognizeImageTool;
 import com.example.youkeda_project.ai.Tool;
 import com.example.youkeda_project.ai.ToolResult;
@@ -17,7 +19,9 @@ import com.example.youkeda_project.protocol.QRCodeResponse;
 import com.example.youkeda_project.protocol.FileItem;
 import com.example.youkeda_project.protocol.VoiceItem;
 import com.example.youkeda_project.protocol.WeixinMessage;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -59,9 +63,13 @@ public class IlinkService {
     private final VoiceService voiceService;
     private final TtsService ttsService;
     private final FileService fileService;
+    private final NewsService newsService;
+    private final WechatSearchService wechatSearchService;
     private final WeatherTool weatherTool;
     private final ImageTool imageTool;
     private final TtsTool ttsTool;
+    private final NewsTool newsTool;
+    private final WechatSearchTool wechatSearchTool;
 
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicBoolean polling = new AtomicBoolean(false);
@@ -73,8 +81,10 @@ public class IlinkService {
 
     public IlinkService(IlinkProtocolClient client, WeatherService weatherService,
                         AIService aiService, ImageService imageService, VoiceService voiceService,
-                        TtsService ttsService, FileService fileService,
-                        WeatherTool weatherTool, ImageTool imageTool, TtsTool ttsTool) {
+                        TtsService ttsService, FileService fileService, NewsService newsService,
+                        WechatSearchService wechatSearchService,
+                        WeatherTool weatherTool, ImageTool imageTool, TtsTool ttsTool,
+                        NewsTool newsTool, WechatSearchTool wechatSearchTool) {
         this.client = client;
         this.weatherService = weatherService;
         this.aiService = aiService;
@@ -82,9 +92,13 @@ public class IlinkService {
         this.voiceService = voiceService;
         this.ttsService = ttsService;
         this.fileService = fileService;
+        this.newsService = newsService;
+        this.wechatSearchService = wechatSearchService;
         this.weatherTool = weatherTool;
         this.imageTool = imageTool;
         this.ttsTool = ttsTool;
+        this.newsTool = newsTool;
+        this.wechatSearchTool = wechatSearchTool;
     }
 
     /**
@@ -286,7 +300,7 @@ public class IlinkService {
                 }
 
                 // 无图片上下文，走普通对话
-                List<Tool> voiceTools = List.of(weatherTool, imageTool, ttsTool);
+                List<Tool> voiceTools = List.of(weatherTool, imageTool, ttsTool, newsTool, wechatSearchTool);
                 ChatResult result = aiService.chat(fromUser, transcribedText, voiceTools);
                 String reply = result.getReplyText();
 
@@ -366,9 +380,8 @@ public class IlinkService {
                 return;
             }
 
-            // Function Calling：将所有工具传递给 DeepSeek，由模型自主决定调用哪些
             System.out.println("[系统] " + fromUser + " 正在等待 AI 回复...");
-            List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool);
+            List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, newsTool, wechatSearchTool);
             ChatResult result = aiService.chat(fromUser, text, allTools);
             String reply = result.getReplyText();
 
@@ -436,14 +449,9 @@ public class IlinkService {
 
         RecognizeImageTool recognizeTool = new RecognizeImageTool(aiService, fromUser, imageBytes);
         EditImageTool editTool = new EditImageTool(imageService, imageBytes);
-        List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, recognizeTool, editTool);
+        List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, newsTool, wechatSearchTool, recognizeTool, editTool);
 
-        String contextMessage = "[系统提示：当前有一张待处理的图片。请根据用户的指令选择合适的工具。]\n"
-            + "[如果用户想识别图片内容（这是什么、描述图片、提取文字等），请调用 recognize_image 工具]\n"
-            + "[如果用户想编辑图片（修改物体、颜色、背景、风格等），请调用 edit_image 工具]\n"
-            + "用户指令：" + instruction;
-
-        ChatResult result = aiService.chat(fromUser, contextMessage, allTools);
+        ChatResult result = aiService.chat(fromUser, instruction, allTools);
         String reply = result.getReplyText();
 
         // 处理编辑后的图片（CDN 上传 → 发送到微信）
