@@ -8,11 +8,8 @@ import org.springframework.web.client.RestClient;
 import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Base64;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.HashMap;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -71,7 +68,9 @@ public class AIService {
         try {
             // 收集本轮所有工具执行产生的媒体结果（图片URL、音频等）
             List<ToolResult> allPendingMedia = new ArrayList<>();
-            int maxRounds = 5;
+            // 工具失败追踪：同一工具连续失败≥2次后，跳过调用并通知模型放弃重试
+            Map<String, Integer> toolFailureCount = new HashMap<>();
+            int maxRounds = 8;
 
             for (int round = 0; round < maxRounds; round++) {
                 List<ChatMessage> filteredHistory = filterForTextOnly(history);
@@ -128,6 +127,15 @@ public class AIService {
                             continue;
                         }
 
+                        // 如果该工具已连续失败≥2次，跳过执行并通知模型放弃重试
+                        int fails = toolFailureCount.getOrDefault(tc.functionName(), 0);
+                        if (fails >= 2) {
+                            log.warn("工具 {} 已连续失败 {} 次，跳过执行", tc.functionName(), fails);
+                            history.add(ChatMessage.tool(tc.id(), tc.functionName(),
+                                "系统提示：工具[" + tc.functionName() + "]之前已调用两次均失败，请不要再尝试使用此工具，直接用文本回复用户。"));
+                            continue;
+                        }
+
                         Map<String, Object> args = parseArguments(tc.arguments());
                         log.info("执行工具: {}({})", tc.functionName(), args);
 
@@ -135,13 +143,21 @@ public class AIService {
                         log.info("工具结果: {} -> {}, hasImage={}, hasAudio={}",
                             tc.functionName(), toolResult.getText(), toolResult.hasImage(), toolResult.hasAudio());
 
+                        // 检测工具执行结果是否表示失败，失败则递增追踪计数
+                        String resultText = toolResult.getText();
+                        if (resultText != null && (resultText.startsWith("错误:") || resultText.contains("失败"))) {
+                            toolFailureCount.merge(tc.functionName(), 1, Integer::sum);
+                            log.warn("工具执行失败: {} -> {} (失败次数: {})",
+                                tc.functionName(), resultText, toolFailureCount.get(tc.functionName()));
+                        }
+
                         // 收集媒体结果
                         if (toolResult.hasImage() || toolResult.hasAudio()) {
                             allPendingMedia.add(toolResult);
                         }
 
                         // 将文本结果加入对话历史（供 LLM 下一轮使用）
-                        history.add(ChatMessage.tool(tc.id(), tc.functionName(), toolResult.getText()));
+                        history.add(ChatMessage.tool(tc.id(), tc.functionName(), resultText));
                     }
                     trimHistory(history);
                     continue;
@@ -274,8 +290,17 @@ public class AIService {
     private void trimHistory(List<ChatMessage> history) {
         if (history.size() > MAX_HISTORY + 1) {
             ChatMessage system = history.get(0);
+            int total = history.size();
+            int start = total - MAX_HISTORY;
+
+            // 如果保留段第一条是 tool 消息，说明它的 assistant(TC) 被裁剪掉了，
+            // 往前回溯直到找到对应的 tool_calls 上下文消息
+            while (start > 1 && "tool".equals(history.get(start).role())) {
+                start--;
+            }
+
             List<ChatMessage> recent = new ArrayList<>(
-                    history.subList(history.size() - MAX_HISTORY, history.size()));
+                    history.subList(start, total));
             history.clear();
             history.add(system);
             history.addAll(recent);

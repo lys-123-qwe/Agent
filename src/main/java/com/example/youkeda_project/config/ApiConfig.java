@@ -121,4 +121,11 @@ public class ApiConfig {
     public String getTtsApiModel() {
         return ttsApiModel;
     }
+
+    @Value("${bocha.api.key:}")
+    private String bochaApiKey;
+
+    public String getBochaApiKey() {
+        return bochaApiKey;
+    }
 }

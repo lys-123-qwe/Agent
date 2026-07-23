@@ -9,7 +9,7 @@ weather.api.key=c88e428221774264a3af55651c22c305
 weather.api.url=https://na3h2taynf.re.qweatherapi.com/v7/weather/now
 
 # AI 模型 API（DeepSeek）
-ai.api.key=sk-7924a59b617f48baad214c85f3bb5c86
+ai.api.key=sk-b9dd060a1a0f47058f549d8e23bdd577
 ai.api.url=https://api.deepseek.com/chat/completions
 
 # 图像生成 API（通义万相）
@@ -22,3 +22,6 @@ vision.api.url=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completion
 # 语音识别 API（Paraformer，复用 image.api.key，有默认值可不填）
 # voice.api.url=https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcriptions
 # voice.api.model=paraformer-v2
+
+# 博查搜索 API（热点新闻）
+bocha.api.key=your_bocha_api_key
