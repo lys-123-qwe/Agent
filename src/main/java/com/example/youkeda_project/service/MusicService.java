@@ -54,8 +54,8 @@ public class MusicService {
         for (String kw : keywords) {
             java.util.List<JsonNode> batch = qqSearch(kw, 10);
             for (JsonNode s : batch) {
-                String mid = s.path("mid").asText();
-                if (!mid.isEmpty() && seenMids.add(mid)) {
+                String songmid = s.path("songmid").asText();
+                if (!songmid.isEmpty() && seenMids.add(songmid)) {
                     allSongs.add(s);
                     if (allSongs.size() >= 10) break;
                 }
@@ -142,7 +142,10 @@ public class MusicService {
     }
 
     private void appendSongInfo(StringBuilder sb, JsonNode song, int idx) {
-        String mid = song.path("mid").asText();
+        String songmid = song.path("songmid").asText("");
+        long songid = song.path("id").asLong();
+        if (songid <= 0) songid = song.path("songid").asLong();
+
         String name = song.path("name").asText("未知");
         String artist = extractQqArtist(song.path("singer"));
         String album = song.path("album").path("name").asText("");
@@ -154,18 +157,13 @@ public class MusicService {
         if (!album.isBlank()) sb.append("   专辑: ").append(album).append("\n");
         if (!duration.isBlank()) sb.append("   时长: ").append(duration).append("\n");
 
-        // QQ音乐链接（微信生态内体验最好）
-        if (!mid.isBlank()) {
-            sb.append("   ▶ QQ音乐: https://y.qq.com/n/ryqq/songDetail/").append(mid).append("\n");
+        if (!songmid.isBlank()) {
+            sb.append("   ▶ 听歌: https://i.y.qq.com/v8/playsong.html?songmid=").append(songmid).append("&source=wechat&ADTAG=wechat\n");
+        } else if (songid > 0) {
+            sb.append("   ▶ 听歌: https://music.163.com/song?id=").append(songid).append("\n");
         }
 
-        // 如果是网易云降级数据（没有mid但有id），用网易云链接
-        long neteaseId = song.path("id").asLong();
-        if (mid.isBlank() && neteaseId > 0) {
-            sb.append("   ▶ 网易云: https://music.163.com/song?id=").append(neteaseId).append("\n");
-        }
-
-        String lyricSnippet = mid.isBlank() ? null : fetchQqLyric(mid);
+        String lyricSnippet = songmid.isBlank() ? null : fetchQqLyric(songmid);
         if (lyricSnippet != null) {
             sb.append("   📝 ").append(lyricSnippet).append("\n");
         }
