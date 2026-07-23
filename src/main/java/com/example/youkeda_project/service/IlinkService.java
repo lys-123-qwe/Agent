@@ -5,7 +5,6 @@ import com.example.youkeda_project.ai.ChatResult;
 import com.example.youkeda_project.ai.EditImageTool;
 import com.example.youkeda_project.ai.ImageTool;
 import com.example.youkeda_project.ai.NewsTool;
-import com.example.youkeda_project.ai.WechatSearchTool;
 import com.example.youkeda_project.ai.RecognizeImageTool;
 import com.example.youkeda_project.ai.Tool;
 import com.example.youkeda_project.ai.ToolResult;
@@ -64,12 +63,10 @@ public class IlinkService {
     private final TtsService ttsService;
     private final FileService fileService;
     private final NewsService newsService;
-    private final WechatSearchService wechatSearchService;
     private final WeatherTool weatherTool;
     private final ImageTool imageTool;
     private final TtsTool ttsTool;
     private final NewsTool newsTool;
-    private final WechatSearchTool wechatSearchTool;
 
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicBoolean polling = new AtomicBoolean(false);
@@ -82,9 +79,8 @@ public class IlinkService {
     public IlinkService(IlinkProtocolClient client, WeatherService weatherService,
                         AIService aiService, ImageService imageService, VoiceService voiceService,
                         TtsService ttsService, FileService fileService, NewsService newsService,
-                        WechatSearchService wechatSearchService,
                         WeatherTool weatherTool, ImageTool imageTool, TtsTool ttsTool,
-                        NewsTool newsTool, WechatSearchTool wechatSearchTool) {
+                        NewsTool newsTool) {
         this.client = client;
         this.weatherService = weatherService;
         this.aiService = aiService;
@@ -93,12 +89,10 @@ public class IlinkService {
         this.ttsService = ttsService;
         this.fileService = fileService;
         this.newsService = newsService;
-        this.wechatSearchService = wechatSearchService;
         this.weatherTool = weatherTool;
         this.imageTool = imageTool;
         this.ttsTool = ttsTool;
         this.newsTool = newsTool;
-        this.wechatSearchTool = wechatSearchTool;
     }
 
     /**
@@ -300,7 +294,7 @@ public class IlinkService {
                 }
 
                 // 无图片上下文，走普通对话
-                List<Tool> voiceTools = List.of(weatherTool, imageTool, ttsTool, newsTool, wechatSearchTool);
+                List<Tool> voiceTools = List.of(weatherTool, imageTool, ttsTool, newsTool);
                 ChatResult result = aiService.chat(fromUser, transcribedText, voiceTools);
                 String reply = result.getReplyText();
 
@@ -381,7 +375,7 @@ public class IlinkService {
             }
 
             System.out.println("[系统] " + fromUser + " 正在等待 AI 回复...");
-            List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, newsTool, wechatSearchTool);
+            List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, newsTool);
             ChatResult result = aiService.chat(fromUser, text, allTools);
             String reply = result.getReplyText();
 
@@ -449,7 +443,7 @@ public class IlinkService {
 
         RecognizeImageTool recognizeTool = new RecognizeImageTool(aiService, fromUser, imageBytes);
         EditImageTool editTool = new EditImageTool(imageService, imageBytes);
-        List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, newsTool, wechatSearchTool, recognizeTool, editTool);
+        List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, newsTool, recognizeTool, editTool);
 
         ChatResult result = aiService.chat(fromUser, instruction, allTools);
         String reply = result.getReplyText();

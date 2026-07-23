@@ -100,7 +100,7 @@ public class AIService {
 
             for (int round = 0; round < maxRounds; round++) {
                 java.util.Set<String> roundTools = new java.util.LinkedHashSet<>();
-                List<ChatMessage> filteredHistory = filterForTextOnly(history);
+                List<ChatMessage> filteredHistory = removeOrphanTools(filterForTextOnly(history));
 
                 ChatRequest request = tools != null && !tools.isEmpty()
                     ? new ChatRequest(MODEL, filteredHistory, tools.stream().map(Tool::toToolDefinition).toList())
@@ -310,6 +310,36 @@ public class AIService {
             history.add(system);
             history.addAll(recent);
         }
+    }
+
+    /**
+     * 移除没有对应 assistant tool_calls 的孤立 tool 响应。
+     * 防止 trimHistory 剪掉 assistant 但保留了 tool 导致 DeepSeek 400 错误。
+     */
+    @SuppressWarnings("unchecked")
+    private List<ChatMessage> removeOrphanTools(List<ChatMessage> history) {
+        List<ChatMessage> result = new ArrayList<>();
+        java.util.Set<String> activeIds = new java.util.HashSet<>();
+        for (ChatMessage msg : history) {
+            if ("assistant".equals(msg.role()) && msg.toolCalls() instanceof List
+                    && !((List<?>) msg.toolCalls()).isEmpty()) {
+                activeIds.clear();
+                List<Map<String, Object>> calls = (List<Map<String, Object>>) msg.toolCalls();
+                for (Map<String, Object> call : calls) {
+                    if (call.get("id") instanceof String id) activeIds.add(id);
+                }
+                result.add(msg);
+            } else if ("tool".equals(msg.role())) {
+                if (activeIds.contains(msg.toolCallId())) {
+                    result.add(msg);
+                } else {
+                    log.warn("丢弃孤立 tool 消息: {}", msg.toolCallId());
+                }
+            } else {
+                result.add(msg);
+            }
+        }
+        return result;
     }
 
     @SuppressWarnings("unchecked")
