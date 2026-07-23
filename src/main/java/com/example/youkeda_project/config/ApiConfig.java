@@ -11,6 +11,9 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class ApiConfig {
 
+    @Value("${amap.api.key:}")
+    private String amapApiKey;
+
     @Value("${weather.api.key:}")
     private String weatherApiKey;
 
@@ -22,6 +25,14 @@ public class ApiConfig {
 
     @Value("${ai.api.url:https://api.deepseek.com/chat/completions}")
     private String aiApiUrl;
+
+    public String getAmapApiKey() {
+        return amapApiKey;
+    }
+
+    public String getAmapGeoUrl() {
+        return "https://restapi.amap.com/v3/geocode/geo";
+    }
 
     public String getWeatherApiKey() {
         return weatherApiKey;
@@ -165,5 +176,12 @@ public class ApiConfig {
 
     public String getPhoneApiUrl() {
         return phoneApiUrl;
+    }
+
+    @Value("${bocha.api.key:}")
+    private String bochaApiKey;
+
+    public String getBochaApiKey() {
+        return bochaApiKey;
     }
 }

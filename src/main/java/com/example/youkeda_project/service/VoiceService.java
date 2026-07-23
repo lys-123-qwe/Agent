@@ -67,18 +67,23 @@ public class VoiceService {
         log.info("语音格式: {}, 大小: {} bytes", format, audioBytes.length);
 
         try {
-            String result = transcribeSync(audioBytes, format);
-            // 如果 SILK 格式返回空结果，尝试转换为 WAV 后重试
-            if ("silk".equals(format) && (result.startsWith("错误:") || result.contains("未能从响应中提取"))) {
-                log.info("SILK 格式直接发送未得到有效结果，尝试转换为 WAV...");
+            // SILK 格式：qwen3-asr-flash 不支持，直接转 WAV 再识别
+            if ("silk".equals(format)) {
+                log.info("SILK 格式，转换为 WAV 后识别...");
                 byte[] wavBytes = silkToWav(audioBytes);
                 if (wavBytes != null) {
                     log.info("SILK→WAV 转换成功: {} bytes", wavBytes.length);
                     return transcribeSync(wavBytes, "wav");
-                } else {
-                    log.warn("SILK→WAV 转换失败，返回原始结果");
                 }
+                log.warn("SILK→WAV 转换失败，尝试直接发送 SILK...");
+                String result = transcribeSync(audioBytes, format);
+                if (result.startsWith("错误:") || result.contains("未能从响应中提取")) {
+                    return "语音识别失败：无法解析此语音格式";
+                }
+                return result;
             }
+
+            String result = transcribeSync(audioBytes, format);
             return result;
         } catch (Exception e) {
             log.error("语音识别失败", e);

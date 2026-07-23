@@ -3,6 +3,7 @@ package com.example.youkeda_project.service;
 import com.example.youkeda_project.ai.AIService;
 import com.example.youkeda_project.ai.ChatResult;
 import com.example.youkeda_project.ai.EditImageTool;
+import com.example.youkeda_project.ai.HotNewsTool;
 import com.example.youkeda_project.ai.ImageTool;
 import com.example.youkeda_project.ai.RecognizeImageTool;
 import com.example.youkeda_project.ai.Tool;
@@ -53,11 +54,7 @@ public class IlinkService {
         - 图片识别：直接发送图片给我\n\
         - 语音识别：直接发送语音消息，自动转文字后 AI 回复\n\
         - 语音合成：告诉我你想朗读的内容，我帮你合成语音\n\
-        - 文件识别：直接发送文件（doc/txt/pdf等），AI 自动提取内容并总结\n\
-        - 汇率转换：告诉我需要转换的金额和币种，如 100美元等于多少人民币\n\
-        - 日期计算：查询日期间隔、倒计时、星期几等\n\
-        - 星座运势：查询今日星座运势或根据日期查星座\n\
-        - 手机归属地：查询手机号码的省份、城市、运营商\n\n\
+        - 文件识别：直接发送文件（doc/txt/pdf等），AI 自动提取内容并总结\n\n\
         直接说话就行，不需要任何命令前缀！""";
 
     private final IlinkProtocolClient client;
@@ -70,6 +67,7 @@ public class IlinkService {
     private final WeatherTool weatherTool;
     private final ImageTool imageTool;
     private final TtsTool ttsTool;
+    private final HotNewsTool hotNewsTool;
     private final ExchangeRateTool exchangeRateTool;
     private final DateTimeTool dateTimeTool;
     private final ConstellationTool constellationTool;
@@ -79,6 +77,7 @@ public class IlinkService {
     private final AtomicBoolean polling = new AtomicBoolean(false);
     private final AtomicBoolean welcomeSent = new AtomicBoolean(false);
     private final java.util.concurrent.ConcurrentHashMap<String, byte[]> pendingImages = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.ConcurrentHashMap<String, String> lastGeneratedImageUrl = new java.util.concurrent.ConcurrentHashMap<>();
     private String ownerId;
     private Thread pollThread;
 
@@ -86,8 +85,8 @@ public class IlinkService {
                         AIService aiService, ImageService imageService, VoiceService voiceService,
                         TtsService ttsService, FileService fileService,
                         WeatherTool weatherTool, ImageTool imageTool, TtsTool ttsTool,
-                        ExchangeRateTool exchangeRateTool,
-                        DateTimeTool dateTimeTool,
+                        HotNewsTool hotNewsTool,
+                        ExchangeRateTool exchangeRateTool, DateTimeTool dateTimeTool,
                         ConstellationTool constellationTool, PhoneLocationTool phoneLocationTool) {
         this.client = client;
         this.weatherService = weatherService;
@@ -99,6 +98,7 @@ public class IlinkService {
         this.weatherTool = weatherTool;
         this.imageTool = imageTool;
         this.ttsTool = ttsTool;
+        this.hotNewsTool = hotNewsTool;
         this.exchangeRateTool = exchangeRateTool;
         this.dateTimeTool = dateTimeTool;
         this.constellationTool = constellationTool;
@@ -281,7 +281,62 @@ public class IlinkService {
                 }
                 log.info("语音转文字结果: {}", transcribedText);
                 System.out.println("[微信] " + fromUser + " (语音转文字): " + transcribedText);
-                String reply = aiService.chat(fromUser, transcribedText);
+
+                // 检查是否有待处理的图片（先发图，再发语音指令）
+                byte[] pendingImage = pendingImages.remove(fromUser);
+                if (pendingImage != null) {
+                    processImageWithInstruction(fromUser, msg.contextToken(), pendingImage, transcribedText);
+                    return;
+                }
+
+                // 检查是否有最近生成的图片可识别/编辑
+                String lastGenUrl = lastGeneratedImageUrl.get(fromUser);
+                if (lastGenUrl != null) {
+                    System.out.println("[系统] 找到最近生成的图片，下载中...");
+                    try {
+                        byte[] genImageBytes = imageService.downloadImage(lastGenUrl);
+                        processImageWithInstruction(fromUser, msg.contextToken(), genImageBytes, transcribedText);
+                        return;
+                    } catch (Exception e) {
+                        log.warn("下载最近生成的图片失败，回退到普通对话: {}", e.getMessage());
+                        lastGeneratedImageUrl.remove(fromUser);
+                    }
+                }
+
+                // 无图片上下文，走普通对话
+                List<Tool> voiceTools = List.of(weatherTool, imageTool, ttsTool, hotNewsTool);
+                ChatResult result = aiService.chat(fromUser, transcribedText, voiceTools);
+                String reply = result.getReplyText();
+
+                if (result.hasPendingImage()) {
+                    String imageUrl = result.getFirstPendingImageUrl();
+                    lastGeneratedImageUrl.put(fromUser, imageUrl);
+                    System.out.println("[系统] 图片已生成，正在上传到微信CDN...");
+                    try {
+                        byte[] imageBytes = imageService.downloadImage(imageUrl);
+                        client.uploadAndSendImage(fromUser, msg.contextToken(), imageBytes);
+                        log.info("已发送图片 {}", fromUser);
+                        System.out.println("[系统] 图片已发送到微信");
+                    } catch (Exception e) {
+                        log.error("图片上传发送失败", e);
+                        reply += "\n\n（图片上传失败: " + e.getMessage() + "）";
+                    }
+                }
+
+                if (result.hasPendingAudio()) {
+                    ToolResult audio = result.getFirstPendingAudio();
+                    System.out.println("[系统] 语音合成完成，正在上传发送...");
+                    try {
+                        client.uploadAndSendFile(fromUser, msg.contextToken(),
+                            audio.getAudioBytes(), audio.getAudioFileName(), audio.getAudioBytes().length);
+                        log.info("已发送语音 {}", fromUser);
+                        System.out.println("[微信] " + fromUser + ": [语音合成消息]");
+                    } catch (Exception e) {
+                        log.error("语音上传发送失败", e);
+                        reply += "\n\n（语音上传失败: " + e.getMessage() + "）";
+                    }
+                }
+
                 client.sendMessage(fromUser, msg.contextToken(), List.of(MessageItem.text(reply)));
                 log.info("已回复语音 {}: {}", fromUser, reply);
                 System.out.println("[微信] " + fromUser + ": " + reply);
@@ -331,13 +386,15 @@ public class IlinkService {
 
             // Function Calling：将所有工具传递给 DeepSeek，由模型自主决定调用哪些
             System.out.println("[系统] " + fromUser + " 正在等待 AI 回复...");
-            List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, exchangeRateTool, dateTimeTool, constellationTool, phoneLocationTool);
+            List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, hotNewsTool,
+                exchangeRateTool, dateTimeTool, constellationTool, phoneLocationTool);
             ChatResult result = aiService.chat(fromUser, text, allTools);
             String reply = result.getReplyText();
 
             // 处理工具产生的媒体侧效应（图片 CDN 上传、音频文件发送）
             if (result.hasPendingImage()) {
                 String imageUrl = result.getFirstPendingImageUrl();
+                lastGeneratedImageUrl.put(fromUser, imageUrl);
                 System.out.println("[系统] 图片已生成，正在上传到微信CDN...");
                 try {
                     byte[] imageBytes = imageService.downloadImage(imageUrl);
@@ -398,7 +455,7 @@ public class IlinkService {
 
         RecognizeImageTool recognizeTool = new RecognizeImageTool(aiService, fromUser, imageBytes);
         EditImageTool editTool = new EditImageTool(imageService, imageBytes);
-        List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, recognizeTool, editTool);
+        List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, hotNewsTool, recognizeTool, editTool);
 
         String contextMessage = "[系统提示：当前有一张待处理的图片。请根据用户的指令选择合适的工具。]\n"
             + "[如果用户想识别图片内容（这是什么、描述图片、提取文字等），请调用 recognize_image 工具]\n"
@@ -411,6 +468,7 @@ public class IlinkService {
         // 处理编辑后的图片（CDN 上传 → 发送到微信）
         if (result.hasPendingImage()) {
             String imageUrl = result.getFirstPendingImageUrl();
+            lastGeneratedImageUrl.put(fromUser, imageUrl);
             System.out.println("[系统] 图片编辑完成，正在上传到微信CDN...");
             try {
                 byte[] editedImageBytes = imageService.downloadImage(imageUrl);
