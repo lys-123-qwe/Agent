@@ -261,9 +261,12 @@ public class TtsService {
 
         // 数字匹配
         try {
-            int idx = Integer.parseInt(trimmed) - 1;
-            if (idx >= 0 && idx < VOICES.size()) {
-                return VOICES.get(idx).voiceId();
+            String numStr = trimmed.replaceAll("[号.。、\\s]", "").trim();
+            if (!numStr.isEmpty()) {
+                int idx = Integer.parseInt(numStr) - 1;
+                if (idx >= 0 && idx < VOICES.size()) {
+                    return VOICES.get(idx).voiceId();
+                }
             }
         } catch (NumberFormatException ignored) {}
 
@@ -282,7 +285,33 @@ public class TtsService {
             if (trimmed.contains(v.name()) || v.name().contains(trimmed)) return v.voiceId();
         }
 
+        // 别名映射：描述性音色名 → voice ID（兼容用户可能使用的通用名）
+        String aliasMatch = VOICE_ALIASES.get(trimmed);
+        if (aliasMatch != null) return aliasMatch;
+
         return null;
+    }
+
+    /**
+     * 通用描述性音色名到实际 voice ID 的映射。
+     * 使 "热情女声"/"元气女声" 等通用名也能匹配到正确的 CosyVoice 音色。
+     */
+    private static final java.util.Map<String, String> VOICE_ALIASES = new java.util.LinkedHashMap<>();
+    static {
+        VOICE_ALIASES.put("阳光男声", "longanyang");
+        VOICE_ALIASES.put("元气女声", "longanhuan");
+        VOICE_ALIASES.put("可爱童声", "longhuhu_v3");
+        VOICE_ALIASES.put("沉稳青年男", "longshu_v3");
+        VOICE_ALIASES.put("干练女声", "loongbella_v3");
+        VOICE_ALIASES.put("热情女声", "longanhuan");
+        VOICE_ALIASES.put("温柔女声", "longanyang");
+        VOICE_ALIASES.put("甜美女声", "longanhuan");
+        VOICE_ALIASES.put("活力女声", "longanhuan");
+        VOICE_ALIASES.put("磁性男声", "longshu_v3");
+        VOICE_ALIASES.put("青年男声", "longshu_v3");
+        VOICE_ALIASES.put("男声", "longanyang");
+        VOICE_ALIASES.put("女声", "longanhuan");
+        VOICE_ALIASES.put("童声", "longhuhu_v3");
     }
 
     public String getDefaultVoice() {
