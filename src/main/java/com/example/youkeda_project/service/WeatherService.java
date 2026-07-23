@@ -80,41 +80,45 @@ public class WeatherService {
      * @return "lon,lat" 格式的坐标字符串，无结果时返回 null
      */
     private String geocode(String cityName) {
-        String amapKey = apiConfig.getAmapApiKey();
-        if (amapKey != null && !amapKey.isBlank()) {
-            try {
-                String url = apiConfig.getAmapGeoUrl() + "?key=" + amapKey
-                        + "&address=" + cityName
-                        + "&output=JSON";
+        try {
+            String url = apiConfig.getAmapGeoUrl() + "?key=" + apiConfig.getAmapApiKey()
+                    + "&address=" + cityName
+                    + "&output=JSON";
 
-                String response = restClient.get()
-                        .uri(url)
-                        .retrieve()
-                        .body(String.class);
+            String response = restClient.get()
+                    .uri(url)
+                    .retrieve()
+                    .body(String.class);
 
-                log.info("高德地理编码响应: {}", response);
+            log.info("高德地理编码响应: {}", response);
 
-                JsonNode root = objectMapper.readTree(response);
-                String status = root.path("status").asText();
+            JsonNode root = objectMapper.readTree(response);
+            String status = root.path("status").asText();
 
-                if ("1".equals(status)) {
-                    JsonNode geocodes = root.path("geocodes");
-                    if (geocodes.isArray() && !geocodes.isEmpty()) {
-                        String location = geocodes.get(0).path("location").asText();
-                        if (!location.isEmpty()) {
-                            log.info("高德地理编码成功: {} -> {}", cityName, location);
-                            return location;
-                        }
-                    }
-                }
-                log.warn("高德地理编码失败，降级到城市名直查: status={}", status);
-            } catch (Exception e) {
-                log.warn("高德地理编码异常，降级到城市名直查: {}", e.getMessage());
+            if (!"1".equals(status)) {
+                log.warn("高德地理编码失败: status={}, info={}",
+                        status, root.path("info").asText());
+                return null;
             }
-        } else {
-            log.info("未配置高德 API Key，直接使用城市名查询和风天气");
+
+            JsonNode geocodes = root.path("geocodes");
+            if (!geocodes.isArray() || geocodes.isEmpty()) {
+                log.warn("高德地理编码无结果: city={}", cityName);
+                return null;
+            }
+
+            String location = geocodes.get(0).path("location").asText();
+            if (location.isEmpty()) {
+                log.warn("高德地理编码结果中无坐标: city={}", cityName);
+                return null;
+            }
+
+            return location;
+
+        } catch (Exception e) {
+            log.error("高德地理编码异常: {}", e.getMessage(), e);
+            return null;
         }
-        return cityName;
     }
 
     /**

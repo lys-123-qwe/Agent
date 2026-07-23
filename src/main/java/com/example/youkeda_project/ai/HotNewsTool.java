@@ -63,9 +63,9 @@ public class HotNewsTool implements Tool {
 
     @Override
     public ToolResult execute(Map<String, Object> arguments) {
-        String apiKey = apiConfig.getNewsApiKey();
+        String apiKey = apiConfig.getBochaApiKey();
         if (apiKey == null || apiKey.isBlank()) {
-            return ToolResult.text("错误: 未配置搜索 API Key，无法获取热点新闻");
+            return ToolResult.text("错误: 未配置博查 API Key，无法获取热点新闻");
         }
 
         String category = arguments != null ? (String) arguments.get("category") : null;

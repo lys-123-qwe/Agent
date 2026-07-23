@@ -13,7 +13,6 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.MonthDay;
 import java.util.List;
-import java.util.Map;
 
 @Service
 public class ConstellationService {
@@ -95,94 +94,54 @@ public class ConstellationService {
         sign = sign.trim().replace("座", "") + "座";
 
         String horoscopeKey = apiConfig.getConstellationHoroscopeKey();
-        if (horoscopeKey != null && !horoscopeKey.isBlank()) {
-            try {
-                return queryJuheHoroscope(horoscopeKey, sign);
-            } catch (Exception e) {
-                log.warn("聚合数据星座API失败，降级到免费API: {}", e.getMessage());
-            }
-        }
-        return queryFreeHoroscope(sign);
-    }
-
-    private String queryJuheHoroscope(String key, String sign) {
-        String url = apiConfig.getConstellationHoroscopeUrl()
-            + "?key=" + key
-            + "&consName=" + URLEncoder.encode(sign, StandardCharsets.UTF_8)
-            + "&type=today";
-
-        log.info("星座运势API请求: {}", url.replace(key, "***"));
-
-        String response = restClient.get()
-            .uri(URI.create(url))
-            .retrieve()
-            .body(String.class);
-
-        log.info("星座API响应: {}", response);
-
-        JsonNode root = objectMapper.readTree(response);
-        int errorCode = root.path("error_code").asInt();
-        if (errorCode != 0) {
-            throw new RuntimeException("聚合数据错误: " + root.path("reason").asText("未知错误"));
+        if (horoscopeKey == null || horoscopeKey.isBlank()) {
+            return "错误: 未配置星座运势 API Key";
         }
 
-        StringBuilder sb = new StringBuilder();
-        sb.append("🌟 **").append(root.path("name").asText()).append(" ")
-            .append(root.path("datetime").asText()).append("运势**\n\n");
-
-        if (root.has("summary")) {
-            sb.append(root.path("summary").asText()).append("\n\n");
-        }
-
-        sb.append("📊 综合运势: ").append(root.path("all").asText()).append("\n");
-        sb.append("❤️ 爱情运势: ").append(root.path("love").asText()).append("\n");
-        sb.append("💼 事业运势: ").append(root.path("work").asText()).append("\n");
-        sb.append("💰 财运运势: ").append(root.path("money").asText()).append("\n");
-        sb.append("🏥 健康运势: ").append(root.path("health").asText()).append("\n\n");
-
-        sb.append("🔢 幸运数字: ").append(root.path("number").asText()).append("\n");
-        sb.append("🎨 幸运色: ").append(root.path("color").asText()).append("\n");
-        sb.append("🤝 速配星座: ").append(root.path("QFriend").asText());
-
-        return sb.toString();
-    }
-
-    private static final Map<String, String> CN_TO_EN = Map.ofEntries(
-        Map.entry("白羊座", "aries"), Map.entry("金牛座", "taurus"),
-        Map.entry("双子座", "gemini"), Map.entry("巨蟹座", "cancer"),
-        Map.entry("狮子座", "leo"), Map.entry("处女座", "virgo"),
-        Map.entry("天秤座", "libra"), Map.entry("天蝎座", "scorpio"),
-        Map.entry("射手座", "sagittarius"), Map.entry("摩羯座", "capricorn"),
-        Map.entry("水瓶座", "aquarius"), Map.entry("双鱼座", "pisces")
-    );
-
-    private String queryFreeHoroscope(String sign) {
-        String enSign = CN_TO_EN.get(sign);
-        if (enSign == null) {
-            return "不支持的星座: " + sign;
-        }
         try {
-            String url = "https://freehoroscopeapi.com/api/v1/get-horoscope/daily?sign=" + enSign;
-            log.info("免费星座API请求: {}", url);
+            String url = apiConfig.getConstellationHoroscopeUrl()
+                + "?key=" + horoscopeKey
+                + "&consName=" + URLEncoder.encode(sign, StandardCharsets.UTF_8)
+                + "&type=today";
+
+            log.info("星座运势API请求: {}", url.replace(horoscopeKey, "***"));
 
             String response = restClient.get()
                 .uri(URI.create(url))
                 .retrieve()
                 .body(String.class);
 
-            log.info("免费星座API响应: {}", response);
+            log.info("星座API响应: {}", response);
 
             JsonNode root = objectMapper.readTree(response);
-            String horoscope = root.path("data").path("horoscope").asText(null);
-            if (horoscope == null) {
-                throw new RuntimeException("免费API返回格式异常");
+            int errorCode = root.path("error_code").asInt();
+            if (errorCode != 0) {
+                return "星座查询失败: " + root.path("reason").asText("未知错误");
             }
 
-            return "🌟 **" + sign + " 今日运势**\n\n" + horoscope;
+            StringBuilder sb = new StringBuilder();
+            sb.append("🌟 **").append(root.path("name").asText()).append(" ")
+                .append(root.path("datetime").asText()).append("运势**\n\n");
+
+            if (root.has("summary")) {
+                sb.append(root.path("summary").asText()).append("\n\n");
+            }
+
+            sb.append("📊 综合运势: ").append(root.path("all").asText()).append("\n");
+            sb.append("❤️ 爱情运势: ").append(root.path("love").asText()).append("\n");
+            sb.append("💼 事业运势: ").append(root.path("work").asText()).append("\n");
+            sb.append("💰 财运运势: ").append(root.path("money").asText()).append("\n");
+            sb.append("🏥 健康运势: ").append(root.path("health").asText()).append("\n\n");
+
+            sb.append("🔢 幸运数字: ").append(root.path("number").asText()).append("\n");
+            sb.append("🎨 幸运色: ").append(root.path("color").asText()).append("\n");
+            sb.append("🤝 速配星座: ").append(root.path("QFriend").asText());
+
+            return sb.toString();
 
         } catch (Exception e) {
-            log.error("免费星座API也失败", e);
-            return "星座查询暂时不可用，请稍后再试";
+            log.error("星座查询失败", e);
+            return "星座查询失败: " + e.getMessage();
         }
     }
 
