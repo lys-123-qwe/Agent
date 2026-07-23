@@ -26,7 +26,7 @@ public class SearchTool implements Tool {
 
     @Override
     public String getDescription() {
-        return "搜索查询各类信息（明星、事件、知识、百科等），返回格式化结果列表。需要查特定信息时用此工具。";
+        return "搜索新闻、事件、知识、百科等实时信息。搜歌/查歌词请用 play_song 工具。";
     }
 
     @Override

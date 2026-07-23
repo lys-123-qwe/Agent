@@ -87,7 +87,7 @@ public class AIService {
                 - 查天气并读出来 → 同时调用 get_weather + text_to_speech
                 - 搜索新闻并播报 → 同时调用 web_search + text_to_speech
                 - 查多个城市天气 → 同时调用多次 get_weather
-                每次调用都使用不同的工具，工具返回中的链接必须完整保留在回答中。"""));
+                                 注意工具选择：搜歌/搜歌词用 play_song，推荐歌曲用 recommend_music，查资讯用 web_search，看今日头条用 get_daily_news。工具返回中的链接必须完整保留在回答中。"""));
             return list;
         });
 

@@ -4,7 +4,9 @@ import com.example.youkeda_project.ai.AIService;
 import com.example.youkeda_project.ai.ChatResult;
 import com.example.youkeda_project.ai.EditImageTool;
 import com.example.youkeda_project.ai.ImageTool;
+import com.example.youkeda_project.ai.MusicTool;
 import com.example.youkeda_project.ai.NewsTool;
+import com.example.youkeda_project.ai.RecommendMusicTool;
 import com.example.youkeda_project.ai.RecognizeImageTool;
 import com.example.youkeda_project.ai.SearchTool;
 import com.example.youkeda_project.ai.Tool;
@@ -49,6 +51,7 @@ public class IlinkService {
         可用功能：\n\
         - AI对话：直接发送消息与我聊天\n\
         - 天气查询：直接告诉我城市名，我会帮你查询天气\n\
+        - 搜歌听歌：告诉我歌名或歌手，我会搜索并提供播放链接\n\
         - 图片生成：直接描述你想要生成的图片\n\
         - 图片识别：直接发送图片给我\n\
         - 语音识别：直接发送语音消息，自动转文字后 AI 回复\n\
@@ -69,6 +72,8 @@ public class IlinkService {
     private final TtsTool ttsTool;
     private final NewsTool newsTool;
     private final SearchTool searchTool;
+    private final MusicTool musicTool;
+    private final RecommendMusicTool recommendMusicTool;
 
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicBoolean polling = new AtomicBoolean(false);
@@ -82,7 +87,8 @@ public class IlinkService {
                         AIService aiService, ImageService imageService, VoiceService voiceService,
                         TtsService ttsService, FileService fileService, NewsService newsService,
                         WeatherTool weatherTool, ImageTool imageTool, TtsTool ttsTool,
-                        NewsTool newsTool, SearchTool searchTool) {
+                        NewsTool newsTool, SearchTool searchTool, MusicTool musicTool,
+                        RecommendMusicTool recommendMusicTool) {
         this.client = client;
         this.weatherService = weatherService;
         this.aiService = aiService;
@@ -96,6 +102,8 @@ public class IlinkService {
         this.ttsTool = ttsTool;
         this.newsTool = newsTool;
         this.searchTool = searchTool;
+        this.musicTool = musicTool;
+        this.recommendMusicTool = recommendMusicTool;
     }
 
     /**
@@ -297,7 +305,7 @@ public class IlinkService {
                 }
 
                 // 无图片上下文，走普通对话
-                List<Tool> voiceTools = List.of(weatherTool, imageTool, ttsTool, newsTool, searchTool);
+                List<Tool> voiceTools = List.of(weatherTool, imageTool, ttsTool, newsTool, searchTool, musicTool, recommendMusicTool);
                 ChatResult result = aiService.chat(fromUser, transcribedText, voiceTools);
                 String reply = result.getReplyText();
 
@@ -370,6 +378,15 @@ public class IlinkService {
 
             String text = extractText(msg);
 
+            // /clear 命令：清空 AI 对话历史
+            if (text != null && (text.trim().equalsIgnoreCase("/clear") || text.trim().equalsIgnoreCase("clear"))) {
+                aiService.clearSession(fromUser);
+                client.sendMessage(fromUser, msg.contextToken(),
+                    List.of(MessageItem.text("会话已清空，开始全新对话 🎉")));
+                log.info("已清空会话 {}", fromUser);
+                return;
+            }
+
             // 检查是否有待处理的图片（用户先发图，再发文字指令）
             byte[] pendingImage = pendingImages.remove(fromUser);
             if (pendingImage != null) {
@@ -378,7 +395,7 @@ public class IlinkService {
             }
 
             System.out.println("[系统] " + fromUser + " 正在等待 AI 回复...");
-            List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, newsTool, searchTool);
+            List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, newsTool, searchTool, musicTool, recommendMusicTool);
             ChatResult result = aiService.chat(fromUser, text, allTools);
             String reply = result.getReplyText();
 
@@ -446,7 +463,7 @@ public class IlinkService {
 
         RecognizeImageTool recognizeTool = new RecognizeImageTool(aiService, fromUser, imageBytes);
         EditImageTool editTool = new EditImageTool(imageService, imageBytes);
-        List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, newsTool, searchTool, recognizeTool, editTool);
+        List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, newsTool, searchTool, musicTool, recommendMusicTool, recognizeTool, editTool);
 
         ChatResult result = aiService.chat(fromUser, instruction, allTools);
         String reply = result.getReplyText();
