@@ -68,7 +68,6 @@ public class ApiConfig {
     @Value("${news.api.key:}")
     private String newsApiKey;
 
-    // 天聚数行（tianapi.com）新闻 API key
     @Value("${news.sdk.api-key:}")
     private String newsSdkApiKey;
 

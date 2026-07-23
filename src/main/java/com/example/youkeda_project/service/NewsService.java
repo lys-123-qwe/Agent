@@ -9,6 +9,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.net.URI;
+import java.net.URLEncoder;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -24,6 +25,7 @@ import java.util.regex.Pattern;
 public class NewsService {
 
     private static final Logger log = LoggerFactory.getLogger(NewsService.class);
+    private static final String TIAN_API_BASE = "http://api.tianapi.com/generalnews/index";
     private static final String BOCHA_API_URL = "https://api.bocha.cn/v1/web-search";
     private static final Pattern TITLE_TAG = Pattern.compile(
             "<title[^>]*>(.*?)</title>", Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
@@ -35,13 +37,11 @@ public class NewsService {
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
     private final ApiConfig apiConfig;
-    private final NewsSDKService newsSDKService;
 
-    public NewsService(ApiConfig apiConfig, ObjectMapper objectMapper, NewsSDKService newsSDKService) {
+    public NewsService(ApiConfig apiConfig, ObjectMapper objectMapper) {
         this.apiConfig = apiConfig;
         this.objectMapper = objectMapper;
         this.restClient = RestClient.create();
-        this.newsSDKService = newsSDKService;
     }
 
     public String searchNews(int num, String keyword) {
@@ -49,14 +49,13 @@ public class NewsService {
     }
 
     public String searchOfficialNews() {
-        // 优先用 NewsSDK（NewsAPI.org），没有配置则降级到博查
-        String sdkKey = apiConfig.getNewsSdkApiKey();
-        if (sdkKey != null && !sdkKey.isBlank()) {
-            String result = newsSDKService.getTopHeadlines("general", 20);
+        String tianKey = apiConfig.getNewsSdkApiKey();
+        if (tianKey != null && !tianKey.isBlank()) {
+            String result = tianApiTopHeadlines();
             if (!result.startsWith("错误:") && !result.startsWith("没有找到")) {
                 return result;
             }
-            log.warn("NewsSDK 返回空，降级到博查: {}", result);
+            log.warn("天聚数行返回空，降级到博查: {}", result);
         }
 
         String apiKey = apiConfig.getNewsApiKey();
@@ -136,6 +135,175 @@ public class NewsService {
         }
     }
 
+    // ========== 天聚数行 ==========
+
+    private String tianApiTopHeadlines() {
+        try {
+            String apiKey = apiConfig.getNewsSdkApiKey();
+            String url = TIAN_API_BASE + "?key=" + apiKey + "&num=20";
+            log.info("天聚数行请求: {}", url.replace(apiKey, "***"));
+            byte[] responseBytes = restClient.get()
+                .uri(url)
+                .retrieve()
+                .body(byte[].class);
+            return tianApiParseResponse(responseBytes, "今日新闻");
+        } catch (Exception e) {
+            log.error("天聚数行 top-headlines 失败", e);
+            return "新闻获取失败: " + e.getMessage();
+        }
+    }
+
+    private String tianApiSearch(String keyword, int pageSize) {
+        try {
+            String apiKey = apiConfig.getNewsSdkApiKey();
+            String encodedKeyword = URLEncoder.encode(keyword, StandardCharsets.UTF_8);
+            int num = Math.min(pageSize, 50);
+            String url = TIAN_API_BASE + "?key=" + apiKey + "&num=" + num + "&word=" + encodedKeyword;
+            log.info("天聚数行搜索: {}", url.replace(apiKey, "***"));
+            byte[] responseBytes = restClient.get()
+                .uri(url)
+                .retrieve()
+                .body(byte[].class);
+            return tianApiParseResponse(responseBytes, keyword);
+        } catch (Exception e) {
+            log.error("天聚数行 search 失败", e);
+            return "新闻搜索失败: " + e.getMessage();
+        }
+    }
+
+    private String tianApiParseResponse(byte[] responseBytes, String prefix) {
+        try {
+            String json = new String(responseBytes, StandardCharsets.UTF_8);
+            JsonNode root = objectMapper.readTree(json);
+            int code = root.path("code").asInt(0);
+            if (code != 200) {
+                return "错误: " + root.path("msg").asText("未知错误");
+            }
+            JsonNode newslist = root.path("newslist");
+            if (!newslist.isArray() || newslist.isEmpty()) {
+                return "没有找到相关新闻";
+            }
+            List<String[]> items = new ArrayList<>();
+            Set<String> seenUrls = new LinkedHashSet<>();
+            for (JsonNode article : newslist) {
+                String title = article.path("title").asText("").trim();
+                String url = article.path("url").asText("").trim();
+                String source = article.path("source").asText("");
+                if (title.isEmpty() || url.isEmpty()) continue;
+                String clean = cleanTitle(title);
+                if (clean.length() < 4) continue;
+                if (!seenUrls.add(url)) continue;
+                String display = source.isEmpty() ? clean : clean + " [" + source + "]";
+                items.add(new String[]{display, url});
+                if (items.size() >= 20) break;
+            }
+            if (items.isEmpty()) return "没有找到相关新闻";
+            StringBuilder sb = new StringBuilder();
+            sb.append(prefix).append("：\n");
+            for (int i = 0; i < items.size(); i++) {
+                sb.append(i + 1).append(". ").append(items.get(i)[0])
+                    .append(" [详情](").append(items.get(i)[1]).append(")\n");
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            log.error("解析天聚数行响应失败", e);
+            return "解析新闻结果失败: " + e.getMessage();
+        }
+    }
+
+    // ========== 博查 ==========
+
+    private String searchNews(int num, String keyword, String category) {
+        String tianKey = apiConfig.getNewsSdkApiKey();
+        if (tianKey != null && !tianKey.isBlank()) {
+            String result = tianApiSearch(keyword, num);
+            if (!result.startsWith("错误:") && !result.startsWith("没有找到")) {
+                return result;
+            }
+            log.warn("天聚数行搜索返回空，降级到博查: {}", result);
+        }
+
+        String apiKey = apiConfig.getNewsApiKey();
+        if (apiKey == null || apiKey.isBlank()) {
+            return "错误: 未配置博查搜索 API Key";
+        }
+        try {
+            Map<String, Object> params = new LinkedHashMap<>();
+            params.put("query", keyword);
+            params.put("summary", true);
+            params.put("count", 50);
+            if (category != null && !category.isBlank()) {
+                params.put("category", category);
+                params.put("freshness", "oneDay");
+            }
+            String bodyJson = objectMapper.writeValueAsString(params);
+            log.info("博查搜索请求: {}", bodyJson);
+            byte[] responseBytes = restClient.post()
+                    .uri(BOCHA_API_URL)
+                    .header("Content-Type", "application/json; charset=UTF-8")
+                    .header("Authorization", "Bearer " + apiKey)
+                    .body(bodyJson.getBytes(StandardCharsets.UTF_8))
+                    .retrieve()
+                    .body(byte[].class);
+            String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
+            log.info("博查搜索响应: {}", responseJson);
+            String result = bochaParseResponse(responseJson, keyword);
+            if (result.startsWith("没有找到")) {
+                log.warn("博查搜索也返回空，降级到头条新闻");
+                return searchOfficialNews();
+            }
+            return result;
+        } catch (Exception e) {
+            log.error("博查搜索失败", e);
+            return "搜索失败: " + e.getMessage();
+        }
+    }
+
+    private String bochaParseResponse(String json, String keyword) {
+        try {
+            JsonNode root = objectMapper.readTree(json);
+            int code = root.path("code").asInt();
+            if (code != 200) return "错误: " + root.path("msg").asText("未知错误");
+            JsonNode value = root.path("data").path("webPages").path("value");
+            if (!value.isArray() || value.isEmpty()) return "没有找到相关结果";
+            List<String[]> items = new ArrayList<>();
+            Set<String> seenUrls = new LinkedHashSet<>();
+            for (JsonNode item : value) {
+                String rawTitle = item.path("name").asText("").trim();
+                String url = cleanUrl(item.path("url").asText(""));
+                String snippet = item.path("snippet").asText("");
+                String summary = item.path("summary").asText("");
+                if (!isValidArticle(rawTitle, url, snippet, summary)) continue;
+                if (url == null || !seenUrls.add(url)) continue;
+                String title = cleanTitle(rawTitle);
+                if (title.length() < 4) continue;
+                if (title.matches("^[\\u4e00-\\u9fa5]{2,15}$")) {
+                    String pageTitle = fetchPageTitle(url);
+                    if (pageTitle != null && pageTitle.length() > title.length()) {
+                        title = cleanTitle(pageTitle);
+                    }
+                }
+                int cnCount = title.replaceAll("[^\\u4e00-\\u9fa5]", "").length();
+                if (cnCount < 3) continue;
+                items.add(new String[]{title, url});
+                if (items.size() >= 20) break;
+            }
+            if (items.isEmpty()) return "没有找到相关结果";
+            StringBuilder sb = new StringBuilder();
+            sb.append(keyword).append("搜索结果：\n");
+            for (int i = 0; i < items.size(); i++) {
+                sb.append(i + 1).append(". ").append(items.get(i)[0])
+                        .append(" [详情](").append(items.get(i)[1]).append(")\n");
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            log.error("解析搜索响应失败", e);
+            return "解析搜索结果失败: " + e.getMessage();
+        }
+    }
+
+    // ========== 工具方法 ==========
+
     private boolean isValidArticle(String title, String url, String snippet, String summary) {
         if (title.isEmpty() || url == null || url.isBlank()) return false;
         String urlLower = url.toLowerCase();
@@ -150,7 +318,6 @@ public class NewsService {
         for (String kw : EXCLUDE_KW) {
             if (title.contains(kw)) return false;
         }
-        // 新闻简报/汇总检测（在 cleanTitle 之前，因为 cleanTitle 会去掉前缀关键词）
         if (isNewsDigest(title)) return false;
         String titleClean = cleanTitle(title);
         if (titleClean.matches("^[\\u4e00-\\u9fa5]{1,4}$")) return false;
@@ -158,15 +325,9 @@ public class NewsService {
         return true;
     }
 
-    /**
-     * 检测是否为新闻简报/汇总页（早读、早新闻、晨报、多主题速览等），
-     * 这类页面列出多条新闻而非一篇独立文章，在 cleanTitle 之前检测原始标题。
-     */
     private boolean isNewsDigest(String rawTitle) {
         if (rawTitle == null || rawTitle.isBlank()) return false;
-        // 多个新闻主题用中文/英文分号分隔 → 多主题汇总（强信号）
         if (rawTitle.split("[；;]").length > 1) return true;
-        // 简报关键词
         String[] digestKws = {"早新闻", "早读", "晨报", "晚报", "午报", "速览", "一览",
                 "快报", "新闻早餐", "新闻来了", "新闻早班车", "新闻联播",
                 "读报", "夜读", "早间", "今日焦点", "新闻速递",
@@ -175,7 +336,6 @@ public class NewsService {
         for (String kw : digestKws) {
             if (t.contains(kw)) return true;
         }
-        // 多个 ！分隔不同新闻主题（≥3 个 → 简报）
         int cnt = 0;
         for (int i = 0; i < rawTitle.length(); i++) {
             if (rawTitle.charAt(i) == '！') {
@@ -267,96 +427,5 @@ public class NewsService {
             if (title.contains(g)) return true;
         }
         return false;
-    }
-
-    private String searchNews(int num, String keyword, String category) {
-        // 优先用 NewsSDK（天聚数行），没有配置则降级到博查
-        String sdkKey = apiConfig.getNewsSdkApiKey();
-        if (sdkKey != null && !sdkKey.isBlank()) {
-            String result = newsSDKService.searchNews(keyword, num);
-            if (!result.startsWith("错误:") && !result.startsWith("没有找到")) {
-                return result;
-            }
-            log.warn("NewsSDK 搜索返回空，降级到博查: {}", result);
-        }
-
-        String apiKey = apiConfig.getNewsApiKey();
-        if (apiKey == null || apiKey.isBlank()) {
-            return "错误: 未配置博查搜索 API Key";
-        }
-        try {
-            Map<String, Object> params = new LinkedHashMap<>();
-            params.put("query", keyword);
-            params.put("summary", true);
-            params.put("count", 50);
-            if (category != null && !category.isBlank()) {
-                params.put("category", category);
-                params.put("freshness", "oneDay");
-            }
-            String bodyJson = objectMapper.writeValueAsString(params);
-            log.info("博查搜索请求: {}", bodyJson);
-            byte[] responseBytes = restClient.post()
-                    .uri(BOCHA_API_URL)
-                    .header("Content-Type", "application/json; charset=UTF-8")
-                    .header("Authorization", "Bearer " + apiKey)
-                    .body(bodyJson.getBytes(StandardCharsets.UTF_8))
-                    .retrieve()
-                    .body(byte[].class);
-            String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
-            log.info("博查搜索响应: {}", responseJson);
-            String result = parseResponse(responseJson, keyword);
-            // 博查也空，降级为头条新闻
-            if (result.startsWith("没有找到")) {
-                log.warn("博查搜索也返回空，降级到头条新闻");
-                return searchOfficialNews();
-            }
-            return result;
-        } catch (Exception e) {
-            log.error("博查搜索失败", e);
-            return "搜索失败: " + e.getMessage();
-        }
-    }
-
-    private String parseResponse(String json, String keyword) {
-        try {
-            JsonNode root = objectMapper.readTree(json);
-            int code = root.path("code").asInt();
-            if (code != 200) return "错误: " + root.path("msg").asText("未知错误");
-            JsonNode value = root.path("data").path("webPages").path("value");
-            if (!value.isArray() || value.isEmpty()) return "没有找到相关结果";
-            List<String[]> items = new ArrayList<>();
-            Set<String> seenUrls = new LinkedHashSet<>();
-            for (JsonNode item : value) {
-                String rawTitle = item.path("name").asText("").trim();
-                String url = cleanUrl(item.path("url").asText(""));
-                String snippet = item.path("snippet").asText("");
-                String summary = item.path("summary").asText("");
-                if (!isValidArticle(rawTitle, url, snippet, summary)) continue;
-                if (url == null || !seenUrls.add(url)) continue;
-                String title = cleanTitle(rawTitle);
-                if (title.length() < 4) continue;
-                if (title.matches("^[\\u4e00-\\u9fa5]{2,15}$")) {
-                    String pageTitle = fetchPageTitle(url);
-                    if (pageTitle != null && pageTitle.length() > title.length()) {
-                        title = cleanTitle(pageTitle);
-                    }
-                }
-                int cnCount = title.replaceAll("[^\\u4e00-\\u9fa5]", "").length();
-                if (cnCount < 3) continue;
-                items.add(new String[]{title, url});
-                if (items.size() >= 20) break;
-            }
-            if (items.isEmpty()) return "没有找到相关结果";
-            StringBuilder sb = new StringBuilder();
-            sb.append(keyword).append("搜索结果：\n");
-            for (int i = 0; i < items.size(); i++) {
-                sb.append(i + 1).append(". ").append(items.get(i)[0])
-                        .append(" [详情](").append(items.get(i)[1]).append(")\n");
-            }
-            return sb.toString();
-        } catch (Exception e) {
-            log.error("解析搜索响应失败", e);
-            return "解析搜索结果失败: " + e.getMessage();
-        }
     }
 }
