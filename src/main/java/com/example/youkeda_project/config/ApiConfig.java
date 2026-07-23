@@ -110,4 +110,60 @@ public class ApiConfig {
     public String getTtsApiModel() {
         return ttsApiModel;
     }
+
+    @Value("${exchange.api.key:}")
+    private String exchangeApiKey;
+
+    @Value("${exchange.api.url:https://v6.exchangerate-api.com/v6}")
+    private String exchangeApiUrl;
+
+    public String getExchangeApiKey() {
+        return exchangeApiKey;
+    }
+
+    public String getExchangeApiUrl() {
+        return exchangeApiUrl;
+    }
+
+    @Value("${constellation.query.api.key:}")
+    private String constellationQueryKey;
+
+    @Value("${constellation.query.api.url:http://web.juhe.cn:8080/constellation/getAll}")
+    private String constellationQueryUrl;
+
+    @Value("${constellation.horoscope.api.key:}")
+    private String constellationHoroscopeKey;
+
+    @Value("${constellation.horoscope.api.url:https://web.juhe.cn/constellation/getAll}")
+    private String constellationHoroscopeUrl;
+
+    @Value("${phone.api.key:}")
+    private String phoneApiKey;
+
+    @Value("${phone.api.url:http://op.juhe.cn/phone/get}")
+    private String phoneApiUrl;
+
+    public String getConstellationQueryKey() {
+        return constellationQueryKey;
+    }
+
+    public String getConstellationQueryUrl() {
+        return constellationQueryUrl;
+    }
+
+    public String getConstellationHoroscopeKey() {
+        return constellationHoroscopeKey;
+    }
+
+    public String getConstellationHoroscopeUrl() {
+        return constellationHoroscopeUrl;
+    }
+
+    public String getPhoneApiKey() {
+        return phoneApiKey;
+    }
+
+    public String getPhoneApiUrl() {
+        return phoneApiUrl;
+    }
 }

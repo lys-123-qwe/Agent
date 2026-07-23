@@ -8,6 +8,10 @@ import com.example.youkeda_project.ai.RecognizeImageTool;
 import com.example.youkeda_project.ai.Tool;
 import com.example.youkeda_project.ai.ToolResult;
 import com.example.youkeda_project.ai.TtsTool;
+import com.example.youkeda_project.ai.ExchangeRateTool;
+import com.example.youkeda_project.ai.DateTimeTool;
+import com.example.youkeda_project.ai.ConstellationTool;
+import com.example.youkeda_project.ai.PhoneLocationTool;
 import com.example.youkeda_project.ai.WeatherTool;
 import com.example.youkeda_project.client.IlinkProtocolClient;
 import com.example.youkeda_project.protocol.GetUpdatesResponse;
@@ -49,7 +53,11 @@ public class IlinkService {
         - 图片识别：直接发送图片给我\n\
         - 语音识别：直接发送语音消息，自动转文字后 AI 回复\n\
         - 语音合成：告诉我你想朗读的内容，我帮你合成语音\n\
-        - 文件识别：直接发送文件（doc/txt/pdf等），AI 自动提取内容并总结\n\n\
+        - 文件识别：直接发送文件（doc/txt/pdf等），AI 自动提取内容并总结\n\
+        - 汇率转换：告诉我需要转换的金额和币种，如 100美元等于多少人民币\n\
+        - 日期计算：查询日期间隔、倒计时、星期几等\n\
+        - 星座运势：查询今日星座运势或根据日期查星座\n\
+        - 手机归属地：查询手机号码的省份、城市、运营商\n\n\
         直接说话就行，不需要任何命令前缀！""";
 
     private final IlinkProtocolClient client;
@@ -62,6 +70,10 @@ public class IlinkService {
     private final WeatherTool weatherTool;
     private final ImageTool imageTool;
     private final TtsTool ttsTool;
+    private final ExchangeRateTool exchangeRateTool;
+    private final DateTimeTool dateTimeTool;
+    private final ConstellationTool constellationTool;
+    private final PhoneLocationTool phoneLocationTool;
 
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicBoolean polling = new AtomicBoolean(false);
@@ -73,7 +85,10 @@ public class IlinkService {
     public IlinkService(IlinkProtocolClient client, WeatherService weatherService,
                         AIService aiService, ImageService imageService, VoiceService voiceService,
                         TtsService ttsService, FileService fileService,
-                        WeatherTool weatherTool, ImageTool imageTool, TtsTool ttsTool) {
+                        WeatherTool weatherTool, ImageTool imageTool, TtsTool ttsTool,
+                        ExchangeRateTool exchangeRateTool,
+                        DateTimeTool dateTimeTool,
+                        ConstellationTool constellationTool, PhoneLocationTool phoneLocationTool) {
         this.client = client;
         this.weatherService = weatherService;
         this.aiService = aiService;
@@ -84,6 +99,10 @@ public class IlinkService {
         this.weatherTool = weatherTool;
         this.imageTool = imageTool;
         this.ttsTool = ttsTool;
+        this.exchangeRateTool = exchangeRateTool;
+        this.dateTimeTool = dateTimeTool;
+        this.constellationTool = constellationTool;
+        this.phoneLocationTool = phoneLocationTool;
     }
 
     /**
@@ -312,7 +331,7 @@ public class IlinkService {
 
             // Function Calling：将所有工具传递给 DeepSeek，由模型自主决定调用哪些
             System.out.println("[系统] " + fromUser + " 正在等待 AI 回复...");
-            List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool);
+            List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, exchangeRateTool, dateTimeTool, constellationTool, phoneLocationTool);
             ChatResult result = aiService.chat(fromUser, text, allTools);
             String reply = result.getReplyText();
 
