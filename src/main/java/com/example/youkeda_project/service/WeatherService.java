@@ -8,14 +8,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
-import java.util.Map;
-
 /**
  * 和风天气查询服务。
  * <p>
- * 预置 10 个中国主要城市 ID，支持中英文城市名。
- * 调用和风天气实时天气 API（devapi.qweather.com），
+ * 通过高德地理编码 API 将城市名转换为经纬度坐标，
+ * 再用坐标调用和风天气实时天气 API（devapi.qweather.com），
  * 返回格式化天气信息字符串。
+ * <p>
+ * 支持任意中国城市名称（中文）。
  */
 @Service
 public class WeatherService {
@@ -26,34 +26,6 @@ public class WeatherService {
     private final ApiConfig apiConfig;
     private final ObjectMapper objectMapper;
 
-    // 预置 10 个城市的中英文名到和风城市 ID 的映射
-    private static final Map<String, String> CITY_MAP;
-
-    static {
-        Map<String, String> map = new java.util.HashMap<>();
-        map.put("北京", "101010100");
-        map.put("beijing", "101010100");
-        map.put("上海", "101020100");
-        map.put("shanghai", "101020100");
-        map.put("广州", "101280101");
-        map.put("guangzhou", "101280101");
-        map.put("深圳", "101280601");
-        map.put("shenzhen", "101280601");
-        map.put("杭州", "101210101");
-        map.put("hangzhou", "101210101");
-        map.put("成都", "101270101");
-        map.put("chengdu", "101270101");
-        map.put("武汉", "101200101");
-        map.put("wuhan", "101200101");
-        map.put("南京", "101190101");
-        map.put("nanjing", "101190101");
-        map.put("西安", "101110101");
-        map.put("xian", "101110101");
-        map.put("重庆", "101040100");
-        map.put("chongqing", "101040100");
-        CITY_MAP = Map.copyOf(map);
-    }
-
     public WeatherService(ApiConfig apiConfig, ObjectMapper objectMapper) {
         this.apiConfig = apiConfig;
         this.objectMapper = objectMapper;
@@ -62,8 +34,8 @@ public class WeatherService {
 
     /**
      * 查询指定城市的实时天气。
-     * 先在预置 CITY_MAP 中查找城市 ID，找不到返回错误信息。
-     * 查询结果解析后返回格式化的天气字符串。
+     * <p>
+     * 流程：城市名 → 高德地理编码 → 经纬度坐标 → 和风天气 API → 格式化天气信息。
      */
     public String queryWeather(String cityName) {
         if (cityName == null || cityName.trim().isEmpty()) {
@@ -72,19 +44,19 @@ public class WeatherService {
         }
 
         String cityNameTrimmed = cityName.trim();
-        // 不区分大小写匹配
-        String cityId = CITY_MAP.get(cityNameTrimmed.toLowerCase());
-
-        if (cityId == null) {
-            log.warn("天气查询失败: 不支持的城市 '{}'", cityNameTrimmed);
-            return "错误: 暂不支持查询城市 '" + cityNameTrimmed
-                    + "'\n支持的城市: " + String.join("、", CITY_MAP.keySet());
-        }
-
-        log.info("查询天气: 城市={}, 城市ID={}", cityNameTrimmed, cityId);
+        log.info("查询天气: 城市={}", cityNameTrimmed);
 
         try {
-            String url = apiConfig.getWeatherApiUrl() + "?location=" + cityId
+            // 第1步：高德地理编码，城市名 → 坐标
+            String location = geocode(cityNameTrimmed);
+            if (location == null) {
+                return "错误: 未找到城市 '" + cityNameTrimmed
+                        + "' 的地理坐标，请检查城市名是否正确";
+            }
+            log.info("地理编码结果: {} -> {}", cityNameTrimmed, location);
+
+            // 第2步：用坐标查询和风天气
+            String url = apiConfig.getWeatherApiUrl() + "?location=" + location
                     + "&key=" + apiConfig.getWeatherApiKey();
 
             String response = restClient.get()
@@ -98,6 +70,54 @@ public class WeatherService {
         } catch (Exception e) {
             log.error("天气查询异常: {}", e.getMessage(), e);
             return "错误: 天气查询失败 - " + e.getMessage();
+        }
+    }
+
+    /**
+     * 调用高德地理编码 API，将城市名转换为经纬度坐标。
+     *
+     * @param cityName 城市名称（中文）
+     * @return "lon,lat" 格式的坐标字符串，无结果时返回 null
+     */
+    private String geocode(String cityName) {
+        try {
+            String url = apiConfig.getAmapGeoUrl() + "?key=" + apiConfig.getAmapApiKey()
+                    + "&address=" + cityName
+                    + "&output=JSON";
+
+            String response = restClient.get()
+                    .uri(url)
+                    .retrieve()
+                    .body(String.class);
+
+            log.info("高德地理编码响应: {}", response);
+
+            JsonNode root = objectMapper.readTree(response);
+            String status = root.path("status").asText();
+
+            if (!"1".equals(status)) {
+                log.warn("高德地理编码失败: status={}, info={}",
+                        status, root.path("info").asText());
+                return null;
+            }
+
+            JsonNode geocodes = root.path("geocodes");
+            if (!geocodes.isArray() || geocodes.isEmpty()) {
+                log.warn("高德地理编码无结果: city={}", cityName);
+                return null;
+            }
+
+            String location = geocodes.get(0).path("location").asText();
+            if (location.isEmpty()) {
+                log.warn("高德地理编码结果中无坐标: city={}", cityName);
+                return null;
+            }
+
+            return location;
+
+        } catch (Exception e) {
+            log.error("高德地理编码异常: {}", e.getMessage(), e);
+            return null;
         }
     }
 
