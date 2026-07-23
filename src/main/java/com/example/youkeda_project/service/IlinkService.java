@@ -6,6 +6,7 @@ import com.example.youkeda_project.ai.EditImageTool;
 import com.example.youkeda_project.ai.ImageTool;
 import com.example.youkeda_project.ai.NewsTool;
 import com.example.youkeda_project.ai.RecognizeImageTool;
+import com.example.youkeda_project.ai.SearchTool;
 import com.example.youkeda_project.ai.Tool;
 import com.example.youkeda_project.ai.ToolResult;
 import com.example.youkeda_project.ai.TtsTool;
@@ -67,6 +68,7 @@ public class IlinkService {
     private final ImageTool imageTool;
     private final TtsTool ttsTool;
     private final NewsTool newsTool;
+    private final SearchTool searchTool;
 
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicBoolean polling = new AtomicBoolean(false);
@@ -80,7 +82,7 @@ public class IlinkService {
                         AIService aiService, ImageService imageService, VoiceService voiceService,
                         TtsService ttsService, FileService fileService, NewsService newsService,
                         WeatherTool weatherTool, ImageTool imageTool, TtsTool ttsTool,
-                        NewsTool newsTool) {
+                        NewsTool newsTool, SearchTool searchTool) {
         this.client = client;
         this.weatherService = weatherService;
         this.aiService = aiService;
@@ -93,6 +95,7 @@ public class IlinkService {
         this.imageTool = imageTool;
         this.ttsTool = ttsTool;
         this.newsTool = newsTool;
+        this.searchTool = searchTool;
     }
 
     /**
@@ -294,7 +297,7 @@ public class IlinkService {
                 }
 
                 // 无图片上下文，走普通对话
-                List<Tool> voiceTools = List.of(weatherTool, imageTool, ttsTool, newsTool);
+                List<Tool> voiceTools = List.of(weatherTool, imageTool, ttsTool, newsTool, searchTool);
                 ChatResult result = aiService.chat(fromUser, transcribedText, voiceTools);
                 String reply = result.getReplyText();
 
@@ -375,7 +378,7 @@ public class IlinkService {
             }
 
             System.out.println("[系统] " + fromUser + " 正在等待 AI 回复...");
-            List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, newsTool);
+            List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, newsTool, searchTool);
             ChatResult result = aiService.chat(fromUser, text, allTools);
             String reply = result.getReplyText();
 
@@ -443,7 +446,7 @@ public class IlinkService {
 
         RecognizeImageTool recognizeTool = new RecognizeImageTool(aiService, fromUser, imageBytes);
         EditImageTool editTool = new EditImageTool(imageService, imageBytes);
-        List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, newsTool, recognizeTool, editTool);
+        List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, newsTool, searchTool, recognizeTool, editTool);
 
         ChatResult result = aiService.chat(fromUser, instruction, allTools);
         String reply = result.getReplyText();

@@ -5,7 +5,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Component
@@ -21,49 +20,22 @@ public class NewsTool implements Tool {
 
     @Override
     public String getName() {
-        return "web_search";
+        return "get_daily_news";
     }
 
     @Override
     public String getDescription() {
-        return "搜索最新新闻或查询各类信息，返回格式化好的结果列表。当你需要查询实时信息、新闻或搜索特定话题时使用此工具。";
+        return "获取今日最新新闻头条，返回格式化好的新闻列表。用户想看新闻、今天发生了什么、今日热点时用此工具。无需参数，直接调用。";
     }
 
     @Override
     public Map<String, Object> getParameters() {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("type", "object");
-
-        Map<String, Object> properties = new LinkedHashMap<>();
-
-        Map<String, Object> keyword = new LinkedHashMap<>();
-        keyword.put("type", "string");
-        keyword.put("description", "搜索关键词，如'今天有什么新闻'、'AI'、'华为最新消息'、'新能源'等");
-        properties.put("keyword", keyword);
-
-        Map<String, Object> num = new LinkedHashMap<>();
-        num.put("type", "integer");
-        num.put("description", "返回结果条数，1-20，默认为10");
-        properties.put("num", num);
-
-        params.put("properties", properties);
-        params.put("required", java.util.List.of("keyword"));
-        return params;
+        return null;
     }
 
     @Override
     public ToolResult execute(Map<String, Object> arguments) {
-        int num = 10;
-        String keyword = "";
-        if (arguments != null) {
-            if (arguments.get("num") instanceof Integer n) {
-                num = n;
-            }
-            if (arguments.get("keyword") instanceof String k) {
-                keyword = k;
-            }
-        }
-        log.info("NewsTool 执行: num={}, keyword={}", num, keyword);
-        return ToolResult.text(newsService.searchNews(num, keyword));
+        log.info("NewsTool 执行: 获取今日新闻");
+        return ToolResult.text(newsService.searchOfficialNews());
     }
 }
