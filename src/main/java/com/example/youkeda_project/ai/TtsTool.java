@@ -15,16 +15,13 @@ import java.util.Map;
  * 定义 text_to_speech 函数，供 DeepSeek 通过 Function Calling 调用。
  * 委托 TtsService 调用 CosyVoice 合成语音，返回音频字节供 CDN 上传。
  * <p>
- * voice 参数可选，默认使用"热情女声"。
- * 用户可一次指定文本和音色，也可让模型单独追问。
+ * voice 参数必填，调用前必须询问用户选择哪种音色，用户明确回复后再传参调用。
+ * 不要擅自选择音色，必须等用户指定后再生成。
  */
 @Component
 public class TtsTool implements Tool {
 
     private static final Logger log = LoggerFactory.getLogger(TtsTool.class);
-
-    /** 默认音色 */
-    private static final String DEFAULT_VOICE = "热情女声";
 
     private final TtsService ttsService;
 
@@ -39,8 +36,9 @@ public class TtsTool implements Tool {
 
     @Override
     public String getDescription() {
-        return "将文字合成为语音朗读出来。用户需提供要朗读的文字，可指定音色（可选，默认热情女声）。"
-            + "可用音色：热情女声、温柔女声、甜美女声、活力女声、磁性男声、青年男声";
+        return "将文字合成为语音朗读出来。"
+            + "【重要】调用此工具前，必须先询问用户选择哪种音色（用户可回复数字或音色名），用户明确回复后再调用。不要擅自选择音色。"
+            + "可用音色：\n1. 龙安洋(阳光男声)\n2. 龙安欢(元气女声)\n3. 龙呼呼(可爱童声)\n4. 龙书(沉稳青年男)\n5. Bella(干练女声)";
     }
 
     @Override
@@ -57,12 +55,12 @@ public class TtsTool implements Tool {
 
         Map<String, Object> voice = new LinkedHashMap<>();
         voice.put("type", "string");
-        voice.put("description", "音色名称，默认为热情女声");
-        voice.put("enum", List.of("热情女声", "温柔女声", "甜美女声", "活力女声", "磁性男声", "青年男声"));
+        voice.put("description", "用户选择的音色名称（可输入音色名或对应数字）。必须等用户明确回复后再传此参数");
+        voice.put("enum", List.of("龙安洋", "龙安欢", "龙呼呼", "龙书", "Bella"));
         properties.put("voice", voice);
 
         params.put("properties", properties);
-        params.put("required", List.of("text"));
+        params.put("required", List.of("text", "voice"));
         return params;
     }
 
@@ -75,12 +73,12 @@ public class TtsTool implements Tool {
 
         String voice = arguments != null ? (String) arguments.get("voice") : null;
         if (voice == null || voice.isBlank()) {
-            voice = DEFAULT_VOICE;
+            return ToolResult.text("请先让用户选择音色再调用此工具。可用音色：\n1. 龙安洋(阳光男声)\n2. 龙安欢(元气女声)\n3. 龙呼呼(可爱童声)\n4. 龙书(沉稳青年男)\n5. Bella(干练女声)");
         }
 
         String voiceId = ttsService.resolveVoice(voice);
         if (voiceId == null) {
-            return ToolResult.text("不支持的音色: " + voice + "，可用音色：热情女声、温柔女声、甜美女声、活力女声、磁性男声、青年男声");
+            return ToolResult.text("不支持的音色: " + voice + "，可用音色：\n1. 龙安洋(阳光男声)\n2. 龙安欢(元气女声)\n3. 龙呼呼(可爱童声)\n4. 龙书(沉稳青年男)\n5. Bella(干练女声)");
         }
 
         log.info("TtsTool 执行: text={}, voice={} -> voiceId={}", text, voice, voiceId);
