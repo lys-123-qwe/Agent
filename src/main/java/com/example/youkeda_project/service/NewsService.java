@@ -4,12 +4,14 @@ import com.example.youkeda_project.config.ApiConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.net.URI;
 import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -34,14 +36,14 @@ public class NewsService {
             "新闻联播", "新闻速递", "每天精选",
             "简报", "要闻简报", "任课通知", "开标", "招标");
 
-    private final RestClient restClient;
+    private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
     private final ApiConfig apiConfig;
 
     public NewsService(ApiConfig apiConfig, ObjectMapper objectMapper) {
         this.apiConfig = apiConfig;
         this.objectMapper = objectMapper;
-        this.restClient = RestClient.create();
+        this.httpClient = HttpClient.newHttpClient();
     }
 
     public String searchNews(int num, String keyword) {
@@ -70,13 +72,14 @@ public class NewsService {
             params.put("category", "News");
             String bodyJson = objectMapper.writeValueAsString(params);
             log.info("博查搜索请求: {}", bodyJson);
-            byte[] responseBytes = restClient.post()
-                    .uri(BOCHA_API_URL)
+            var hreq = HttpRequest.newBuilder()
+                    .uri(URI.create(BOCHA_API_URL))
                     .header("Content-Type", "application/json; charset=UTF-8")
                     .header("Authorization", "Bearer " + apiKey)
-                    .body(bodyJson.getBytes(StandardCharsets.UTF_8))
-                    .retrieve()
-                    .body(byte[].class);
+                    .POST(HttpRequest.BodyPublishers.ofString(bodyJson, StandardCharsets.UTF_8))
+                    .build();
+            HttpResponse<byte[]> hresp = httpClient.send(hreq, HttpResponse.BodyHandlers.ofByteArray());
+            byte[] responseBytes = hresp.body();
             String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
             log.info("博查搜索响应: {}", responseJson);
             JsonNode root = objectMapper.readTree(responseJson);
@@ -153,10 +156,12 @@ public class NewsService {
             int num = Math.min(pageSize, 50);
             String url = TIAN_API_BASE + "?key=" + apiKey + "&num=" + Math.max(num, 50);
             log.info("天聚数行请求: {}", url.replace(apiKey, "***"));
-            byte[] responseBytes = restClient.get()
-                .uri(url)
-                .retrieve()
-                .body(byte[].class);
+            var hreq = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .GET()
+                .build();
+            HttpResponse<byte[]> hresp = httpClient.send(hreq, HttpResponse.BodyHandlers.ofByteArray());
+            byte[] responseBytes = hresp.body();
             return tianApiParseResponse(responseBytes, keyword, "今日新闻");
         } catch (Exception e) {
             log.error("天聚数行失败", e);
@@ -307,13 +312,14 @@ public class NewsService {
             }
             String bodyJson = objectMapper.writeValueAsString(params);
             log.info("博查搜索请求: {}", bodyJson);
-            byte[] responseBytes = restClient.post()
-                    .uri(BOCHA_API_URL)
+            var hreq = HttpRequest.newBuilder()
+                    .uri(URI.create(BOCHA_API_URL))
                     .header("Content-Type", "application/json; charset=UTF-8")
                     .header("Authorization", "Bearer " + apiKey)
-                    .body(bodyJson.getBytes(StandardCharsets.UTF_8))
-                    .retrieve()
-                    .body(byte[].class);
+                    .POST(HttpRequest.BodyPublishers.ofString(bodyJson, StandardCharsets.UTF_8))
+                    .build();
+            HttpResponse<byte[]> hresp = httpClient.send(hreq, HttpResponse.BodyHandlers.ofByteArray());
+            byte[] responseBytes = hresp.body();
             String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
             log.info("博查搜索响应: {}", responseJson);
             return bochaSearchParse(responseJson, keyword, pageSize);
@@ -418,12 +424,14 @@ public class NewsService {
 
     private String fetchPageTitle(String url) {
         try {
-            byte[] body = restClient.get()
-                    .uri(url)
+            var hreq = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
                     .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                             + "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                    .retrieve()
-                    .body(byte[].class);
+                    .GET()
+                    .build();
+            HttpResponse<byte[]> hresp = httpClient.send(hreq, HttpResponse.BodyHandlers.ofByteArray());
+            byte[] body = hresp.body();
             if (body == null || body.length == 0) return null;
             Charset charset = detectCharset(body);
             String head = new String(body, charset);
