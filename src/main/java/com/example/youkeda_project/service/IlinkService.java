@@ -322,13 +322,14 @@ public class IlinkService {
                     ToolResult audio = result.getFirstPendingAudio();
                     System.out.println("[系统] 语音合成完成，正在上传发送...");
                     try {
-                        client.uploadAndSendVoice(fromUser, msg.contextToken(),
-                            audio.getAudioBytes(), audio.getAudioDurationSeconds());
-                        log.info("已发送语音 {} ({}s)", fromUser, audio.getAudioDurationSeconds());
-                        System.out.println("[微信] " + fromUser + ": [语音消息]");
+                        String fileName = audio.getAudioFileName() != null ? audio.getAudioFileName() : "audio.mp3";
+                        client.uploadAndSendFile(fromUser, msg.contextToken(),
+                            audio.getAudioBytes(), fileName, audio.getAudioBytes().length);
+                        log.info("已发送音频文件 {} ({}s): {}", fromUser, audio.getAudioDurationSeconds(), fileName);
+                        System.out.println("[微信] " + fromUser + ": [音频文件] " + fileName);
                     } catch (Exception e) {
-                        log.error("语音上传发送失败", e);
-                        reply += "\n\n（语音上传失败: " + e.getMessage() + "）";
+                        log.error("音频文件上传发送失败", e);
+                        reply += "\n\n（音频文件上传失败: " + e.getMessage() + "）";
                     }
                 }
 
@@ -407,13 +408,14 @@ public class IlinkService {
                 ToolResult audio = result.getFirstPendingAudio();
                 System.out.println("[系统] 语音合成完成，正在上传发送...");
                 try {
-                    client.uploadAndSendVoice(fromUser, msg.contextToken(),
-                        audio.getAudioBytes(), audio.getAudioDurationSeconds());
-                    log.info("已发送语音 {} ({}s)", fromUser, audio.getAudioDurationSeconds());
-                    System.out.println("[微信] " + fromUser + ": [语音消息]");
+                    String fileName = audio.getAudioFileName() != null ? audio.getAudioFileName() : "audio.mp3";
+                    client.uploadAndSendFile(fromUser, msg.contextToken(),
+                        audio.getAudioBytes(), fileName, audio.getAudioBytes().length);
+                    log.info("已发送音频文件 {} ({}s): {}", fromUser, audio.getAudioDurationSeconds(), fileName);
+                    System.out.println("[微信] " + fromUser + ": [音频文件] " + fileName);
                 } catch (Exception e) {
-                    log.error("语音上传发送失败", e);
-                    reply += "\n\n（语音上传失败: " + e.getMessage() + "）";
+                    log.error("音频文件上传发送失败", e);
+                    reply += "\n\n（音频文件上传失败: " + e.getMessage() + "）";
                 }
             }
 

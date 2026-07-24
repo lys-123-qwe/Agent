@@ -30,8 +30,9 @@ public class TranslationTool implements Tool {
 
     @Override
     public String getDescription() {
-        return "【方言转换专用】用户想转换方言、讲方言、方言版等时，必须用此工具(传dialect参数)，禁止用你自已的知识做方言转换！传了dialect会自动朗读语音。\n"
+        return "【方言转换专用】用户想转换方言、讲方言、方言版等时，必须用此工具(传dialect参数)，禁止用你自已的知识做方言转换！\n"
             + "还支持：通用翻译(传targetLang)、文言文互译(mode=classical)、计算机术语精准翻译(mode=tech)。"
+            + "所有翻译模式均自动朗读翻译结果。"
             + "用法：text=要翻译的文本 targetLang=目标语种(en/ja/ko/fr/zh) mode=general/classical/dialect/tech dialect=方言名称";
     }
 
@@ -83,16 +84,13 @@ public class TranslationTool implements Tool {
 
         String result = translationService.translate(text, targetLang, mode, dialect);
 
-        // 方言转换同时生成语音（有 dialect 参数即视为方言模式，兼容 AI 漏传 mode=dialect）
-        boolean isDialect = "dialect".equals(mode) || (dialect != null && !dialect.isBlank());
-        if (isDialect) {
-            try {
-                TtsService.TtsResult ttsResult = ttsService.synthesizeMp3(result, ttsService.getDefaultVoice());
-                log.info("方言语音合成成功: {} bytes, {}s", ttsResult.audioBytes().length, ttsResult.durationSeconds());
-                return ToolResult.audio(result, ttsResult.audioBytes(), "dialect.mp3", ttsResult.durationSeconds());
-            } catch (Exception e) {
-                log.error("方言语音合成失败", e);
-            }
+        // 翻译后自动生成语音，让用户听到翻译结果
+        try {
+            TtsService.TtsResult ttsResult = ttsService.synthesizeMp3(result, ttsService.getDefaultVoice());
+            log.info("翻译语音合成成功: {} bytes, {}s", ttsResult.audioBytes().length, ttsResult.durationSeconds());
+            return ToolResult.audio(result, ttsResult.audioBytes(), "translation.mp3", ttsResult.durationSeconds());
+        } catch (Exception e) {
+            log.error("翻译语音合成失败，仅返回文字", e);
         }
 
         return ToolResult.text(result);
