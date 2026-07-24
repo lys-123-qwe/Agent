@@ -34,3 +34,9 @@ build/
 
 ### Config ###
 application.properties
+
+# 运行时日志/临时文件
+*.log
+*.err
+bot_output.*
+deps.txt
