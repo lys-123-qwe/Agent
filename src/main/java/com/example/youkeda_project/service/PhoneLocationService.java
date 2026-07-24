@@ -9,6 +9,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.net.URI;
+import java.util.Map;
 
 @Service
 public class PhoneLocationService {
@@ -71,12 +72,7 @@ public class PhoneLocationService {
     }
 
     private String formatCompany(String company) {
-        return switch (company) {
-            case "中国移动" -> "中国移动 📶";
-            case "中国联通" -> "中国联通 📶";
-            case "中国电信" -> "中国电信 📶";
-            case "中国广电" -> "中国广电 📶";
-            default -> company;
-        };
+        Map<String, String> operators = apiConfig.getPhoneOperators();
+        return operators.getOrDefault(company, company);
     }
 }

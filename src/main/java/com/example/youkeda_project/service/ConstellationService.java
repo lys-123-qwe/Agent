@@ -12,27 +12,32 @@ import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.MonthDay;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class ConstellationService {
 
     private static final Logger log = LoggerFactory.getLogger(ConstellationService.class);
 
-    private static final List<ZodiacSign> ZODIAC_SIGNS = List.of(
-        new ZodiacSign("白羊座", MonthDay.of(3, 21), MonthDay.of(4, 19)),
-        new ZodiacSign("金牛座", MonthDay.of(4, 20), MonthDay.of(5, 20)),
-        new ZodiacSign("双子座", MonthDay.of(5, 21), MonthDay.of(6, 21)),
-        new ZodiacSign("巨蟹座", MonthDay.of(6, 22), MonthDay.of(7, 22)),
-        new ZodiacSign("狮子座", MonthDay.of(7, 23), MonthDay.of(8, 22)),
-        new ZodiacSign("处女座", MonthDay.of(8, 23), MonthDay.of(9, 22)),
-        new ZodiacSign("天秤座", MonthDay.of(9, 23), MonthDay.of(10, 23)),
-        new ZodiacSign("天蝎座", MonthDay.of(10, 24), MonthDay.of(11, 21)),
-        new ZodiacSign("射手座", MonthDay.of(11, 22), MonthDay.of(12, 21)),
-        new ZodiacSign("摩羯座", MonthDay.of(12, 22), MonthDay.of(1, 19)),
-        new ZodiacSign("水瓶座", MonthDay.of(1, 20), MonthDay.of(2, 18)),
-        new ZodiacSign("双鱼座", MonthDay.of(2, 19), MonthDay.of(3, 20))
-    );
+    private List<ZodiacSign> zodiacSigns;
+
+    private List<ZodiacSign> getZodiacSigns() {
+        if (zodiacSigns == null) {
+            List<Map<String, Object>> config = apiConfig.getConstellationZodiacs();
+            List<ZodiacSign> list = new ArrayList<>();
+            for (Map<String, Object> item : config) {
+                list.add(new ZodiacSign(
+                    (String) item.get("name"),
+                    MonthDay.of((Integer) item.get("startMonth"), (Integer) item.get("startDay")),
+                    MonthDay.of((Integer) item.get("endMonth"), (Integer) item.get("endDay"))
+                ));
+            }
+            zodiacSigns = list;
+        }
+        return zodiacSigns;
+    }
 
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
@@ -147,7 +152,7 @@ public class ConstellationService {
 
     private String getZodiacSign(int month, int day) {
         MonthDay md = MonthDay.of(month, day);
-        for (ZodiacSign z : ZODIAC_SIGNS) {
+        for (ZodiacSign z : getZodiacSigns()) {
             if (z.end.getMonthValue() < z.start.getMonthValue()) {
                 if (md.getMonthValue() >= z.start.getMonthValue() || md.getMonthValue() <= z.end.getMonthValue()) {
                     return z.name;

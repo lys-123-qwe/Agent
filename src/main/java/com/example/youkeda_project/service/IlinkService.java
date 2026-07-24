@@ -70,6 +70,7 @@ public class IlinkService {
     private final AtomicBoolean polling = new AtomicBoolean(false);
     private final java.util.concurrent.ConcurrentHashMap<String, byte[]> pendingImages = new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.concurrent.ConcurrentHashMap<String, String> lastGeneratedImageUrl = new java.util.concurrent.ConcurrentHashMap<>();
+
     private String ownerId;
     private boolean ownerWelcomed = false;
     private Thread pollThread;
@@ -334,7 +335,7 @@ public class IlinkService {
                 long fileSize = 0;
                 try { fileSize = Long.parseLong(fileItem.len()); } catch (NumberFormatException ignored) {}
                 System.out.println("[微信] " + fromUser + " 发送了文件: " + fileName + " (" + fileSize + " bytes)");
-                if (fileSize > FileService.MAX_FILE_SIZE) {
+                if (fileSize > fileService.getMaxFileSize()) {
                     client.sendMessage(fromUser, msg.contextToken(),
                         List.of(MessageItem.text("文件太大了，我只能处理 20MB 以内的文件")));
                     return;

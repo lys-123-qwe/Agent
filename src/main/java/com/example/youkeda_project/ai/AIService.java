@@ -8,7 +8,6 @@ import org.springframework.web.client.RestClient;
 import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -22,9 +21,6 @@ import java.util.concurrent.ConcurrentHashMap;
 public class AIService {
 
     private static final Logger log = LoggerFactory.getLogger(AIService.class);
-    private static final String MODEL = "deepseek-chat";
-    private static final String QWEN_VL_MODEL = "qwen-vl-plus";
-    private static final int MAX_HISTORY = 10;
 
     private final RestClient restClient;
     private final RestClient visionRestClient;
@@ -58,7 +54,7 @@ public class AIService {
 
         List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
             List<ChatMessage> list = new ArrayList<>();
-            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，回答简洁。"));
+            list.add(new ChatMessage("system", apiConfig.getAiSystemPrompt()));
             return list;
         });
 
@@ -70,14 +66,14 @@ public class AIService {
             List<ToolResult> allPendingMedia = new ArrayList<>();
             // 工具失败追踪：同一工具连续失败≥2次后，跳过调用并通知模型放弃重试
             Map<String, Integer> toolFailureCount = new HashMap<>();
-            int maxRounds = 8;
+            int maxRounds = apiConfig.getAiToolMaxRounds();
 
             for (int round = 0; round < maxRounds; round++) {
                 List<ChatMessage> filteredHistory = filterForTextOnly(history);
 
                 ChatRequest request = tools != null && !tools.isEmpty()
-                    ? new ChatRequest(MODEL, filteredHistory, tools.stream().map(Tool::toToolDefinition).toList())
-                    : new ChatRequest(MODEL, filteredHistory);
+                    ? new ChatRequest(apiConfig.getAiModel(), filteredHistory, tools.stream().map(Tool::toToolDefinition).toList())
+                    : new ChatRequest(apiConfig.getAiModel(), filteredHistory);
 
                 String body = objectMapper.writeValueAsString(request);
                 log.info("DeepSeek请求(round={}): {}", round, body);
@@ -217,7 +213,7 @@ public class AIService {
 
         List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
             List<ChatMessage> list = new ArrayList<>();
-            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，能够识别图片内容。回答简洁。"));
+            list.add(new ChatMessage("system", apiConfig.getAiSystemPrompt()));
             return list;
         });
 
@@ -225,7 +221,7 @@ public class AIService {
         trimHistory(history);
 
         try {
-            ChatRequest request = new ChatRequest(QWEN_VL_MODEL, new ArrayList<>(history));
+            ChatRequest request = new ChatRequest(apiConfig.getVisionModel(), new ArrayList<>(history));
             String body = objectMapper.writeValueAsString(request);
             log.info("通义千问VL请求: {}", body);
 
@@ -288,10 +284,11 @@ public class AIService {
     }
 
     private void trimHistory(List<ChatMessage> history) {
-        if (history.size() > MAX_HISTORY + 1) {
+        int maxHistory = apiConfig.getAiHistoryMax();
+        if (history.size() > maxHistory + 1) {
             ChatMessage system = history.get(0);
             int total = history.size();
-            int start = total - MAX_HISTORY;
+            int start = total - maxHistory;
 
             // 如果保留段第一条是 tool 消息，说明它的 assistant(TC) 被裁剪掉了，
             // 往前回溯直到找到对应的 tool_calls 上下文消息
@@ -344,7 +341,7 @@ public class AIService {
 
         List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
             List<ChatMessage> list = new ArrayList<>();
-            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，回答简洁。"));
+            list.add(new ChatMessage("system", apiConfig.getAiSystemPrompt()));
             return list;
         });
 
@@ -355,7 +352,7 @@ public class AIService {
 
         try {
             List<ChatMessage> filteredHistory = filterForTextOnly(history);
-            ChatRequest request = new ChatRequest(MODEL, filteredHistory);
+            ChatRequest request = new ChatRequest(apiConfig.getAiModel(), filteredHistory);
             String body = objectMapper.writeValueAsString(request);
             log.info("上下文回复请求: {}", body);
 
@@ -388,7 +385,7 @@ public class AIService {
     public void addExchange(String userId, String userMessage, String assistantReply) {
         List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
             List<ChatMessage> list = new ArrayList<>();
-            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，回答简洁。"));
+            list.add(new ChatMessage("system", apiConfig.getAiSystemPrompt()));
             return list;
         });
         history.add(new ChatMessage("user", userMessage));

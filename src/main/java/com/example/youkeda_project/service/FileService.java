@@ -1,5 +1,6 @@
 package com.example.youkeda_project.service;
 
+import com.example.youkeda_project.config.ApiConfig;
 import org.apache.tika.Tika;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -7,6 +8,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 /**
  * 文件文本提取服务。
@@ -20,13 +22,16 @@ public class FileService {
 
     private static final Logger log = LoggerFactory.getLogger(FileService.class);
 
-    /** 提取文本最大长度（字符） */
-    private static final int MAX_TEXT_LENGTH = 8000;
-
-    /** 文件大小上限（20MB） */
-    public static final long MAX_FILE_SIZE = 20 * 1024 * 1024;
-
     private final Tika tika = new Tika();
+    private final ApiConfig apiConfig;
+
+    public long getMaxFileSize() {
+        return apiConfig.getFileMaxSize();
+    }
+
+    public FileService(ApiConfig apiConfig) {
+        this.apiConfig = apiConfig;
+    }
 
 
     /**
@@ -82,23 +87,19 @@ public class FileService {
      * 判断是否为纯文本类扩展名（可直接读取，无需 Tika）。
      */
     private boolean isPlainText(String ext) {
-        return switch (ext) {
-            case "txt", "csv", "tsv", "json", "xml", "md", "markdown",
-                 "log", "ini", "cfg", "conf", "yaml", "yml", "toml",
-                 "java", "py", "js", "ts", "go", "rs", "c", "cpp", "h",
-                 "html", "htm", "css", "sql", "sh", "bat", "properties" -> true;
-            default -> false;
-        };
+        List<String> extensions = apiConfig.getFilePlaintextExtensions();
+        return extensions.contains(ext);
     }
 
     /**
      * 截断过长文本。
      */
     private String truncate(String text) {
-        if (text.length() <= MAX_TEXT_LENGTH) {
+        int maxLen = apiConfig.getFileMaxTextLength();
+        if (text.length() <= maxLen) {
             return text;
         }
-        return text.substring(0, MAX_TEXT_LENGTH) + "\n\n[...内容过长，已截断至 " + MAX_TEXT_LENGTH + " 字符]";
+        return text.substring(0, maxLen) + "\n\n[...内容过长，已截断至 " + maxLen + " 字符]";
     }
 
     /**

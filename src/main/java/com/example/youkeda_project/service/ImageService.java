@@ -24,7 +24,6 @@ import java.util.Map;
 public class ImageService {
 
     private static final Logger log = LoggerFactory.getLogger(ImageService.class);
-    private static final String MODEL = "wan2.6-t2i";
 
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
@@ -52,7 +51,7 @@ public class ImageService {
         try {
             // 通义万相请求体：model + input.messages[{role, content[{text}]}] + parameters
             Map<String, Object> requestBody = Map.of(
-                "model", MODEL,
+                "model", apiConfig.getImageModel(),
                 "input", Map.of("messages", java.util.List.of(
                     Map.of("role", "user",
                         "content", java.util.List.of(
@@ -63,7 +62,7 @@ public class ImageService {
                     "prompt_extend", true,
                     "watermark", false,
                     "n", 1,
-                    "size", "1280*1280"
+                    "size", apiConfig.getImageGenerateSize()
                 )
             );
 
@@ -111,7 +110,7 @@ public class ImageService {
             String dataUrl = "data:" + mimeType + ";base64," + base64;
 
             Map<String, Object> requestBody = Map.of(
-                "model", "wan2.6-image",
+                "model", apiConfig.getImageEditModel(),
                 "input", Map.of("messages", java.util.List.of(
                     Map.of("role", "user",
                         "content", java.util.List.of(
@@ -121,7 +120,7 @@ public class ImageService {
                 )),
                 "parameters", Map.of(
                     "n", 1,
-                    "size", "1K"
+                    "size", apiConfig.getImageEditSize()
                 )
             );
 
