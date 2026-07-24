@@ -58,7 +58,7 @@ public class AIService {
 
         List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
             List<ChatMessage> list = new ArrayList<>();
-            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，回答简洁。搜歌用 play_song，推荐歌曲用 recommend_music，查资讯用 web_search，看新闻用 get_daily_news 或 get_hot_news。工具返回中的链接必须完整保留在回答中。"));
+            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，回答简洁。【重要】只要用户提到任何歌名、歌手、想听歌、找歌，必须调用 play_song 工具搜索，禁止用你自己的知识回答。推荐歌曲必须用 recommend_music 工具。查资讯用 web_search，看新闻用 get_daily_news 或 get_hot_news。方言/方言转换/转换方言等必须用 translate 工具（传 dialect 参数），禁止用你自已的知识做方言转换。翻译/文言文/专业术语也用 translate 工具。查手机号用 phone_location。用户说朗读/读一下/语音合成时直接用 text_to_speech 工具，不要自己伪造语音链接。【重要】工具返回内容中的链接（[详情](url) 或 [来源: XXX](url)）必须原样保留在最终回答中，每条新闻/结果后面必须附带其链接，不得删除或修改。"));
             return list;
         });
 

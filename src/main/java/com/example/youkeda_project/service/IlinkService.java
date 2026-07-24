@@ -17,6 +17,7 @@ import com.example.youkeda_project.ai.SearchTool;
 import com.example.youkeda_project.ai.StockTool;
 import com.example.youkeda_project.ai.Tool;
 import com.example.youkeda_project.ai.ToolResult;
+import com.example.youkeda_project.ai.TranslationTool;
 import com.example.youkeda_project.ai.TtsTool;
 import com.example.youkeda_project.ai.WeatherTool;
 import com.example.youkeda_project.client.IlinkProtocolClient;
@@ -73,6 +74,7 @@ public class IlinkService {
     private final SearchTool searchTool;
     private final MusicTool musicTool;
     private final RecommendMusicTool recommendMusicTool;
+    private final TranslationTool translationTool;
 
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicBoolean polling = new AtomicBoolean(false);
@@ -90,7 +92,8 @@ public class IlinkService {
                         ExchangeRateTool exchangeRateTool, DateTimeTool dateTimeTool,
                         ConstellationTool constellationTool, PhoneLocationTool phoneLocationTool,
                         NewsTool newsTool, SearchTool searchTool,
-                        MusicTool musicTool, RecommendMusicTool recommendMusicTool) {
+                         MusicTool musicTool, RecommendMusicTool recommendMusicTool,
+                         TranslationTool translationTool) {
         this.client = client;
         this.weatherService = weatherService;
         this.aiService = aiService;
@@ -111,6 +114,7 @@ public class IlinkService {
         this.searchTool = searchTool;
         this.musicTool = musicTool;
         this.recommendMusicTool = recommendMusicTool;
+        this.translationTool = translationTool;
     }
 
     /**
@@ -325,10 +329,10 @@ public class IlinkService {
                     ToolResult audio = result.getFirstPendingAudio();
                     System.out.println("[系统] 语音合成完成，正在上传发送...");
                     try {
-                        client.uploadAndSendFile(fromUser, msg.contextToken(),
-                            audio.getAudioBytes(), audio.getAudioFileName(), audio.getAudioBytes().length);
-                        log.info("已发送语音 {}", fromUser);
-                        System.out.println("[微信] " + fromUser + ": [语音合成消息]");
+                        client.uploadAndSendVoice(fromUser, msg.contextToken(),
+                            audio.getAudioBytes(), audio.getAudioDurationSeconds());
+                        log.info("已发送语音 {} ({}s)", fromUser, audio.getAudioDurationSeconds());
+                        System.out.println("[微信] " + fromUser + ": [语音消息]");
                     } catch (Exception e) {
                         log.error("语音上传发送失败", e);
                         reply += "\n\n（语音上传失败: " + e.getMessage() + "）";
@@ -386,7 +390,8 @@ public class IlinkService {
             System.out.println("[系统] " + fromUser + " 正在等待 AI 回复...");
             List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, hotNewsTool, stockTool,
                 exchangeRateTool, dateTimeTool, constellationTool, phoneLocationTool,
-                newsTool, searchTool, musicTool, recommendMusicTool);
+                newsTool, searchTool, musicTool, recommendMusicTool,
+                translationTool);
             ChatResult result = aiService.chat(fromUser, text, allTools);
             String reply = result.getReplyText();
 
@@ -410,10 +415,10 @@ public class IlinkService {
                 ToolResult audio = result.getFirstPendingAudio();
                 System.out.println("[系统] 语音合成完成，正在上传发送...");
                 try {
-                    client.uploadAndSendFile(fromUser, msg.contextToken(),
-                        audio.getAudioBytes(), audio.getAudioFileName(), audio.getAudioBytes().length);
-                    log.info("已发送语音 {}", fromUser);
-                    System.out.println("[微信] " + fromUser + ": [语音合成消息]");
+                    client.uploadAndSendVoice(fromUser, msg.contextToken(),
+                        audio.getAudioBytes(), audio.getAudioDurationSeconds());
+                    log.info("已发送语音 {} ({}s)", fromUser, audio.getAudioDurationSeconds());
+                    System.out.println("[微信] " + fromUser + ": [语音消息]");
                 } catch (Exception e) {
                     log.error("语音上传发送失败", e);
                     reply += "\n\n（语音上传失败: " + e.getMessage() + "）";

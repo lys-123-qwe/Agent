@@ -3,14 +3,20 @@ package com.example.youkeda_project.service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.net.URI;
 import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 @Service
 public class MusicService {
@@ -21,22 +27,46 @@ public class MusicService {
     private static final String NETEASE_SEARCH_API = "https://music.163.com/api/search/get/web";
     private static final int MAX_SONGS = 5;
 
-    private final RestClient qqClient;
-    private final RestClient neteaseClient;
+    private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
 
     public MusicService(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
-        this.qqClient = RestClient.builder()
-                .defaultHeader("Referer", "https://y.qq.com")
-                .build();
-        this.neteaseClient = RestClient.builder()
-                .defaultHeader("Referer", "https://music.163.com")
+        this.httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
                 .build();
     }
 
     public String search(String keyword) {
-        return formatResult(keyword, qqSearch(keyword, MAX_SONGS), false);
+        List<SongInfo> qqList = qqSearch(keyword, MAX_SONGS);
+        List<SongInfo> neteaseList = neteaseSearch(keyword, MAX_SONGS);
+
+        if (qqList.isEmpty() && neteaseList.isEmpty()) {
+            return "没有找到相关歌曲";
+        }
+
+        Map<String, SongInfo> merged = new LinkedHashMap<>();
+        for (SongInfo s : qqList) merged.putIfAbsent(s.key(), s);
+        for (SongInfo s : neteaseList) {
+            merged.merge(s.key(), s, SongInfo::merge);
+        }
+
+        SongInfo best = merged.values().iterator().next();
+        StringBuilder sb = new StringBuilder();
+        sb.append("🎵 ").append(best.name).append(" - ").append(best.artist).append("\n");
+        if (!best.duration.isBlank()) sb.append("   时长: ").append(best.duration).append("\n");
+        if (!best.lyric.isBlank()) {
+            sb.append("   歌词：\n");
+            for (String l : best.lyric.split("\n")) {
+                if (!l.isBlank()) sb.append("     ").append(l).append("\n");
+            }
+        }
+        if (!best.qqSongmid.isBlank()) {
+            sb.append("   ▶ 播放: https://i.y.qq.com/v8/playsong.html?songmid=").append(best.qqSongmid).append("&source=wechat&ADTAG=wechat\n");
+        } else if (best.neteaseId > 0) {
+            sb.append("   ▶ 播放: https://music.163.com/song?id=").append(best.neteaseId).append("\n");
+        }
+        return sb.toString();
     }
 
     public String recommend(String description) {
@@ -48,139 +78,144 @@ public class MusicService {
             keywords = new String[]{description + " 歌曲", description + " 音乐", description + " 热门"};
         }
 
-        LinkedHashSet<String> seenMids = new LinkedHashSet<>();
-        ArrayList<JsonNode> allSongs = new ArrayList<>();
-
+        Map<String, SongInfo> merged = new LinkedHashMap<>();
         for (String kw : keywords) {
-            java.util.List<JsonNode> batch = qqSearch(kw, 10);
-            for (JsonNode s : batch) {
-                String mid = s.path("mid").asText();
-                if (!mid.isEmpty() && seenMids.add(mid)) {
-                    allSongs.add(s);
-                    if (allSongs.size() >= 10) break;
-                }
+            for (SongInfo s : qqSearch(kw, MAX_SONGS)) {
+                merged.putIfAbsent(s.key(), s);
             }
-            if (allSongs.size() >= 10) break;
+            if (merged.size() >= MAX_SONGS) break;
         }
 
-        if (allSongs.isEmpty()) {
+        if (merged.isEmpty()) {
             return "没有找到相关推荐";
-        }
-        return formatResult(description, allSongs, true);
-    }
-
-    private java.util.List<JsonNode> qqSearch(String keyword, int limit) {
-        try {
-            String encoded = URLEncoder.encode(keyword, StandardCharsets.UTF_8);
-            String url = QQ_SEARCH_API + "?w=" + encoded + "&format=json&n=" + limit;
-            log.info("QQ音乐搜索: {}", url);
-
-            String json = qqClient.get().uri(url).retrieve().body(String.class);
-            JsonNode root = objectMapper.readTree(json);
-            int code = root.path("code").asInt();
-            if (code != 0) {
-                log.warn("QQ音乐搜索返回错误 code={}", code);
-                return neteaseFallback(keyword, limit);
-            }
-
-            JsonNode list = root.path("data").path("song").path("list");
-            if (!list.isArray() || list.isEmpty()) {
-                return neteaseFallback(keyword, limit);
-            }
-
-            java.util.List<JsonNode> songs = new ArrayList<>();
-            for (JsonNode s : list) {
-                songs.add(s);
-            }
-            return songs;
-        } catch (Exception e) {
-            log.warn("QQ音乐搜索失败，降级到网易云", e);
-            return neteaseFallback(keyword, limit);
-        }
-    }
-
-    private java.util.List<JsonNode> neteaseFallback(String keyword, int limit) {
-        try {
-            String encoded = URLEncoder.encode(keyword, StandardCharsets.UTF_8);
-            String url = NETEASE_SEARCH_API + "?s=" + encoded + "&type=1&offset=0&total=true&limit=" + limit;
-            log.info("网易云搜索降级: {}", url);
-
-            String json = neteaseClient.get().uri(url).retrieve().body(String.class);
-            JsonNode root = objectMapper.readTree(json);
-            if (root.path("code").asInt() != 200) return java.util.List.of();
-
-            JsonNode songs = root.path("result").path("songs");
-            if (!songs.isArray()) return java.util.List.of();
-
-            java.util.List<JsonNode> result = new ArrayList<>();
-            for (JsonNode s : songs) {
-                result.add(s);
-            }
-            return result;
-        } catch (Exception e) {
-            log.error("网易云搜索也失败", e);
-            return java.util.List.of();
-        }
-    }
-
-    private String formatResult(String title, java.util.List<JsonNode> songs, boolean isRecommend) {
-        if (songs.isEmpty()) {
-            return "没有找到相关歌曲";
         }
 
         StringBuilder sb = new StringBuilder();
-        if (isRecommend) {
-            sb.append("🎵 为你推荐 ").append(title).append(" 相关歌曲：\n\n");
-        } else {
-            sb.append("🎵 找到以下歌曲：\n\n");
-        }
-
-        for (int i = 0; i < songs.size(); i++) {
-            appendSongInfo(sb, songs.get(i), i + 1);
+        sb.append("🎵 为你推荐 ").append(description).append(" 相关歌曲：\n\n");
+        int idx = 1;
+        for (SongInfo s : merged.values()) {
+            sb.append(idx).append(". ").append(s.name).append(" - ").append(s.artist).append("\n");
+            if (!s.album.isBlank()) sb.append("   专辑: ").append(s.album).append("\n");
+            if (!s.duration.isBlank()) sb.append("   时长: ").append(s.duration).append("\n");
+            if (!s.qqSongmid.isBlank()) {
+                sb.append("   ▶ QQ音乐: https://i.y.qq.com/v8/playsong.html?songmid=").append(s.qqSongmid).append("&source=wechat&ADTAG=wechat\n");
+            }
+            if (s.neteaseId > 0) {
+                sb.append("   ▶ 网易云: https://music.163.com/song?id=").append(s.neteaseId).append("\n");
+            }
+            if (!s.lyric.isBlank()) {
+                sb.append("   歌词：\n");
+                for (String l : s.lyric.split("\n")) {
+                    if (!l.isBlank()) sb.append("     ").append(l).append("\n");
+                }
+            }
+            sb.append("\n");
+            idx++;
         }
         return sb.toString();
     }
 
-    private void appendSongInfo(StringBuilder sb, JsonNode song, int idx) {
-        String mid = song.path("mid").asText();
-        String name = song.path("name").asText("未知");
-        String artist = extractQqArtist(song.path("singer"));
-        String album = song.path("album").path("name").asText("");
-        int seconds = song.path("interval").asInt(0);
-        String duration = seconds > 0 ? String.format("%d:%02d", seconds / 60, seconds % 60) : "";
+    private List<SongInfo> qqSearch(String keyword, int limit) {
+        List<SongInfo> result = qqSearchInner(keyword, limit * 2);
+        if (!result.isEmpty()) return trim(result, limit);
+        result = qqSearchInner(keyword + " 原唱", limit * 2);
+        if (!result.isEmpty()) return trim(result, limit);
+        return List.of();
+    }
 
-        sb.append(idx).append(". ").append(name)
-                .append(" - ").append(artist).append("\n");
-        if (!album.isBlank()) sb.append("   专辑: ").append(album).append("\n");
-        if (!duration.isBlank()) sb.append("   时长: ").append(duration).append("\n");
+    private List<SongInfo> qqSearchInner(String keyword, int fetchSize) {
+        try {
+            String encoded = URLEncoder.encode(keyword, StandardCharsets.UTF_8);
+            String url = QQ_SEARCH_API + "?w=" + encoded + "&format=json&n=" + fetchSize;
+            log.info("QQ音乐搜索: {}", url);
 
-        // QQ音乐链接（微信生态内体验最好）
-        if (!mid.isBlank()) {
-            sb.append("   ▶ QQ音乐: https://y.qq.com/n/ryqq/songDetail/").append(mid).append("\n");
+            String json = httpGet(url, "https://y.qq.com");
+            JsonNode root = objectMapper.readTree(json);
+            if (root.path("code").asInt() != 0) return List.of();
+
+            JsonNode list = root.path("data").path("song").path("list");
+            if (!list.isArray() || list.isEmpty()) return List.of();
+
+            List<SongInfo> result = new ArrayList<>();
+            for (JsonNode s : list) {
+                String name = s.path("songname").asText("");
+                if (name.isEmpty()) name = s.path("name").asText("");
+                String songmid = s.path("songmid").asText("");
+                if (songmid.isEmpty()) continue;
+                String artist = extractQqArtist(s.path("singer"));
+                String album = s.path("albumname").asText("");
+                if (album.isEmpty()) album = s.path("album").path("name").asText("");
+                int seconds = s.path("interval").asInt(0);
+                String duration = seconds > 0 ? String.format("%d:%02d", seconds / 60, seconds % 60) : "";
+                String lyric = fetchQqLyric(songmid);
+                result.add(new SongInfo(name, artist, album, duration, songmid, 0, lyric));
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("QQ音乐搜索异常", e);
+            return List.of();
         }
+    }
 
-        // 如果是网易云降级数据（没有mid但有id），用网易云链接
-        long neteaseId = song.path("id").asLong();
-        if (mid.isBlank() && neteaseId > 0) {
-            sb.append("   ▶ 网易云: https://music.163.com/song?id=").append(neteaseId).append("\n");
-        }
+    private List<SongInfo> neteaseSearch(String keyword, int limit) {
+        try {
+            String encoded = URLEncoder.encode(keyword, StandardCharsets.UTF_8);
+            String url = NETEASE_SEARCH_API + "?s=" + encoded + "&type=1&offset=0&total=true&limit=" + limit * 2;
+            log.info("网易云搜索: {}", url);
 
-        String lyricSnippet = mid.isBlank() ? null : fetchQqLyric(mid);
-        if (lyricSnippet != null) {
-            sb.append("   📝 ").append(lyricSnippet).append("\n");
+            String json = httpGet(url, "https://music.163.com");
+            JsonNode root = objectMapper.readTree(json);
+            if (root.path("code").asInt() != 200) return List.of();
+
+            JsonNode songs = root.path("result").path("songs");
+            if (!songs.isArray()) return List.of();
+
+            List<SongInfo> result = new ArrayList<>();
+            for (JsonNode s : songs) {
+                String name = s.path("name").asText("");
+                long id = s.path("id").asLong();
+                if (id <= 0) continue;
+                String artist = extractNeteaseArtist(s.path("artists"));
+                String album = s.path("album").path("name").asText("");
+                int seconds = s.path("duration").asInt(0) / 1000;
+                String duration = seconds > 0 ? String.format("%d:%02d", seconds / 60, seconds % 60) : "";
+                result.add(new SongInfo(name, artist, album, duration, "", id, ""));
+                if (result.size() >= limit) break;
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("网易云搜索异常", e);
+            return List.of();
         }
-        sb.append("\n");
+    }
+
+    private String httpGet(String url, String referer) throws Exception {
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
+                .header("Referer", referer)
+                .header("Accept", "application/json")
+                .header("Accept-Language", "zh-CN,zh;q=0.9")
+                .timeout(Duration.ofSeconds(10))
+                .GET()
+                .build();
+        HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+        return resp.body();
+    }
+
+    private List<SongInfo> trim(List<SongInfo> list, int max) {
+        return list.size() > max ? list.subList(0, max) : list;
     }
 
     private String fetchQqLyric(String songmid) {
         try {
             String url = QQ_LYRIC_API + "?songmid=" + songmid + "&format=json";
-            String json = qqClient.get().uri(url).retrieve().body(String.class);
+            String json = httpGet(url, "https://y.qq.com");
             JsonNode root = objectMapper.readTree(json);
-            if (root.path("code").asInt() != 0) return null;
+            if (root.path("code").asInt() != 0) return "";
 
             String lyric = root.path("lyric").asText();
-            if (lyric.isBlank()) return null;
+            if (lyric.isBlank()) return "";
 
             String[] lines = lyric.split("\\\\n");
             StringBuilder snippet = new StringBuilder();
@@ -188,18 +223,15 @@ public class MusicService {
             for (String line : lines) {
                 String clean = line.replaceAll("\\[.*?\\]", "").trim();
                 if (!clean.isEmpty()) {
-                    snippet.append(clean).append(" / ");
+                    snippet.append(clean).append("\n");
                     count++;
-                    if (count >= 3) break;
+                    if (count >= 4) break;
                 }
             }
-            if (snippet.isEmpty()) return null;
-            String result = snippet.substring(0, snippet.length() - 2);
-            if (result.length() > 80) result = result.substring(0, 80) + "…";
-            return result;
+            return snippet.toString();
         } catch (Exception e) {
             log.debug("获取QQ歌词失败 songmid={}", songmid);
-            return null;
+            return "";
         }
     }
 
@@ -210,5 +242,30 @@ public class MusicService {
             sb.append(s.path("name").asText()).append("/");
         }
         return sb.substring(0, sb.length() - 1);
+    }
+
+    private String extractNeteaseArtist(JsonNode artists) {
+        if (!artists.isArray() || artists.isEmpty()) return "未知";
+        StringBuilder sb = new StringBuilder();
+        for (JsonNode a : artists) {
+            sb.append(a.path("name").asText()).append("/");
+        }
+        return sb.substring(0, sb.length() - 1);
+    }
+
+    private record SongInfo(
+        String name, String artist, String album, String duration,
+        String qqSongmid, long neteaseId, String lyric
+    ) {
+        String key() { return (name + " - " + artist).toLowerCase(); }
+
+        SongInfo merge(SongInfo other) {
+            return new SongInfo(
+                name, artist, album, duration,
+                qqSongmid.isEmpty() ? other.qqSongmid : qqSongmid,
+                neteaseId <= 0 ? other.neteaseId : neteaseId,
+                lyric.isEmpty() ? other.lyric : lyric
+            );
+        }
     }
 }
