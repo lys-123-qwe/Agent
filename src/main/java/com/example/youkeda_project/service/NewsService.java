@@ -14,6 +14,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -60,13 +62,14 @@ public class NewsService {
             log.warn("天聚数行返回空，降级到博查: {}", result);
         }
 
-        String apiKey = apiConfig.getNewsApiKey();
+        String apiKey = apiConfig.getBochaApiKey();
         if (apiKey == null || apiKey.isBlank()) {
             return "错误: 未配置博查搜索 API Key";
         }
         try {
+            String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy年M月d日"));
             Map<String, Object> params = new LinkedHashMap<>();
-            params.put("query", "今日热点 最新消息");
+            params.put("query", today + " 热点新闻");
             params.put("freshness", "oneDay");
             params.put("count", 50);
             params.put("category", "News");
@@ -92,6 +95,7 @@ public class NewsService {
                 return "没有找到相关结果";
             }
 
+            String todayStr = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE);
             List<String[]> items = new ArrayList<>();
             Set<String> seenUrls = new LinkedHashSet<>();
 
@@ -100,6 +104,9 @@ public class NewsService {
                 String url = cleanUrl(item.path("url").asText(""));
                 String snippet = item.path("snippet").asText("");
                 String summary = item.path("summary").asText("");
+                // 过滤非今日的文章
+                String datePublished = item.path("datePublished").asText("");
+                if (!datePublished.isBlank() && !datePublished.startsWith(todayStr)) continue;
 
                 if (!isValidArticle(rawTitle, url, snippet, summary)) continue;
                 if (url == null || !seenUrls.add(url)) continue;
@@ -189,6 +196,7 @@ public class NewsService {
                 && !isGenericQuery(keyword);
             String prefix = doFilter ? keyword : fallbackPrefix;
 
+            String todayStr = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE);
             List<String[]> allItems = new ArrayList<>();
             Set<String> seenUrls = new LinkedHashSet<>();
             Map<String, Integer> sourceCount = new java.util.HashMap<>();
@@ -197,7 +205,10 @@ public class NewsService {
                 String rawUrl = article.path("url").asText("").trim();
                 String url = cleanUrl(rawUrl);
                 String source = article.path("source").asText("");
+                String ctime = article.path("ctime").asText(""); // 发布时间
                 if (title.isEmpty() || url == null || url.isEmpty()) continue;
+                // 过滤非今日的文章（ctime 格式：2026-07-24 10:30:00）
+                if (!ctime.isBlank() && !ctime.startsWith(todayStr)) continue;
                 String clean = cleanTitle(title);
                 if (clean.length() < 4) continue;
                 if (!seenUrls.add(url)) continue;
@@ -263,7 +274,7 @@ public class NewsService {
 
     // ========== 博查 ==========
 
-    private String searchNews(int num, String keyword, String category) {
+    public String searchNews(int num, String keyword, String category) {
         // 1) 天聚数行：新闻类查询首选
         String tianKey = apiConfig.getNewsSdkApiKey();
         if (tianKey != null && !tianKey.isBlank()) {
@@ -296,7 +307,7 @@ public class NewsService {
     }
 
     private String bochaSearch(String keyword, int pageSize, String category) {
-        String apiKey = apiConfig.getNewsApiKey();
+        String apiKey = apiConfig.getBochaApiKey();
         if (apiKey == null || apiKey.isBlank()) {
             return "错误: 未配置博查搜索 API Key";
         }
