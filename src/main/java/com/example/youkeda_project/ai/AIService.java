@@ -24,7 +24,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class AIService {
 
     private static final Logger log = LoggerFactory.getLogger(AIService.class);
-    private static final String MODEL = "deepseek-chat";
+    private static final String MODEL = "deepseek-v4-flash";
     private static final String QWEN_VL_MODEL = "qwen-vl-plus";
     private static final int MAX_HISTORY = 10;
 
