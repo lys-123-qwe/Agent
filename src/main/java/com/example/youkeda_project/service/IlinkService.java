@@ -15,7 +15,15 @@ import com.example.youkeda_project.ai.SearchTool;
 import com.example.youkeda_project.ai.StockTool;
 import com.example.youkeda_project.ai.Tool;
 import com.example.youkeda_project.ai.ToolResult;
+import com.example.youkeda_project.ai.AuspiciousDateTool;
+import com.example.youkeda_project.ai.BaziTool;
+import com.example.youkeda_project.ai.CopywritingTool;
+import com.example.youkeda_project.ai.CrossAnalysisTool;
+import com.example.youkeda_project.ai.FaceReadingTool;
+import com.example.youkeda_project.ai.IChingTool;
+import com.example.youkeda_project.ai.LunarTool;
 import com.example.youkeda_project.ai.TranslationTool;
+import com.example.youkeda_project.ai.ZiWeiTool;
 import com.example.youkeda_project.ai.TtsTool;
 import com.example.youkeda_project.ai.WeatherTool;
 import com.example.youkeda_project.client.IlinkProtocolClient;
@@ -71,6 +79,14 @@ public class IlinkService {
     private final MusicTool musicTool;
     private final RecommendMusicTool recommendMusicTool;
     private final TranslationTool translationTool;
+    private final CopywritingTool copywritingTool;
+    private final BaziTool baziTool;
+    private final ZiWeiTool ziweiTool;
+    private final IChingTool ichingTool;
+    private final CrossAnalysisTool crossAnalysisTool;
+    private final LunarTool lunarTool;
+    private final AuspiciousDateTool auspiciousDateTool;
+    private final FortuneService fortuneService;
 
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicBoolean polling = new AtomicBoolean(false);
@@ -88,8 +104,16 @@ public class IlinkService {
                         ExchangeRateTool exchangeRateTool, DateTimeTool dateTimeTool,
                         ConstellationTool constellationTool, PhoneLocationTool phoneLocationTool,
                         SearchTool searchTool,
-                         MusicTool musicTool, RecommendMusicTool recommendMusicTool,
-                         TranslationTool translationTool) {
+                          MusicTool musicTool, RecommendMusicTool recommendMusicTool,
+                          TranslationTool translationTool,
+                          CopywritingTool copywritingTool,
+                          BaziTool baziTool,
+                          ZiWeiTool ziweiTool,
+                          IChingTool ichingTool,
+                          CrossAnalysisTool crossAnalysisTool,
+                          LunarTool lunarTool,
+                          AuspiciousDateTool auspiciousDateTool,
+                          FortuneService fortuneService) {
         this.client = client;
         this.weatherService = weatherService;
         this.aiService = aiService;
@@ -109,6 +133,14 @@ public class IlinkService {
         this.musicTool = musicTool;
         this.recommendMusicTool = recommendMusicTool;
         this.translationTool = translationTool;
+        this.copywritingTool = copywritingTool;
+        this.baziTool = baziTool;
+        this.ziweiTool = ziweiTool;
+        this.ichingTool = ichingTool;
+        this.crossAnalysisTool = crossAnalysisTool;
+        this.lunarTool = lunarTool;
+        this.auspiciousDateTool = auspiciousDateTool;
+        this.fortuneService = fortuneService;
     }
 
     /**
@@ -299,7 +331,7 @@ public class IlinkService {
                 }
 
                 // 无图片上下文，走普通对话
-                List<Tool> voiceTools = List.of(weatherTool, imageTool, ttsTool, searchTool, stockTool, musicTool, recommendMusicTool);
+                List<Tool> voiceTools = List.of(weatherTool, imageTool, ttsTool, searchTool, stockTool, musicTool, recommendMusicTool, copywritingTool, baziTool, ziweiTool, ichingTool, crossAnalysisTool, lunarTool, auspiciousDateTool);
                 ChatResult result = aiService.chat(fromUser, transcribedText, voiceTools);
                 String reply = result.getReplyText();
 
@@ -384,7 +416,8 @@ public class IlinkService {
             System.out.println("[系统] " + fromUser + " 正在等待 AI 回复...");
             List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, searchTool, stockTool,
                 exchangeRateTool, dateTimeTool, constellationTool, phoneLocationTool,
-                musicTool, recommendMusicTool, translationTool);
+                musicTool, recommendMusicTool, translationTool, copywritingTool, baziTool,
+                ziweiTool, ichingTool, crossAnalysisTool, lunarTool, auspiciousDateTool);
             ChatResult result = aiService.chat(fromUser, text, allTools);
             String reply = result.getReplyText();
 
@@ -460,12 +493,16 @@ public class IlinkService {
 
         RecognizeImageTool recognizeTool = new RecognizeImageTool(aiService, fromUser, imageBytes);
         EditImageTool editTool = new EditImageTool(imageService, imageBytes);
+        FaceReadingTool faceReadingTool = new FaceReadingTool(fortuneService, imageBytes);
         List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, searchTool,
-            musicTool, recommendMusicTool, recognizeTool, editTool);
+            musicTool, recommendMusicTool, recognizeTool, editTool, baziTool,
+            ziweiTool, ichingTool, crossAnalysisTool, lunarTool, auspiciousDateTool,
+            faceReadingTool);
 
         String contextMessage = "[系统提示：当前有一张待处理的图片。请根据用户的指令选择合适的工具。]\n"
             + "[如果用户想识别图片内容（这是什么、描述图片、提取文字等），请调用 recognize_image 工具]\n"
             + "[如果用户想编辑图片（修改物体、颜色、背景、风格等），请调用 edit_image 工具]\n"
+            + "[如果用户想看面相、分析面相，请调用 face_reading 工具]\n"
             + "用户指令：" + instruction;
 
         ChatResult result = aiService.chat(fromUser, contextMessage, allTools);
