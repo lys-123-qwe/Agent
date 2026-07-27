@@ -7,7 +7,6 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.InputStream;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -134,12 +133,6 @@ public class ApiConfig {
     @Value("${tts.mp3.bitrate:128000}")
     private int ttsMp3Bitrate;
 
-    @Value("${tts.voices:[]}")
-    private String ttsVoicesJson;
-
-    @Value("${tts.voice.aliases:{}}")
-    private String ttsVoiceAliasesJson;
-
     public String getTtsApiUrl() { return ttsApiUrl; }
     public String getTtsApiModel() { return ttsApiModel; }
     public String getTtsDefaultVoice() { return ttsDefaultVoice; }
@@ -175,41 +168,6 @@ public class ApiConfig {
         } catch (Exception e) { return Map.of(); }
     }
 
-    @SuppressWarnings("unchecked")
-    public List<Map<String, Object>> getConstellationZodiacs() {
-        try {
-            return configMapper.convertValue(configMapper.readTree(constellationZodiacsJson), List.class);
-        } catch (Exception e) { return List.of(); }
-    }
-
-    @SuppressWarnings("unchecked")
-    public Map<String, String> getPhoneOperators() {
-        try {
-            return configMapper.convertValue(configMapper.readTree(phoneOperatorsJson), LinkedHashMap.class);
-        } catch (Exception e) { return Map.of(); }
-    }
-
-    @SuppressWarnings("unchecked")
-    public Map<String, String> getStockNameMap() {
-        try {
-            return configMapper.convertValue(configMapper.readTree(stockNameMapJson), LinkedHashMap.class);
-        } catch (Exception e) { return Map.of(); }
-    }
-
-    @SuppressWarnings("unchecked")
-    public List<String> getFilePlaintextExtensions() {
-        try {
-            return configMapper.convertValue(configMapper.readTree(filePlaintextExtensionsJson), List.class);
-        } catch (Exception e) { return List.of(); }
-    }
-
-    @SuppressWarnings("unchecked")
-    public List<Map<String, Object>> getHolidays() {
-        try {
-            return configMapper.convertValue(configMapper.readTree(holidaysJson), List.class);
-        } catch (Exception e) { return List.of(); }
-    }
-
     // ==================== 汇率计算 ====================
     @Value("${exchange.api.key:}")
     private String exchangeApiKey;
@@ -241,6 +199,13 @@ public class ApiConfig {
     public String getConstellationHoroscopeKey() { return constellationHoroscopeKey; }
     public String getConstellationHoroscopeUrl() { return constellationHoroscopeUrl; }
 
+    @SuppressWarnings("unchecked")
+    public List<Map<String, Object>> getConstellationZodiacs() {
+        try {
+            return configMapper.convertValue(configMapper.readTree(constellationZodiacsJson), List.class);
+        } catch (Exception e) { return List.of(); }
+    }
+
     // ==================== 手机归属地 ====================
     @Value("${phone.api.key:}")
     private String phoneApiKey;
@@ -253,6 +218,13 @@ public class ApiConfig {
 
     public String getPhoneApiKey() { return phoneApiKey; }
     public String getPhoneApiUrl() { return phoneApiUrl; }
+
+    @SuppressWarnings("unchecked")
+    public Map<String, String> getPhoneOperators() {
+        try {
+            return configMapper.convertValue(configMapper.readTree(phoneOperatorsJson), LinkedHashMap.class);
+        } catch (Exception e) { return Map.of(); }
+    }
 
     // ==================== 博查搜索 ====================
     @Value("${bocha.api.key:}")
@@ -288,6 +260,13 @@ public class ApiConfig {
     public String getStockSinaApiUrl() { return stockSinaApiUrl; }
     public String getStockTencentApiUrl() { return stockTencentApiUrl; }
     public String getStockSinaRefererUrl() { return stockSinaRefererUrl; }
+
+    @SuppressWarnings("unchecked")
+    public Map<String, String> getStockNameMap() {
+        try {
+            return configMapper.convertValue(configMapper.readTree(stockNameMapJson), LinkedHashMap.class);
+        } catch (Exception e) { return Map.of(); }
+    }
 
     // ==================== iLink 协议 ====================
     @Value("${ilink.base.url:https://ilinkai.weixin.qq.com}")
@@ -344,7 +323,25 @@ public class ApiConfig {
     public long getFileMaxSize() { return fileMaxSize; }
     public int getFileMaxTextLength() { return fileMaxTextLength; }
 
+    @SuppressWarnings("unchecked")
+    public List<String> getFilePlaintextExtensions() {
+        try {
+            return configMapper.convertValue(configMapper.readTree(filePlaintextExtensionsJson), List.class);
+        } catch (Exception e) { return List.of(); }
+    }
+
     // ==================== 节日 ====================
     @Value("${holidays:[]}")
     private String holidaysJson;
+
+    @SuppressWarnings("unchecked")
+    public List<Map<String, Object>> getHolidays() {
+        try {
+            return configMapper.convertValue(configMapper.readTree(holidaysJson), List.class);
+        } catch (Exception e) { return List.of(); }
+    }
+
+    // 兼容旧接口
+    public String getNewsApiKey() { return ""; }
+    public String getNewsSdkApiKey() { return ""; }
 }

@@ -2,18 +2,22 @@ package com.example.youkeda_project.service;
 
 import com.example.youkeda_project.ai.AIService;
 import com.example.youkeda_project.ai.ChatResult;
+import com.example.youkeda_project.ai.ConstellationTool;
+import com.example.youkeda_project.ai.DateTimeTool;
 import com.example.youkeda_project.ai.EditImageTool;
-import com.example.youkeda_project.ai.HotNewsTool;
+import com.example.youkeda_project.ai.ExchangeRateTool;
 import com.example.youkeda_project.ai.ImageTool;
+import com.example.youkeda_project.ai.MusicTool;
+import com.example.youkeda_project.ai.PhoneLocationTool;
+import com.example.youkeda_project.ai.RecommendMusicTool;
 import com.example.youkeda_project.ai.RecognizeImageTool;
+import com.example.youkeda_project.ai.TravelTool;
+import com.example.youkeda_project.ai.SearchTool;
 import com.example.youkeda_project.ai.StockTool;
 import com.example.youkeda_project.ai.Tool;
 import com.example.youkeda_project.ai.ToolResult;
+import com.example.youkeda_project.ai.TranslationTool;
 import com.example.youkeda_project.ai.TtsTool;
-import com.example.youkeda_project.ai.ExchangeRateTool;
-import com.example.youkeda_project.ai.DateTimeTool;
-import com.example.youkeda_project.ai.ConstellationTool;
-import com.example.youkeda_project.ai.PhoneLocationTool;
 import com.example.youkeda_project.ai.WeatherTool;
 import com.example.youkeda_project.client.IlinkProtocolClient;
 import com.example.youkeda_project.protocol.GetUpdatesResponse;
@@ -59,12 +63,16 @@ public class IlinkService {
     private final WeatherTool weatherTool;
     private final ImageTool imageTool;
     private final TtsTool ttsTool;
-    private final HotNewsTool hotNewsTool;
     private final StockTool stockTool;
     private final ExchangeRateTool exchangeRateTool;
     private final DateTimeTool dateTimeTool;
     private final ConstellationTool constellationTool;
     private final PhoneLocationTool phoneLocationTool;
+    private final SearchTool searchTool;
+    private final MusicTool musicTool;
+    private final RecommendMusicTool recommendMusicTool;
+    private final TranslationTool translationTool;
+    private final TravelTool travelTool;
 
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicBoolean polling = new AtomicBoolean(false);
@@ -79,9 +87,13 @@ public class IlinkService {
                         AIService aiService, ImageService imageService, VoiceService voiceService,
                         TtsService ttsService, FileService fileService,
                         WeatherTool weatherTool, ImageTool imageTool, TtsTool ttsTool,
-                        HotNewsTool hotNewsTool, StockTool stockTool,
+                        StockTool stockTool,
                         ExchangeRateTool exchangeRateTool, DateTimeTool dateTimeTool,
-                        ConstellationTool constellationTool, PhoneLocationTool phoneLocationTool) {
+                        ConstellationTool constellationTool, PhoneLocationTool phoneLocationTool,
+                        SearchTool searchTool,
+                         MusicTool musicTool, RecommendMusicTool recommendMusicTool,
+                         TranslationTool translationTool,
+                         TravelTool travelTool) {
         this.client = client;
         this.weatherService = weatherService;
         this.aiService = aiService;
@@ -92,12 +104,16 @@ public class IlinkService {
         this.weatherTool = weatherTool;
         this.imageTool = imageTool;
         this.ttsTool = ttsTool;
-        this.hotNewsTool = hotNewsTool;
         this.stockTool = stockTool;
         this.exchangeRateTool = exchangeRateTool;
         this.dateTimeTool = dateTimeTool;
         this.constellationTool = constellationTool;
         this.phoneLocationTool = phoneLocationTool;
+        this.searchTool = searchTool;
+        this.musicTool = musicTool;
+        this.recommendMusicTool = recommendMusicTool;
+        this.translationTool = translationTool;
+        this.travelTool = travelTool;
     }
 
     /**
@@ -288,7 +304,7 @@ public class IlinkService {
                 }
 
                 // 无图片上下文，走普通对话
-                List<Tool> voiceTools = List.of(weatherTool, imageTool, ttsTool, hotNewsTool, stockTool);
+                List<Tool> voiceTools = List.of(weatherTool, imageTool, ttsTool, searchTool, stockTool, musicTool, recommendMusicTool);
                 ChatResult result = aiService.chat(fromUser, transcribedText, voiceTools);
                 String reply = result.getReplyText();
 
@@ -311,13 +327,14 @@ public class IlinkService {
                     ToolResult audio = result.getFirstPendingAudio();
                     System.out.println("[系统] 语音合成完成，正在上传发送...");
                     try {
+                        String fileName = audio.getAudioFileName() != null ? audio.getAudioFileName() : "audio.mp3";
                         client.uploadAndSendFile(fromUser, msg.contextToken(),
-                            audio.getAudioBytes(), audio.getAudioFileName(), audio.getAudioBytes().length);
-                        log.info("已发送语音 {}", fromUser);
-                        System.out.println("[微信] " + fromUser + ": [语音合成消息]");
+                            audio.getAudioBytes(), fileName, audio.getAudioBytes().length);
+                        log.info("已发送音频文件 {} ({}s): {}", fromUser, audio.getAudioDurationSeconds(), fileName);
+                        System.out.println("[微信] " + fromUser + ": [音频文件] " + fileName);
                     } catch (Exception e) {
-                        log.error("语音上传发送失败", e);
-                        reply += "\n\n（语音上传失败: " + e.getMessage() + "）";
+                        log.error("音频文件上传发送失败", e);
+                        reply += "\n\n（音频文件上传失败: " + e.getMessage() + "）";
                     }
                 }
 
@@ -370,8 +387,9 @@ public class IlinkService {
 
             // Function Calling：将所有工具传递给 DeepSeek，由模型自主决定调用哪些
             System.out.println("[系统] " + fromUser + " 正在等待 AI 回复...");
-            List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, hotNewsTool, stockTool,
-                exchangeRateTool, dateTimeTool, constellationTool, phoneLocationTool);
+            List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, searchTool, stockTool,
+                exchangeRateTool, dateTimeTool, constellationTool, phoneLocationTool,
+                musicTool, recommendMusicTool, translationTool, travelTool);
             ChatResult result = aiService.chat(fromUser, text, allTools);
             String reply = result.getReplyText();
 
@@ -395,13 +413,14 @@ public class IlinkService {
                 ToolResult audio = result.getFirstPendingAudio();
                 System.out.println("[系统] 语音合成完成，正在上传发送...");
                 try {
+                    String fileName = audio.getAudioFileName() != null ? audio.getAudioFileName() : "audio.mp3";
                     client.uploadAndSendFile(fromUser, msg.contextToken(),
-                        audio.getAudioBytes(), audio.getAudioFileName(), audio.getAudioBytes().length);
-                    log.info("已发送语音 {}", fromUser);
-                    System.out.println("[微信] " + fromUser + ": [语音合成消息]");
+                        audio.getAudioBytes(), fileName, audio.getAudioBytes().length);
+                    log.info("已发送音频文件 {} ({}s): {}", fromUser, audio.getAudioDurationSeconds(), fileName);
+                    System.out.println("[微信] " + fromUser + ": [音频文件] " + fileName);
                 } catch (Exception e) {
-                    log.error("语音上传发送失败", e);
-                    reply += "\n\n（语音上传失败: " + e.getMessage() + "）";
+                    log.error("音频文件上传发送失败", e);
+                    reply += "\n\n（音频文件上传失败: " + e.getMessage() + "）";
                 }
             }
 
@@ -446,7 +465,8 @@ public class IlinkService {
 
         RecognizeImageTool recognizeTool = new RecognizeImageTool(aiService, fromUser, imageBytes);
         EditImageTool editTool = new EditImageTool(imageService, imageBytes);
-        List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, hotNewsTool, recognizeTool, editTool);
+        List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, searchTool,
+            musicTool, recommendMusicTool, recognizeTool, editTool);
 
         String contextMessage = "[系统提示：当前有一张待处理的图片。请根据用户的指令选择合适的工具。]\n"
             + "[如果用户想识别图片内容（这是什么、描述图片、提取文字等），请调用 recognize_image 工具]\n"

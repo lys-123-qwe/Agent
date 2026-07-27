@@ -1,6 +1,7 @@
 package com.example.youkeda_project.ai;
 
 import com.example.youkeda_project.config.ApiConfig;
+import com.example.youkeda_project.service.ChatHistoryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -8,6 +9,9 @@ import org.springframework.web.client.RestClient;
 import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -21,16 +25,23 @@ import java.util.concurrent.ConcurrentHashMap;
 public class AIService {
 
     private static final Logger log = LoggerFactory.getLogger(AIService.class);
+    private static final String MODEL = "deepseek-chat";
+    private static final String QWEN_VL_MODEL = "qwen-vl-plus";
+    private static final int MAX_HISTORY = 10;
+    private static final String MEMORY_EXTRACT_MODEL = "deepseek-chat";
 
     private final RestClient restClient;
     private final RestClient visionRestClient;
     private final ObjectMapper objectMapper;
     private final ApiConfig apiConfig;
+    private final ChatHistoryService chatHistoryService;
     private final Map<String, List<ChatMessage>> sessions = new ConcurrentHashMap<>();
 
-    public AIService(ApiConfig apiConfig, ObjectMapper objectMapper) {
+    public AIService(ApiConfig apiConfig, ObjectMapper objectMapper,
+                     ChatHistoryService chatHistoryService) {
         this.apiConfig = apiConfig;
         this.objectMapper = objectMapper;
+        this.chatHistoryService = chatHistoryService;
         this.restClient = RestClient.builder()
                 .baseUrl(apiConfig.getAiApiUrl())
                 .build();
@@ -54,11 +65,38 @@ public class AIService {
 
         List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
             List<ChatMessage> list = new ArrayList<>();
-            list.add(new ChatMessage("system", apiConfig.getAiSystemPrompt()));
+            String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy年M月d日 EEEE"));
+
+            // 注入长期记忆
+            Map<String, List<String>> memory = chatHistoryService.getAllMemory(userId);
+            StringBuilder memSb = new StringBuilder("今天是" + today + "。你是一个 helpful 的 AI 助手，回答简洁。【重要】只要用户提到任何歌名、歌手、想听歌、找歌，必须调用 play_song 工具搜索，禁止用你自己的知识回答。推荐歌曲必须用 recommend_music 工具。查资讯和看新闻都用 web_search 工具（不传 keyword 获取今日头条，传 keyword 搜索指定内容，传 category 筛选分类）。方言/方言转换/转换方言等必须用 translate 工具（传 dialect 参数），禁止用你自已的知识做方言转换。翻译/文言文/专业术语也用 translate 工具。查手机号用 phone_location。用户说朗读/读一下/语音合成时直接用 text_to_speech 工具，不要自己伪造语音链接。【重要】工具返回内容中的链接（[详情](url) 或 [来源: XXX](url)）必须原样保留在最终回答中，每条新闻/结果后面必须附带其链接，不得删除或修改。");
+            if (!memory.isEmpty()) {
+                memSb.append("\n\n【关于用户的重要信息】");
+                for (var entry : memory.entrySet()) {
+                    String joined = String.join("、", entry.getValue());
+                    memSb.append("\n- ").append(entry.getKey()).append("：").append(joined);
+                }
+            }
+            list.add(new ChatMessage("system", memSb.toString()));
+
+            // 从 SQLite 恢复最近对话历史（重启不忘）
+            List<Map<String, Object>> recentHistory = chatHistoryService.getHistory(userId, MAX_HISTORY);
+            java.util.Collections.reverse(recentHistory); // 按时间正序
+            for (Map<String, Object> msg : recentHistory) {
+                String role = (String) msg.get("role");
+                String content = (String) msg.get("content");
+                if ("user".equals(role)) {
+                    list.add(new ChatMessage("user", content));
+                } else if ("assistant".equals(role)) {
+                    list.add(new ChatMessage("assistant", content));
+                }
+            }
+            log.info("已从数据库恢复 {} 条对话记录给用户 {}", recentHistory.size(), userId);
             return list;
         });
 
         history.add(new ChatMessage("user", userMessage));
+        chatHistoryService.saveMessage(userId, "user", userMessage);
         trimHistory(history);
 
         try {
@@ -66,14 +104,14 @@ public class AIService {
             List<ToolResult> allPendingMedia = new ArrayList<>();
             // 工具失败追踪：同一工具连续失败≥2次后，跳过调用并通知模型放弃重试
             Map<String, Integer> toolFailureCount = new HashMap<>();
-            int maxRounds = apiConfig.getAiToolMaxRounds();
+            int maxRounds = 8;
 
             for (int round = 0; round < maxRounds; round++) {
                 List<ChatMessage> filteredHistory = filterForTextOnly(history);
 
                 ChatRequest request = tools != null && !tools.isEmpty()
-                    ? new ChatRequest(apiConfig.getAiModel(), filteredHistory, tools.stream().map(Tool::toToolDefinition).toList())
-                    : new ChatRequest(apiConfig.getAiModel(), filteredHistory);
+                    ? new ChatRequest(MODEL, filteredHistory, tools.stream().map(Tool::toToolDefinition).toList())
+                    : new ChatRequest(MODEL, filteredHistory);
 
                 String body = objectMapper.writeValueAsString(request);
                 log.info("DeepSeek请求(round={}): {}", round, body);
@@ -162,6 +200,10 @@ public class AIService {
                 // 正常文本回复
                 String reply = (String) choice.getMessage().content();
                 history.add(new ChatMessage("assistant", reply));
+                chatHistoryService.saveMessage(userId, "assistant", reply);
+
+                // 提取并保存长期记忆（非阻塞，仅基础版）
+                extractMemoryAsync(userId, userMessage, reply);
 
                 // 收集本轮所有工具产生的媒体，返回给调用方处理
                 return allPendingMedia.isEmpty()
@@ -213,7 +255,7 @@ public class AIService {
 
         List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
             List<ChatMessage> list = new ArrayList<>();
-            list.add(new ChatMessage("system", apiConfig.getAiSystemPrompt()));
+            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，能够识别图片内容。回答简洁。"));
             return list;
         });
 
@@ -221,7 +263,7 @@ public class AIService {
         trimHistory(history);
 
         try {
-            ChatRequest request = new ChatRequest(apiConfig.getVisionModel(), new ArrayList<>(history));
+            ChatRequest request = new ChatRequest(QWEN_VL_MODEL, new ArrayList<>(history));
             String body = objectMapper.writeValueAsString(request);
             log.info("通义千问VL请求: {}", body);
 
@@ -243,6 +285,7 @@ public class AIService {
 
             String reply = (String) response.getChoices().get(0).getMessage().content();
             history.add(new ChatMessage("assistant", reply));
+            chatHistoryService.saveMessage(userId, "assistant", reply);
             return reply;
 
         } catch (Exception e) {
@@ -284,11 +327,10 @@ public class AIService {
     }
 
     private void trimHistory(List<ChatMessage> history) {
-        int maxHistory = apiConfig.getAiHistoryMax();
-        if (history.size() > maxHistory + 1) {
+        if (history.size() > MAX_HISTORY + 1) {
             ChatMessage system = history.get(0);
             int total = history.size();
-            int start = total - maxHistory;
+            int start = total - MAX_HISTORY;
 
             // 如果保留段第一条是 tool 消息，说明它的 assistant(TC) 被裁剪掉了，
             // 往前回溯直到找到对应的 tool_calls 上下文消息
@@ -341,7 +383,7 @@ public class AIService {
 
         List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
             List<ChatMessage> list = new ArrayList<>();
-            list.add(new ChatMessage("system", apiConfig.getAiSystemPrompt()));
+            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，回答简洁。"));
             return list;
         });
 
@@ -352,7 +394,7 @@ public class AIService {
 
         try {
             List<ChatMessage> filteredHistory = filterForTextOnly(history);
-            ChatRequest request = new ChatRequest(apiConfig.getAiModel(), filteredHistory);
+            ChatRequest request = new ChatRequest(MODEL, filteredHistory);
             String body = objectMapper.writeValueAsString(request);
             log.info("上下文回复请求: {}", body);
 
@@ -374,6 +416,7 @@ public class AIService {
 
             String reply = (String) response.getChoices().get(0).getMessage().content();
             history.add(new ChatMessage("assistant", reply));
+            chatHistoryService.saveMessage(userId, "assistant", reply);
             return reply;
 
         } catch (Exception e) {
@@ -385,7 +428,7 @@ public class AIService {
     public void addExchange(String userId, String userMessage, String assistantReply) {
         List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
             List<ChatMessage> list = new ArrayList<>();
-            list.add(new ChatMessage("system", apiConfig.getAiSystemPrompt()));
+            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，回答简洁。"));
             return list;
         });
         history.add(new ChatMessage("user", userMessage));
@@ -399,5 +442,54 @@ public class AIService {
 
     public void clearSession(String userId) {
         sessions.remove(userId);
+    }
+
+    /**
+     * 从对话中提取关键信息存入长期记忆。
+     * 调用 DeepSeek 分析用户消息和 AI 回复，识别需要记住的信息。
+     */
+    private void extractMemoryAsync(String userId, String userMsg, String reply) {
+        try {
+            String extractPrompt = "从以下对话中提取需要长期记住的用户信息（如姓名、偏好、习惯、重要日期等）。"
+                + "以 JSON 格式返回，key 用中文，value 用具体值。"
+                + "如果没有需要记住的信息，返回空数组 []。"
+                + "格式：[{\"key\": \"姓名\", \"value\": \"张三\"}, {\"key\": \"饮食偏好\", \"value\": \"喜欢辣的\"}]"
+                + "\n\n用户说：" + userMsg + "\n回复：" + reply;
+
+            ChatRequest req = new ChatRequest(MEMORY_EXTRACT_MODEL, java.util.List.of(
+                new ChatMessage("user", extractPrompt)
+            ));
+            String body = objectMapper.writeValueAsString(req);
+            byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
+            byte[] respBytes = restClient.post()
+                .header("Content-Type", "application/json; charset=UTF-8")
+                .header("Authorization", "Bearer " + apiConfig.getAiApiKey())
+                .body(bodyBytes)
+                .retrieve()
+                .body(byte[].class);
+
+            String respJson = new String(respBytes, StandardCharsets.UTF_8);
+            log.info("记忆提取响应: {}", respJson);
+
+            ChatResponse resp = objectMapper.readValue(respJson, ChatResponse.class);
+            if (resp.getChoices() != null && !resp.getChoices().isEmpty()) {
+                String content = (String) resp.getChoices().get(0).getMessage().content();
+                if (content != null && content.startsWith("[")) {
+                    tools.jackson.databind.JsonNode arr = objectMapper.readTree(content);
+                    if (arr.isArray()) {
+                        for (tools.jackson.databind.JsonNode item : arr) {
+                            String key = item.path("key").asText();
+                            String value = item.path("value").asText();
+                            if (!key.isBlank() && !value.isBlank()) {
+                                chatHistoryService.saveMemory(userId, key, value);
+                                log.info("已保存记忆: {}={}", key, value);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("记忆提取失败（不影响正常对话）: {}", e.getMessage());
+        }
     }
 }

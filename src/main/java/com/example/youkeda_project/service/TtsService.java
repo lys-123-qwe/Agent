@@ -5,15 +5,17 @@ import io.github.kasukusakura.silkcodec.SilkCoder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
 import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.List;
@@ -48,7 +50,7 @@ public class TtsService {
         String text = "";
     }
 
-    private final RestClient restClient;
+    private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
     private final ApiConfig apiConfig;
     private final Map<String, TtsSession> sessions = new ConcurrentHashMap<>();
@@ -56,7 +58,9 @@ public class TtsService {
     public TtsService(ApiConfig apiConfig, ObjectMapper objectMapper) {
         this.apiConfig = apiConfig;
         this.objectMapper = objectMapper;
-        this.restClient = RestClient.create();
+        this.httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .build();
     }
 
     public TtsSession getOrCreateSession(String userId) {
@@ -120,13 +124,21 @@ public class TtsService {
                 apiConfig.getTtsApiModel(), voice, format, text.length());
 
             byte[] bodyBytes = bodyJson.getBytes(StandardCharsets.UTF_8);
-            byte[] responseBytes = restClient.post()
-                .uri(apiConfig.getTtsApiUrl())
+            HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(apiConfig.getTtsApiUrl()))
                 .header("Content-Type", "application/json; charset=UTF-8")
                 .header("Authorization", "Bearer " + apiKey)
-                .body(bodyBytes)
-                .retrieve()
-                .body(byte[].class);
+                .POST(HttpRequest.BodyPublishers.ofByteArray(bodyBytes))
+                .timeout(Duration.ofSeconds(30))
+                .build();
+            HttpResponse<byte[]> httpResp = httpClient.send(req, HttpResponse.BodyHandlers.ofByteArray());
+            int statusCode = httpResp.statusCode();
+            log.info("TTS API HTTP 状态码: {}", statusCode);
+            byte[] responseBytes = httpResp.body();
+            if (statusCode != 200) {
+                String errBody = new String(responseBytes, StandardCharsets.UTF_8);
+                throw new RuntimeException("TTS API HTTP " + statusCode + ": " + errBody);
+            }
 
             String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
             log.info("CosyVoice TTS 响应: {}", responseJson);
@@ -144,20 +156,17 @@ public class TtsService {
                 throw new RuntimeException("TTS 响应中未包含音频 URL");
             }
 
-            // 使用 URL.openStream 直接下载 OSS 音频文件，
-            // 避免 RestClient 对 URL 参数二次编码导致 OSS 签名验证失败
-            java.net.URL ossUrl = URI.create(audioUrl).toURL();
-            log.info("TTS 音频 URL: {}", ossUrl);
-
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            try (InputStream in = ossUrl.openStream()) {
-                byte[] buf = new byte[8192];
-                int len;
-                while ((len = in.read(buf)) != -1) {
-                    baos.write(buf, 0, len);
-                }
+            log.info("TTS 音频 URL: {}", audioUrl);
+            HttpRequest audioReq = HttpRequest.newBuilder()
+                .uri(URI.create(audioUrl))
+                .timeout(Duration.ofSeconds(30))
+                .GET()
+                .build();
+            HttpResponse<byte[]> audioResp = httpClient.send(audioReq, HttpResponse.BodyHandlers.ofByteArray());
+            if (audioResp.statusCode() != 200) {
+                throw new RuntimeException("下载 TTS 音频失败: HTTP " + audioResp.statusCode());
             }
-            byte[] audioBytes = baos.toByteArray();
+            byte[] audioBytes = audioResp.body();
 
             if (audioBytes == null || audioBytes.length == 0) {
                 throw new RuntimeException("下载 TTS 音频失败: 返回数据为空");

@@ -1,6 +1,5 @@
 package com.example.youkeda_project.ai;
 
-import com.example.youkeda_project.config.ApiConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -8,10 +7,8 @@ import org.springframework.stereotype.Component;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.MonthDay;
-
 import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -20,23 +17,22 @@ public class DateTimeTool implements Tool {
 
     private static final Logger log = LoggerFactory.getLogger(DateTimeTool.class);
 
-    private final ApiConfig apiConfig;
-
-    public DateTimeTool(ApiConfig apiConfig) {
-        this.apiConfig = apiConfig;
-    }
-
-    private List<Holiday> getHolidays() {
-        List<Map<String, Object>> config = apiConfig.getHolidays();
-        List<Holiday> list = new ArrayList<>();
-        for (Map<String, Object> item : config) {
-            list.add(new Holiday(
-                (String) item.get("name"),
-                MonthDay.of((Integer) item.get("month"), (Integer) item.get("day"))
-            ));
-        }
-        return list;
-    }
+    private static final List<Holiday> HOLIDAYS = List.of(
+        new Holiday("元旦", MonthDay.of(1, 1)),
+        new Holiday("春节", MonthDay.of(1, 29)),
+        new Holiday("情人节", MonthDay.of(2, 14)),
+        new Holiday("妇女节", MonthDay.of(3, 8)),
+        new Holiday("植树节", MonthDay.of(3, 12)),
+        new Holiday("愚人节", MonthDay.of(4, 1)),
+        new Holiday("劳动节", MonthDay.of(5, 1)),
+        new Holiday("端午节", MonthDay.of(5, 31)),
+        new Holiday("儿童节", MonthDay.of(6, 1)),
+        new Holiday("七夕节", MonthDay.of(8, 29)),
+        new Holiday("中秋节", MonthDay.of(10, 6)),
+        new Holiday("国庆节", MonthDay.of(10, 1)),
+        new Holiday("万圣节", MonthDay.of(10, 31)),
+        new Holiday("圣诞节", MonthDay.of(12, 25))
+    );
 
     @Override
     public String getName() {
@@ -178,14 +174,14 @@ public class DateTimeTool implements Tool {
         String name = (String) args.get("holiday_name");
         if (name == null || name.isBlank()) {
             StringBuilder sb = new StringBuilder("支持的节日：\n");
-            for (Holiday h : getHolidays()) {
+            for (Holiday h : HOLIDAYS) {
                 sb.append("- ").append(h.name).append("（").append(h.date).append("）\n");
             }
             return ToolResult.text(sb.toString());
         }
 
         LocalDate today = LocalDate.now();
-        for (Holiday h : getHolidays()) {
+        for (Holiday h : HOLIDAYS) {
             if (h.name.equals(name) || name.contains(h.name)) {
                 LocalDate holidayDate = LocalDate.of(today.getYear(), h.date.getMonth(), h.date.getDayOfMonth());
                 if (holidayDate.isBefore(today) || holidayDate.isEqual(today)) {
@@ -214,7 +210,7 @@ public class DateTimeTool implements Tool {
         StringBuilder sb = new StringBuilder();
         sb.append("📅 当前日期: ").append(today).append(" ").append(cnName).append("\n");
 
-        for (Holiday h : getHolidays()) {
+        for (Holiday h : HOLIDAYS) {
             LocalDate hd = LocalDate.of(today.getYear(), h.date.getMonth(), h.date.getDayOfMonth());
             if (hd.isAfter(today) || hd.isEqual(today)) {
                 long days = ChronoUnit.DAYS.between(today, hd);

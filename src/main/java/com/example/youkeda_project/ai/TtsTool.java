@@ -10,15 +10,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * 语音合成工具（Function Calling）。
- * <p>
- * 定义 text_to_speech 函数，供 DeepSeek 通过 Function Calling 调用。
- * 委托 TtsService 调用 CosyVoice 合成语音，返回音频字节供 CDN 上传。
- * <p>
- * voice 参数必填，调用前必须询问用户选择哪种音色，用户明确回复后再传参调用。
- * 不要擅自选择音色，必须等用户指定后再生成。
- */
 @Component
 public class TtsTool implements Tool {
 
@@ -37,9 +28,10 @@ public class TtsTool implements Tool {
 
     @Override
     public String getDescription() {
-        return "将文字合成为语音朗读出来。"
-            + "【重要】调用此工具前，必须先询问用户选择哪种音色（用户可回复数字或音色名），用户明确回复后再调用。不要擅自选择音色。"
-            + "可用音色：\n1. 龙安洋(阳光男声)\n2. 龙安欢(元气女声)\n3. 龙呼呼(可爱童声)\n4. 龙书(沉稳青年男)\n5. Bella(干练女声)";
+        return "把文字朗读出来（语音合成）。用户说朗读/读一下/念出来/语音时直接用此工具。"
+            + "如果用户提到音色名（龙安洋/龙安欢/龙呼呼/龙书/Bella），一并传入 voice 参数；"
+            + "如果用户没指定音色，不传 voice 参数，工具会自动用默认音色。"
+            + "不要自己伪造语音链接！";
     }
 
     @Override
@@ -56,12 +48,12 @@ public class TtsTool implements Tool {
 
         Map<String, Object> voice = new LinkedHashMap<>();
         voice.put("type", "string");
-        voice.put("description", "用户选择的音色名称（可输入音色名或对应数字）。必须等用户明确回复后再传此参数");
+        voice.put("description", "音色（可选，不传则用默认音色）。可用值：龙安洋(阳光男声)、龙安欢(元气女声)、龙呼呼(可爱童声)、龙书(沉稳青年男)、Bella(干练女声)");
         voice.put("enum", List.of("龙安洋", "龙安欢", "龙呼呼", "龙书", "Bella"));
         properties.put("voice", voice);
 
         params.put("properties", properties);
-        params.put("required", List.of("text", "voice"));
+        params.put("required", List.of("text"));
         return params;
     }
 
@@ -74,23 +66,24 @@ public class TtsTool implements Tool {
 
         String voice = arguments != null ? (String) arguments.get("voice") : null;
         if (voice == null || voice.isBlank()) {
-            return ToolResult.text("请先让用户选择音色再调用此工具。可用音色：\n1. 龙安洋(阳光男声)\n2. 龙安欢(元气女声)\n3. 龙呼呼(可爱童声)\n4. 龙书(沉稳青年男)\n5. Bella(干练女声)");
+            voice = "龙安洋";
         }
 
         String voiceId = ttsService.resolveVoice(voice);
         if (voiceId == null) {
-            return ToolResult.text("不支持的音色: " + voice + "，可用音色：\n1. 龙安洋(阳光男声)\n2. 龙安欢(元气女声)\n3. 龙呼呼(可爱童声)\n4. 龙书(沉稳青年男)\n5. Bella(干练女声)");
+            voiceId = ttsService.getDefaultVoice();
         }
 
         log.info("TtsTool 执行: text={}, voice={} -> voiceId={}", text, voice, voiceId);
 
         try {
             TtsService.TtsResult ttsResult = ttsService.synthesizeMp3(text, voiceId);
-            log.info("语音合成成功: {} bytes", ttsResult.audioBytes().length);
+            log.info("语音合成成功: {} bytes, {}s", ttsResult.audioBytes().length, ttsResult.durationSeconds());
             return ToolResult.audio(
                 "语音已合成，音色：" + voice,
                 ttsResult.audioBytes(),
-                "tts.mp3"
+                "tts.mp3",
+                ttsResult.durationSeconds()
             );
         } catch (Exception e) {
             log.error("语音合成失败", e);
