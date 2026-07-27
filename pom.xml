@@ -55,7 +55,7 @@
 			<version>0.0.5</version>
 		</dependency>
 
-		<!-- Apache Tika：通用文档解析（txt/docx/xlsx/pptx/pdf/html/csv 等）-->
+			<!-- Apache Tika：通用文档解析（txt/docx/xlsx/pptx/pdf/html/csv 等）-->
 		<dependency>
 			<groupId>org.apache.tika</groupId>
 			<artifactId>tika-core</artifactId>

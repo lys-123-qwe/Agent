@@ -199,4 +199,20 @@ public class ApiConfig {
     public String getNewsSdkApiKey() {
         return newsSdkApiKey;
     }
+
+    // ---- 快递物流查询（阿里云市场） ----
+
+    @Value("${express.api.appcode:}")
+    private String expressApiAppCode;
+
+    @Value("${express.api.url:https://kzexpress.market.alicloudapi.com/api-mall/api/express/query}")
+    private String expressApiUrl;
+
+    public String getExpressApiAppCode() {
+        return expressApiAppCode;
+    }
+
+    public String getExpressApiUrl() {
+        return expressApiUrl;
+    }
 }
