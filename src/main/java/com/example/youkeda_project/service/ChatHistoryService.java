@@ -58,6 +58,7 @@ public class ChatHistoryService {
                     create_time TEXT DEFAULT (datetime('now','localtime'))
                 )
             """);
+            stmt.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_mem_unique ON user_memory(user_id, mem_key, mem_value)");
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_mem_user ON user_memory(user_id)");
             log.info("数据库表初始化完成");
         } catch (Exception e) {
@@ -106,11 +107,14 @@ public class ChatHistoryService {
     public void saveMemory(String userId, String key, String value) {
         try (Connection conn = getConn();
              PreparedStatement ps = conn.prepareStatement(
-                 "INSERT INTO user_memory (user_id, mem_key, mem_value) VALUES (?, ?, ?)")) {
+                 "INSERT OR IGNORE INTO user_memory (user_id, mem_key, mem_value) VALUES (?, ?, ?)")) {
             ps.setString(1, userId);
             ps.setString(2, key);
             ps.setString(3, value);
-            ps.executeUpdate();
+            int rows = ps.executeUpdate();
+            if (rows > 0) {
+                log.info("已保存记忆: {}={}", key, value);
+            }
         } catch (Exception e) {
             log.warn("保存记忆失败", e);
         }
@@ -133,6 +137,18 @@ public class ChatHistoryService {
             log.warn("查询记忆失败", e);
         }
         return result;
+    }
+
+    public void deleteMemoryByKey(String userId, String key) {
+        try (Connection conn = getConn();
+             PreparedStatement ps = conn.prepareStatement("DELETE FROM user_memory WHERE user_id = ? AND mem_key = ?")) {
+            ps.setString(1, userId);
+            ps.setString(2, key);
+            int rows = ps.executeUpdate();
+            if (rows > 0) log.info("已覆盖记忆: {} (删除了 {} 条旧记录)", key, rows);
+        } catch (Exception e) {
+            log.warn("删除记忆失败", e);
+        }
     }
 
     public void deleteMemory(String userId) {

@@ -452,8 +452,11 @@ public class AIService {
         try {
             String extractPrompt = "从以下对话中提取需要长期记住的用户信息（如姓名、偏好、习惯、重要日期等）。"
                 + "以 JSON 格式返回，key 用中文，value 用具体值。"
+                + "【重要】判断每条信息应该是追加还是覆盖："
+                + "如果用户提供了新的值替换旧信息（如改名字、改偏好），mode 设为 'overwrite'；"
+                + "如果用户新增了信息但没说要替换之前的，mode 设为 'append'。"
                 + "如果没有需要记住的信息，返回空数组 []。"
-                + "格式：[{\"key\": \"姓名\", \"value\": \"张三\"}, {\"key\": \"饮食偏好\", \"value\": \"喜欢辣的\"}]"
+                + "格式：[{\"key\": \"姓名\", \"value\": \"张三\", \"mode\": \"overwrite\"}, {\"key\": \"饮食偏好\", \"value\": \"喜欢辣的\", \"mode\": \"append\"}]"
                 + "\n\n用户说：" + userMsg + "\n回复：" + reply;
 
             ChatRequest req = new ChatRequest(MEMORY_EXTRACT_MODEL, java.util.List.of(
@@ -480,9 +483,12 @@ public class AIService {
                         for (tools.jackson.databind.JsonNode item : arr) {
                             String key = item.path("key").asText();
                             String value = item.path("value").asText();
+                            String mode = item.path("mode").asText("append");
                             if (!key.isBlank() && !value.isBlank()) {
+                                if ("overwrite".equals(mode)) {
+                                    chatHistoryService.deleteMemoryByKey(userId, key);
+                                }
                                 chatHistoryService.saveMemory(userId, key, value);
-                                log.info("已保存记忆: {}={}", key, value);
                             }
                         }
                     }
