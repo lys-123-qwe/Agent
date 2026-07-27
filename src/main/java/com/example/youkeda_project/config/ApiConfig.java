@@ -341,6 +341,16 @@ public class ApiConfig {
         } catch (Exception e) { return List.of(); }
     }
 
+    // ==================== 快递物流查询 ====================
+    @Value("${express.api.appcode:}")
+    private String expressApiAppCode;
+
+    @Value("${express.api.url:}")
+    private String expressApiUrl;
+
+    public String getExpressApiAppCode() { return expressApiAppCode; }
+    public String getExpressApiUrl() { return expressApiUrl; }
+
     // 兼容旧接口
     public String getNewsApiKey() { return ""; }
     public String getNewsSdkApiKey() { return ""; }
