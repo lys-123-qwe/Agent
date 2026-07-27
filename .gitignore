@@ -40,3 +40,5 @@ application.properties
 *.err
 bot_output.*
 deps.txt
+*.db
+chat.db
