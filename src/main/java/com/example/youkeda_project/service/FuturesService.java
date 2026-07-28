@@ -7,6 +7,9 @@ import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -26,12 +29,17 @@ public class FuturesService {
     private static final String SINA_API = "http://hq.sinajs.cn/list=";
     private static final String TENCENT_API = "http://qt.gtimg.cn/q=";
     private static final long CACHE_TTL_MS = 60_000;
+    private static final long KLINE_CACHE_TTL_MS = 300_000; // 5分钟K线缓存
 
     private final RestClient restClient;
 
     /** 短缓存: code → {timestamp, result} */
     private final ConcurrentHashMap<String, long[]> cacheTs = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, String> cacheResult = new ConcurrentHashMap<>();
+
+    // K线数据缓存
+    private final ConcurrentHashMap<String, long[]> klineCacheTs = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, List<KlineData>> klineCacheData = new ConcurrentHashMap<>();
 
     /** 中文名称 → 新浪代码映射（国际期货 20+ 品种） */
     private static final Map<String, String> INTERNATIONAL_MAP;
@@ -105,6 +113,10 @@ public class FuturesService {
         dom.put("沪锡", "nf_SN0");
         dom.put("锡", "nf_SN0");
         dom.put("氧化铝", "nf_AO0");
+        dom.put("沪金", "nf_AU0");
+        dom.put("黄金", "nf_AU0");
+        dom.put("沪银", "nf_AG0");
+        dom.put("白银", "nf_AG0");
         // === 国内期货 · 能源化工 ===
         dom.put("sc原油", "nf_SC0");
         dom.put("燃料油", "nf_FU0");
@@ -529,4 +541,180 @@ public class FuturesService {
         String s = val.trim();
         return !"0".equals(s) && !"0.000".equals(s) && !"0.00".equals(s);
     }
+
+    // ==================== 历史 K 线数据（新浪） ====================
+
+    /**
+     * 获取期货历史K线数据（带缓存）。
+     * 国内期货使用新浪InnerFutures API，国际期货使用新浪GlobalFutures API。
+     */
+    public List<KlineData> getHistoricalKline(String input, int days) {
+        String code = resolveFuturesCode(input);
+        if (code == null) return List.of();
+
+        // 检查缓存
+        String cacheKey = code + ":" + days;
+        long now = System.currentTimeMillis();
+        long[] ts = klineCacheTs.get(cacheKey);
+        if (ts != null && now - ts[0] < KLINE_CACHE_TTL_MS) {
+            List<KlineData> cached = klineCacheData.get(cacheKey);
+            if (cached != null) {
+                log.debug("期货K线缓存命中: key={}", cacheKey);
+                return cached;
+            }
+        }
+
+        // 获取数据
+        List<KlineData> result;
+        if (code.startsWith("hf_")) {
+            result = getInternationalFuturesKline(code, days);
+        } else if (code.startsWith("nf_")) {
+            result = getDomesticFuturesKline(code, days);
+        } else {
+            result = List.of();
+        }
+
+        // 写入缓存
+        if (!result.isEmpty()) {
+            klineCacheTs.put(cacheKey, new long[]{now});
+            klineCacheData.put(cacheKey, result);
+        }
+
+        return result;
+    }
+
+    /** 国内期货K线（新浪InnerFutures API） */
+    private List<KlineData> getDomesticFuturesKline(String code, int days) {
+        String symbol = code.substring(3); // 去掉 nf_ 前缀
+
+        String url = "https://stock2.finance.sina.com.cn/futures/api/jsonp.php/var%20_"
+            + code + "=/InnerFuturesNewService.getDailyKLine?symbol=" + symbol + "&datalen=" + (days + 20);
+
+        try {
+            String response = restClient.get()
+                .uri(url)
+                .header("Referer", "https://finance.sina.com.cn")
+                .retrieve()
+                .body(String.class);
+
+            if (response == null || response.isBlank()) return List.of();
+
+            int start = response.indexOf("([");
+            int end = response.indexOf("])");
+            if (start == -1 || end == -1) return List.of();
+
+            String json = response.substring(start + 1, end + 1);
+            if (json.isEmpty() || "null".equals(json)) return List.of();
+
+            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            com.fasterxml.jackson.databind.JsonNode arr = mapper.readTree(json);
+
+            List<KlineData> result = new ArrayList<>();
+            for (com.fasterxml.jackson.databind.JsonNode item : arr) {
+                String date = item.path("d").asText("");
+                String open = item.path("o").asText("");
+                String high = item.path("h").asText("");
+                String low = item.path("l").asText("");
+                String close = item.path("c").asText("");
+                String volume = item.path("v").asText("");
+                if (!date.isEmpty() && !close.isEmpty()) {
+                    result.add(new KlineData(date, open, high, low, close, volume));
+                }
+            }
+
+            if (result.size() > days) {
+                result = new ArrayList<>(result.subList(result.size() - days, result.size()));
+            }
+
+            log.info("国内期货K线获取成功: code={}, 数据量={}", code, result.size());
+            return result;
+        } catch (Exception e) {
+            log.warn("国内期货K线获取失败: code={}, error={}", code, e.getMessage());
+            return List.of();
+        }
+    }
+
+    /** 国际期货K线（新浪GlobalFutures API） */
+    private List<KlineData> getInternationalFuturesKline(String code, int days) {
+        String symbol = code.substring(3); // 去掉 hf_ 前缀
+
+        String url = "https://stock2.finance.sina.com.cn/futures/api/jsonp.php/var%20_"
+            + code + "=/GlobalFuturesService.getGlobalFuturesDailyKLine?symbol=" + symbol
+            + "&_=1&_=" + System.currentTimeMillis();
+
+        try {
+            String response = restClient.get()
+                .uri(url)
+                .header("Referer", "https://finance.sina.com.cn")
+                .retrieve()
+                .body(String.class);
+
+            if (response == null || response.isBlank()) return List.of();
+
+            int start = response.indexOf("([");
+            int end = response.indexOf("])");
+            if (start == -1 || end == -1) return List.of();
+
+            String json = response.substring(start + 1, end + 1);
+            if (json.isEmpty() || "null".equals(json)) return List.of();
+
+            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            com.fasterxml.jackson.databind.JsonNode arr = mapper.readTree(json);
+
+            List<KlineData> result = new ArrayList<>();
+            for (com.fasterxml.jackson.databind.JsonNode item : arr) {
+                String date = item.path("date").asText("");
+                String open = item.path("open").asText("");
+                String high = item.path("high").asText("");
+                String low = item.path("low").asText("");
+                String close = item.path("close").asText("");
+                String volume = item.path("volume").asText("0");
+                if (!date.isEmpty() && !close.isEmpty()) {
+                    result.add(new KlineData(date, open, high, low, close, volume));
+                }
+            }
+
+            if (result.size() > days) {
+                result = new ArrayList<>(result.subList(result.size() - days, result.size()));
+            }
+
+            log.info("国际期货K线获取成功: code={}, 数据量={}", code, result.size());
+            return result;
+        } catch (Exception e) {
+            log.warn("国际期货K线获取失败: code={}, error={}", code, e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
+     * 解析期货代码（复用 queryFutures 的逻辑）
+     */
+    private String resolveFuturesCode(String input) {
+        if (input == null || input.isBlank()) return null;
+        String trimmed = input.trim();
+
+        // 名称查找
+        String code = DOMESTIC_MAP.get(trimmed);
+        if (code != null) return code;
+        code = INTERNATIONAL_MAP.get(trimmed);
+        if (code != null) return code;
+        code = DOMESTIC_MAP.get(trimmed.toLowerCase());
+        if (code != null) return code;
+        code = INTERNATIONAL_MAP.get(trimmed.toLowerCase());
+        if (code != null) return code;
+
+        // 已带前缀
+        if (trimmed.regionMatches(true, 0, "hf_", 0, 3)) return trimmed.toLowerCase();
+        if (trimmed.regionMatches(true, 0, "nf_", 0, 3)) return trimmed.toLowerCase();
+
+        // 纯字母代码
+        if (trimmed.matches("(?i)^[a-z]{2,3}$")) return "hf_" + trimmed.toLowerCase();
+        if (trimmed.matches("(?i)^[a-z]{1,3}\\d$")) return "nf_" + trimmed.toLowerCase();
+        if (trimmed.matches("(?i)^[a-z]{1,3}\\d{3,4}$")) return "nf_" + trimmed.toLowerCase();
+
+        return null;
+    }
+
+    /** K 线数据 */
+    public record KlineData(String date, String open, String high, String low, String close, String volume) {}
 }

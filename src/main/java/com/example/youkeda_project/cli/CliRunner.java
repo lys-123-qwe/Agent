@@ -47,7 +47,6 @@ public class CliRunner implements CommandLineRunner {
     private final SearchTool searchTool;
     private final ExchangeRateTool exchangeRateTool;
     private final DateTimeTool dateTimeTool;
-    private final ConstellationTool constellationTool;
     private final PhoneLocationTool phoneLocationTool;
     private final MusicTool musicTool;
     private final RecommendMusicTool recommendMusicTool;
@@ -74,7 +73,6 @@ public class CliRunner implements CommandLineRunner {
                      SearchTool searchTool,
                      ExchangeRateTool exchangeRateTool,
                      DateTimeTool dateTimeTool,
-                     ConstellationTool constellationTool,
                      PhoneLocationTool phoneLocationTool,
                      MusicTool musicTool,
                      RecommendMusicTool recommendMusicTool,
@@ -95,7 +93,6 @@ public class CliRunner implements CommandLineRunner {
         this.searchTool = searchTool;
         this.exchangeRateTool = exchangeRateTool;
         this.dateTimeTool = dateTimeTool;
-        this.constellationTool = constellationTool;
         this.phoneLocationTool = phoneLocationTool;
         this.musicTool = musicTool;
         this.recommendMusicTool = recommendMusicTool;
@@ -104,7 +101,7 @@ public class CliRunner implements CommandLineRunner {
 
         this.TOOLS = List.of(weatherTool, stockTool, logisticsTool, hotCommentTool,
                 imageTool, ttsTool, searchTool, exchangeRateTool, dateTimeTool,
-                constellationTool, phoneLocationTool, musicTool, recommendMusicTool,
+                phoneLocationTool, musicTool, recommendMusicTool,
                 translationTool, memoryTool);
     }
 
@@ -508,7 +505,7 @@ public class CliRunner implements CommandLineRunner {
 
                 // Normal text → AI with Function Calling
                 List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, searchTool, stockTool,
-                    exchangeRateTool, dateTimeTool, constellationTool, phoneLocationTool,
+                    exchangeRateTool, dateTimeTool, phoneLocationTool,
                     musicTool, recommendMusicTool, translationTool, hotCommentTool, logisticsTool, memoryTool);
 
                 ChatResult result = aiService.chat(userId, text, allTools);
@@ -596,12 +593,13 @@ public class CliRunner implements CommandLineRunner {
 
         // Handle edited image
         if (result.hasPendingImage()) {
-            String imageUrl = result.getFirstPendingImageUrl();
-            lastGeneratedImageUrl.put(userId, imageUrl);
+            byte[] toolImageBytes = result.getFirstPendingImageBytes();
+            String imageUrl = toolImageBytes == null ? result.getFirstPendingImageUrl() : null;
+            if (imageUrl != null) lastGeneratedImageUrl.put(userId, imageUrl);
             System.out.println("[系统] 图片编辑完成，正在上传...");
             try {
-                byte[] editedBytes = imageService.downloadImage(imageUrl);
-                ilinkService.sendImage(sessionId, userId, contextToken, editedBytes);
+                byte[] uploadBytes = toolImageBytes != null ? toolImageBytes : imageService.downloadImage(imageUrl);
+                ilinkService.sendImage(sessionId, userId, contextToken, uploadBytes);
                 log.info("已发送编辑后的图片");
             } catch (Exception e) {
                 log.error("图片上传失败", e);
@@ -616,11 +614,14 @@ public class CliRunner implements CommandLineRunner {
     private String handleMediaResult(String sessionId, String userId, String contextToken,
                                      ChatResult result, String reply) {
         if (result.hasPendingImage()) {
-            String imageUrl = result.getFirstPendingImageUrl();
-            lastGeneratedImageUrl.put(userId, imageUrl);
+            byte[] imageBytes = result.getFirstPendingImageBytes();
+            String imageUrl = imageBytes == null ? result.getFirstPendingImageUrl() : null;
+            if (imageUrl != null) lastGeneratedImageUrl.put(userId, imageUrl);
             System.out.println("[系统] 图片已生成，正在上传...");
             try {
-                byte[] imageBytes = imageService.downloadImage(imageUrl);
+                if (imageBytes == null) {
+                    imageBytes = imageService.downloadImage(imageUrl);
+                }
                 ilinkService.sendImage(sessionId, userId, contextToken, imageBytes);
                 log.info("已发送图片到 {}", userId);
             } catch (Exception e) {

@@ -50,6 +50,16 @@ public class ChatResult {
         return pendingMedia.stream()
                 .filter(ToolResult::hasImage)
                 .map(ToolResult::getImageUrl)
+                .filter(url -> url != null && !url.isBlank())
+                .findFirst().orElse(null);
+    }
+
+    /** 获取待上传的第一张图片字节 */
+    public byte[] getFirstPendingImageBytes() {
+        return pendingMedia.stream()
+                .filter(ToolResult::hasImage)
+                .map(ToolResult::getImageBytes)
+                .filter(bytes -> bytes != null && bytes.length > 0)
                 .findFirst().orElse(null);
     }
 

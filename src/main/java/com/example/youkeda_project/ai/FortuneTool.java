@@ -23,13 +23,15 @@ public class FortuneTool implements Tool {
     @Override
     public String getDescription() {
         return """
-            算命/命理工具，支持以下类型：
+            运势/命理工具，支持以下类型：
             - bazi：八字排盘（需 year/month/day/hour，可选 minute/gender/name）
             - ziwei：紫微斗数（需 year/month/day/hour，可选 minute/gender/name）
             - iching：六爻占卜（需 question + gua_yao1~6，硬币结果：0=少阴 1=少阳 2=老阴 3=老阳）
             - cross：生肖血型星座综合分析（需 year/month/day/blood_type，可选 gender）
             - lunar：农历黄历查询（需 year/month/day）
             - auspicious_date：择吉日（需 event_type，可选 year/month）
+            - constellation：星座查询（需 month+day 查星座，或 sign 查运势）
+            - face_reading：面相分析（需 image_bytes，分析五官/脸型/运势）
             """;
     }
 
@@ -41,7 +43,7 @@ public class FortuneTool implements Tool {
         Map<String, Object> properties = new HashMap<>();
         properties.put("type", Map.of(
             "type", "string",
-            "enum", java.util.List.of("bazi", "ziwei", "iching", "cross", "lunar", "auspicious_date"),
+            "enum", java.util.List.of("bazi", "ziwei", "iching", "cross", "lunar", "auspicious_date", "constellation", "face_reading"),
             "description", "算命类型"
         ));
         properties.put("year", Map.of("type", "integer", "description", "出生年份（如 1995）"));
@@ -69,6 +71,8 @@ public class FortuneTool implements Tool {
             "enum", java.util.List.of("A", "B", "O", "AB"),
             "description", "血型（仅 cross 使用）"
         ));
+        properties.put("sign", Map.of("type", "string", "description", "星座中文名（仅 constellation 使用），如：白羊座、金牛座"));
+        properties.put("prompt", Map.of("type", "string", "description", "分析要求（仅 face_reading 使用），如：看面相、分析运势"));
         schema.put("properties", properties);
         schema.put("required", java.util.List.of("type"));
         return schema;
@@ -88,7 +92,9 @@ public class FortuneTool implements Tool {
             case "cross" -> executeCross(args);
             case "lunar" -> executeLunar(args);
             case "auspicious_date" -> executeAuspiciousDate(args);
-            default -> ToolResult.text("未知的算命类型：" + type + "，支持：bazi/ziwei/iching/cross/lunar/auspicious_date");
+            case "constellation" -> executeConstellation(args);
+            case "face_reading" -> executeFaceReading(args);
+            default -> ToolResult.text("未知的算命类型：" + type + "，支持：bazi/ziwei/iching/cross/lunar/auspicious_date/constellation/face_reading");
         };
     }
 
@@ -170,6 +176,25 @@ public class FortuneTool implements Tool {
         Integer year = getInt(args, "year");
         Integer month = getInt(args, "month");
         return ToolResult.text(fortuneService.auspiciousDate(eventType, year, month));
+    }
+
+    private ToolResult executeConstellation(Map<String, Object> args) {
+        String sign = getString(args, "sign");
+        Integer month = getInt(args, "month");
+        Integer day = getInt(args, "day");
+        if (month != null && day != null) {
+            return ToolResult.text(fortuneService.queryConstellationByDate(month, day));
+        }
+        if (sign != null && !sign.isBlank()) {
+            return ToolResult.text(fortuneService.queryConstellationHoroscope(sign));
+        }
+        return ToolResult.text("请提供出生日期或星座名称，如：3月15日是什么星座、今天双子座运势");
+    }
+
+    private ToolResult executeFaceReading(Map<String, Object> args) {
+        String prompt = getString(args, "prompt");
+        if (prompt == null || prompt.isBlank()) prompt = "请全面分析我的面相";
+        return ToolResult.text("面相分析需要上传图片，请先发送图片再提问");
     }
 
     private Integer getInt(Map<String, Object> args, String key) {

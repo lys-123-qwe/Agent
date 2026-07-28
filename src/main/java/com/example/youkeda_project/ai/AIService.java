@@ -90,6 +90,28 @@ public class AIService {
                 + "用户要查快递、查物流、查包裹时用 query_express 工具（传 number 单号，courier 可选）。"
                 + "【重要】如果用户在对话中提到了关于自己的信息（昵称、喜好、职业、所在地等），必须调用 save_user_info 工具保存。"
                 + "【重要】工具返回内容中的链接（[详情](url) 或 [来源: XXX](url)）必须原样保留在最终回答中，每条新闻/结果后面必须附带其链接，不得删除或修改。"));
+            // 从数据库加载最近 20 条历史消息恢复会话上下文
+            try {
+                List<Map<String, Object>> recentHistory = chatHistoryService.getHistory(userId, 30);
+                if (recentHistory != null && !recentHistory.isEmpty()) {
+                    // 数据库查询是倒序的，反转为正序
+                    java.util.Collections.reverse(recentHistory);
+                    for (Map<String, Object> row : recentHistory) {
+                        String role = (String) row.get("role");
+                        String content = (String) row.get("content");
+                        // 跳过空内容、工具调用占位符、工具返回结果
+                        if (role == null || content == null || content.isBlank()) continue;
+                        if (content.startsWith("[工具调用]") || content.startsWith("[get_")) continue;
+                        // 只恢复 user 和 assistant 的文本消息
+                        if ("user".equals(role) || "assistant".equals(role)) {
+                            list.add(new ChatMessage(role, content));
+                        }
+                    }
+                    log.info("从数据库恢复 {} 条历史消息: user={}", list.size() - 1, userId.substring(0, Math.min(20, userId.length())));
+                }
+            } catch (Exception e) {
+                log.warn("加载历史消息失败: {}", e.getMessage());
+            }
             return list;
         });
 
@@ -103,7 +125,7 @@ public class AIService {
             List<ToolResult> allPendingMedia = new ArrayList<>();
             // 工具失败追踪：同一工具连续失败≥2次后，跳过调用并通知模型放弃重试
             Map<String, Integer> toolFailureCount = new HashMap<>();
-            int maxRounds = 8;
+            int maxRounds = apiConfig.getAiToolMaxRounds();
 
             for (int round = 0; round < maxRounds; round++) {
                 List<ChatMessage> filteredHistory = filterForTextOnly(history);
