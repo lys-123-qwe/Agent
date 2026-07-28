@@ -89,7 +89,7 @@ public class AIService {
                 + "用户提到网易云热评、热评、来条评论时用 get_hot_comment 工具（不传 song 随机返回，传 song 搜索指定歌曲）。"
                 + "用户要查快递、查物流、查包裹时用 query_express 工具（传 number 单号，courier 可选）。"
                 + "【重要】如果用户在对话中提到了关于自己的信息（昵称、喜好、职业、所在地等），必须调用 save_user_info 工具保存。"
-                + "【重要】工具返回内容中的链接（[详情](url) 或 [来源: XXX](url)）必须原样保留在最终回答中，每条新闻/结果后面必须附带其链接，不得删除或修改。"));
+                + "【重要】工具返回内容中的链接（[详情](url) 或 [来源: XXX](url)）必须原样保留在最终回答中，每条新闻/结果后面必须附带其链接，不得删除或修改。如果工具有返回图片（hasImage=true），说明用户侧已经收到了图片，回复时可以提及上面这张图。"));
             // 从数据库加载最近 20 条历史消息恢复会话上下文
             try {
                 List<Map<String, Object>> recentHistory = chatHistoryService.getHistory(userId, 30);
@@ -212,7 +212,11 @@ public class AIService {
                         }
 
                         // 将文本结果加入对话历史（供 LLM 下一轮使用）
-                        history.add(ChatMessage.tool(tc.id(), tc.functionName(), resultText));
+                        String toolTextForAi = resultText;
+                        if (toolResult.hasImage()) {
+                            toolTextForAi += "\n（系统：图片已生成并发送到微信，回复时可以提及上面这张图）";
+                        }
+                        history.add(ChatMessage.tool(tc.id(), tc.functionName(), toolTextForAi));
                         persistMessage(userId, "tool", "[" + tc.functionName() + "] " + resultText);
                     }
                     trimHistory(history);
