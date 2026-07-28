@@ -52,6 +52,7 @@ public class CliRunner implements CommandLineRunner {
     private final RecommendMusicTool recommendMusicTool;
     private final TranslationTool translationTool;
     private final MemoryTool memoryTool;
+    private final FinancialAnalysisTool financialAnalysisTool;
 
     // Per-user state
     private final Map<String, byte[]> pendingImages = new ConcurrentHashMap<>();
@@ -77,7 +78,8 @@ public class CliRunner implements CommandLineRunner {
                      MusicTool musicTool,
                      RecommendMusicTool recommendMusicTool,
                      TranslationTool translationTool,
-                     MemoryTool memoryTool) {
+                     MemoryTool memoryTool,
+                     FinancialAnalysisTool financialAnalysisTool) {
         this.ilinkService = ilinkService;
         this.aiService = aiService;
         this.imageService = imageService;
@@ -98,6 +100,7 @@ public class CliRunner implements CommandLineRunner {
         this.recommendMusicTool = recommendMusicTool;
         this.translationTool = translationTool;
         this.memoryTool = memoryTool;
+        this.financialAnalysisTool = financialAnalysisTool;
 
         this.TOOLS = List.of(weatherTool, stockTool, logisticsTool, hotCommentTool,
                 imageTool, ttsTool, searchTool, exchangeRateTool, dateTimeTool,
@@ -506,7 +509,8 @@ public class CliRunner implements CommandLineRunner {
                 // Normal text → AI with Function Calling
                 List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, searchTool, stockTool,
                     exchangeRateTool, dateTimeTool, phoneLocationTool,
-                    musicTool, recommendMusicTool, translationTool, hotCommentTool, logisticsTool, memoryTool);
+                    musicTool, recommendMusicTool, translationTool, hotCommentTool, logisticsTool,
+                    memoryTool, financialAnalysisTool);
 
                 ChatResult result = aiService.chat(userId, text, allTools);
                 String reply = result.getReplyText();
@@ -544,7 +548,8 @@ public class CliRunner implements CommandLineRunner {
                 System.out.println("[微信] " + userId + " (语音): " + transcribedText);
 
                 List<Tool> voiceTools = List.of(weatherTool, imageTool, ttsTool, searchTool,
-                    stockTool, musicTool, recommendMusicTool, hotCommentTool, logisticsTool, memoryTool);
+                    stockTool, musicTool, recommendMusicTool, hotCommentTool,
+                    logisticsTool, memoryTool, financialAnalysisTool);
                 ChatResult result = aiService.chat(userId, transcribedText, voiceTools);
                 String reply = result.getReplyText();
 

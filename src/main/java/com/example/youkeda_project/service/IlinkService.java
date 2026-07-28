@@ -21,6 +21,7 @@ import com.example.youkeda_project.ai.FortuneTool;
 import com.example.youkeda_project.ai.FundTool;
 import com.example.youkeda_project.ai.FuturesTool;
 import com.example.youkeda_project.ai.CopywritingTool;
+import com.example.youkeda_project.ai.FinancialAnalysisTool;
 import com.example.youkeda_project.client.IlinkProtocolClient;
 import com.example.youkeda_project.protocol.GetUpdatesResponse;
 import com.example.youkeda_project.protocol.LoginResult;
@@ -78,6 +79,7 @@ public class IlinkService {
     private final FortuneTool fortuneTool;
     private final FundTool fundTool;
     private final FuturesTool futuresTool;
+    private final FinancialAnalysisTool financialAnalysisTool;
 
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicBoolean polling = new AtomicBoolean(false);
@@ -100,7 +102,8 @@ public class IlinkService {
                          CopywritingTool copywritingTool,
                          FortuneTool fortuneTool,
                          FundTool fundTool,
-                         FuturesTool futuresTool) {
+                         FuturesTool futuresTool,
+                         FinancialAnalysisTool financialAnalysisTool) {
         this.client = client;
         this.weatherService = weatherService;
         this.aiService = aiService;
@@ -123,6 +126,7 @@ public class IlinkService {
         this.fortuneTool = fortuneTool;
         this.fundTool = fundTool;
         this.futuresTool = futuresTool;
+        this.financialAnalysisTool = financialAnalysisTool;
     }
 
     /**
@@ -401,7 +405,8 @@ public class IlinkService {
             System.out.println("[系统] " + fromUser + " 正在等待 AI 回复...");
             List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, searchTool, stockTool,
                 exchangeRateTool, dateTimeTool, phoneLocationTool,
-                musicTool, recommendMusicTool, translationTool, copywritingTool, fortuneTool, fundTool, futuresTool);
+                musicTool, recommendMusicTool, translationTool, copywritingTool, fortuneTool, fundTool, futuresTool,
+                financialAnalysisTool);
             ChatResult result = aiService.chat(fromUser, text, allTools);
             String reply = result.getReplyText();
 
