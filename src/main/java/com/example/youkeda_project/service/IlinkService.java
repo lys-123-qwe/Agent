@@ -6,6 +6,11 @@ import com.example.youkeda_project.ai.ConstellationTool;
 import com.example.youkeda_project.ai.DateTimeTool;
 import com.example.youkeda_project.ai.EditImageTool;
 import com.example.youkeda_project.ai.ExchangeRateTool;
+import com.example.youkeda_project.ai.FundTool;
+import com.example.youkeda_project.ai.FuturesTool;
+import com.example.youkeda_project.ai.MarketOverviewTool;
+import com.example.youkeda_project.ai.PortfolioTool;
+import com.example.youkeda_project.ai.TechnicalTool;
 import com.example.youkeda_project.ai.ImageTool;
 import com.example.youkeda_project.ai.MusicTool;
 import com.example.youkeda_project.ai.PhoneLocationTool;
@@ -64,6 +69,8 @@ public class IlinkService {
     private final ImageTool imageTool;
     private final TtsTool ttsTool;
     private final StockTool stockTool;
+    private final FuturesTool futuresTool;
+    private final FundTool fundTool;
     private final ExchangeRateTool exchangeRateTool;
     private final DateTimeTool dateTimeTool;
     private final ConstellationTool constellationTool;
@@ -73,6 +80,9 @@ public class IlinkService {
     private final RecommendMusicTool recommendMusicTool;
     private final TranslationTool translationTool;
     private final TravelTool travelTool;
+    private final TechnicalTool technicalTool;
+    private final MarketOverviewTool marketOverviewTool;
+    private final PortfolioTool portfolioTool;
 
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicBoolean polling = new AtomicBoolean(false);
@@ -87,13 +97,16 @@ public class IlinkService {
                         AIService aiService, ImageService imageService, VoiceService voiceService,
                         TtsService ttsService, FileService fileService,
                         WeatherTool weatherTool, ImageTool imageTool, TtsTool ttsTool,
-                        StockTool stockTool,
-                        ExchangeRateTool exchangeRateTool, DateTimeTool dateTimeTool,
+                         StockTool stockTool, FuturesTool futuresTool, FundTool fundTool,
+                         ExchangeRateTool exchangeRateTool, DateTimeTool dateTimeTool,
                         ConstellationTool constellationTool, PhoneLocationTool phoneLocationTool,
                         SearchTool searchTool,
                          MusicTool musicTool, RecommendMusicTool recommendMusicTool,
-                         TranslationTool translationTool,
-                         TravelTool travelTool) {
+                          TranslationTool translationTool,
+                          TravelTool travelTool,
+                          TechnicalTool technicalTool,
+                          MarketOverviewTool marketOverviewTool,
+                          PortfolioTool portfolioTool) {
         this.client = client;
         this.weatherService = weatherService;
         this.aiService = aiService;
@@ -105,6 +118,8 @@ public class IlinkService {
         this.imageTool = imageTool;
         this.ttsTool = ttsTool;
         this.stockTool = stockTool;
+        this.futuresTool = futuresTool;
+        this.fundTool = fundTool;
         this.exchangeRateTool = exchangeRateTool;
         this.dateTimeTool = dateTimeTool;
         this.constellationTool = constellationTool;
@@ -114,6 +129,9 @@ public class IlinkService {
         this.recommendMusicTool = recommendMusicTool;
         this.translationTool = translationTool;
         this.travelTool = travelTool;
+        this.technicalTool = technicalTool;
+        this.marketOverviewTool = marketOverviewTool;
+        this.portfolioTool = portfolioTool;
     }
 
     /**
@@ -304,7 +322,7 @@ public class IlinkService {
                 }
 
                 // 无图片上下文，走普通对话
-                List<Tool> voiceTools = List.of(weatherTool, imageTool, ttsTool, searchTool, stockTool, musicTool, recommendMusicTool);
+                List<Tool> voiceTools = List.of(weatherTool, imageTool, ttsTool, searchTool, stockTool, musicTool, recommendMusicTool, technicalTool, marketOverviewTool, portfolioTool);
                 ChatResult result = aiService.chat(fromUser, transcribedText, voiceTools);
                 String reply = result.getReplyText();
 
@@ -387,20 +405,23 @@ public class IlinkService {
 
             // Function Calling：将所有工具传递给 DeepSeek，由模型自主决定调用哪些
             System.out.println("[系统] " + fromUser + " 正在等待 AI 回复...");
-            List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, searchTool, stockTool,
+            List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, searchTool, stockTool, futuresTool, fundTool,
                 exchangeRateTool, dateTimeTool, constellationTool, phoneLocationTool,
-                musicTool, recommendMusicTool, translationTool, travelTool);
+                musicTool, recommendMusicTool, translationTool, travelTool, technicalTool, marketOverviewTool, portfolioTool);
             ChatResult result = aiService.chat(fromUser, text, allTools);
             String reply = result.getReplyText();
 
             // 处理工具产生的媒体侧效应（图片 CDN 上传、音频文件发送）
             if (result.hasPendingImage()) {
-                String imageUrl = result.getFirstPendingImageUrl();
-                lastGeneratedImageUrl.put(fromUser, imageUrl);
+                byte[] imgBytes = result.getFirstPendingImageBytes();
+                if (imgBytes == null) {
+                    String imageUrl = result.getFirstPendingImageUrl();
+                    lastGeneratedImageUrl.put(fromUser, imageUrl);
+                    imgBytes = imageService.downloadImage(imageUrl);
+                }
                 System.out.println("[系统] 图片已生成，正在上传到微信CDN...");
                 try {
-                    byte[] imageBytes = imageService.downloadImage(imageUrl);
-                    client.uploadAndSendImage(fromUser, msg.contextToken(), imageBytes);
+                    client.uploadAndSendImage(fromUser, msg.contextToken(), imgBytes);
                     log.info("已发送图片 {}", fromUser);
                     System.out.println("[系统] 图片已发送到微信");
                 } catch (Exception e) {
@@ -466,7 +487,7 @@ public class IlinkService {
         RecognizeImageTool recognizeTool = new RecognizeImageTool(aiService, fromUser, imageBytes);
         EditImageTool editTool = new EditImageTool(imageService, imageBytes);
         List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, searchTool,
-            musicTool, recommendMusicTool, recognizeTool, editTool);
+            musicTool, recommendMusicTool, recognizeTool, editTool, marketOverviewTool, portfolioTool);
 
         String contextMessage = "[系统提示：当前有一张待处理的图片。请根据用户的指令选择合适的工具。]\n"
             + "[如果用户想识别图片内容（这是什么、描述图片、提取文字等），请调用 recognize_image 工具]\n"

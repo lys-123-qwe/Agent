@@ -189,13 +189,18 @@ public class StockService {
     // ==================== 拉取数据 ====================
 
     /**
-     * 先尝试新浪，失败回退腾讯。
+     * 先尝试新浪，成功后再补基本面数据（PE/PB/市值），失败回退腾讯。
      */
     private String fetchStockData(String fullCode, String displayName) {
         log.info("查询股票: code={}, display={}", fullCode, displayName);
 
         try {
-            return fetchFromSina(fullCode);
+            String sinaResult = fetchFromSina(fullCode);
+            String fundamentals = fetchFundamentals(fullCode);
+            if (fundamentals != null && !fundamentals.isBlank()) {
+                return sinaResult + fundamentals;
+            }
+            return sinaResult;
         } catch (Exception e) {
             log.warn("新浪接口查询失败: {}, 回退到腾讯接口", e.getMessage());
             try {
@@ -204,6 +209,48 @@ public class StockService {
                 log.error("腾讯接口也查询失败: {}", e2.getMessage());
                 return "错误: 股票查询失败，两个接口均不可用 - " + e2.getMessage();
             }
+        }
+    }
+
+    /**
+     * 通过腾讯接口快速获取基本面数据（PE、PB、市值）。
+     * 返回格式化字符串，或在失败时返回 null。
+     */
+    public String fetchFundamentals(String fullCode) {
+        try {
+            String tencentCode = toTencentCode(fullCode);
+            String response = restClient.get()
+                .uri(TENCENT_API + tencentCode)
+                .retrieve()
+                .body(String.class);
+            if (response == null || response.isBlank()) return null;
+
+            int eqIdx = response.indexOf('"');
+            if (eqIdx < 0) return null;
+            String data = response.substring(eqIdx + 1, response.lastIndexOf('"'));
+            if (data.isBlank()) return null;
+
+            String[] fields = data.split("~");
+            if (fields.length < 50) return null;
+
+            String pe = fields.length > 39 ? fields[39] : null;
+            String pb = fields.length > 49 ? fields[49] : null;
+            String mktCap = fields.length > 44 ? fields[44] : null;
+
+            StringBuilder sb = new StringBuilder("\n");
+            if (pe != null && !pe.isBlank() && !"0.00".equals(pe)) {
+                sb.append("  市盈率: ").append(pe).append("\n");
+            }
+            if (pb != null && !pb.isBlank() && !"0.00".equals(pb)) {
+                sb.append("  市净率: ").append(pb).append("\n");
+            }
+            if (mktCap != null && !mktCap.isBlank() && !"0.00".equals(mktCap)) {
+                sb.append("  总市值: ").append(mktCap).append("亿\n");
+            }
+            return sb.length() > 1 ? sb.toString() : null;
+        } catch (Exception e) {
+            log.debug("获取基本面数据失败: {}", e.getMessage());
+            return null;
         }
     }
 
@@ -377,11 +424,29 @@ public class StockService {
         String high = "—";
         String low = "—";
 
+        String pe = fields.length > 39 ? fields[39] : null;
+        String pb = fields.length > 49 ? fields[49] : null;
+        String mktCap = fields.length > 44 ? fields[44] : null;
+
         String market = getMarketType(fullCode);
+        String baseResult;
         if ("us".equals(market)) {
-            return formatUSStockInfo(name, fullCode, price, prevClose, open, high, low, volume, null);
+            baseResult = formatUSStockInfo(name, fullCode, price, prevClose, open, high, low, volume, null);
+        } else {
+            baseResult = formatStockInfo(name, fullCode, price, open, prevClose, high, low, volume);
         }
-        return formatStockInfo(name, fullCode, price, open, prevClose, high, low, volume);
+
+        StringBuilder sb = new StringBuilder(baseResult);
+        if (pe != null && !pe.isBlank() && !"0.00".equals(pe)) {
+            sb.append("\n  市盈率: ").append(pe);
+        }
+        if (pb != null && !pb.isBlank() && !"0.00".equals(pb)) {
+            sb.append("\n  市净率: ").append(pb);
+        }
+        if (mktCap != null && !mktCap.isBlank() && !"0.00".equals(mktCap)) {
+            sb.append("\n  总市值: ").append(mktCap).append("亿");
+        }
+        return sb.toString();
     }
 
     /**
