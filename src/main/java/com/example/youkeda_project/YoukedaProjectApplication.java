@@ -1,6 +1,7 @@
 package com.example.youkeda_project;
 
 import com.example.youkeda_project.service.IlinkService;
+import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -12,6 +13,7 @@ import org.springframework.context.ConfigurableApplicationContext;
  * 登录成功后进入消息轮询模式，所有功能通过微信消息触发。
  */
 @SpringBootApplication
+@MapperScan("com.example.youkeda_project.mapper")
 public class YoukedaProjectApplication {
 
     public static void main(String[] args) {

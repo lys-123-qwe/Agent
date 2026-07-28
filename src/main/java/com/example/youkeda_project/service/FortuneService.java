@@ -4,19 +4,29 @@ import com.example.youkeda_project.config.ApiConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.LocalDate;
+import java.util.HashMap;
+import java.util.Map;
 
 @Service
 public class FortuneService {
 
     private static final Logger log = LoggerFactory.getLogger(FortuneService.class);
+    private static final String YUANFENJU_BASE = "https://api.yuanfenju.com/index.php/v1";
+    private static final String GAN = "甲乙丙丁戊己庚辛壬癸";
+    private static final String[] GAN_WUXING = {"木","木","火","火","土","土","金","金","水","水"};
+    private static final String ZHI = "子丑寅卯辰巳午未申酉戌亥";
+    private static final String[] ZHI_WUXING = {"水","土","木","木","土","火","火","土","金","金","土","水"};
 
     private final HttpClient httpClient;
     private final ApiConfig apiConfig;
@@ -30,11 +40,36 @@ public class FortuneService {
                 .build();
     }
 
-    public String ziwei(int year, int month, int day, int hour, int minute, Integer gender, String name) {
-        return callAI(buildZiWeiPrompt(), buildUserContent(year, month, day, hour, minute, gender, name));
+    public String ziwei(int year, int month, int day, int hour, int minute, Integer gender, String name, int calendarType) {
+        StringBuilder sb = new StringBuilder();
+        if (name != null && !name.isBlank()) sb.append("姓名：").append(name).append("\n");
+        sb.append(doZiwei(year, month, day, hour, minute, gender, name, calendarType));
+        sb.append("\n\n---\n\n📌 数据由缘份居紫微排盘 API 提供");
+        return sb.toString();
     }
 
-    public String iching(String question) {
+    public String iching(String question, int[] guaYaos) {
+        if (guaYaos == null || guaYaos.length != 6) {
+            return "六爻占卜需要 6 次抛硬币结果";
+        }
+        Map<String, String> params = new HashMap<>();
+        params.put("sex", "0");
+        params.put("born_year", String.valueOf(LocalDate.now().getYear() - 25));
+        params.put("pan_model", "4");
+        params.put("gua_yao6", String.valueOf(guaYaos[0]));
+        params.put("gua_yao5", String.valueOf(guaYaos[1]));
+        params.put("gua_yao4", String.valueOf(guaYaos[2]));
+        params.put("gua_yao3", String.valueOf(guaYaos[3]));
+        params.put("gua_yao2", String.valueOf(guaYaos[4]));
+        params.put("gua_yao1", String.valueOf(guaYaos[5]));
+        JsonNode data = callYuanfenjuApi("/Liupan/liuyao", params);
+        if (data != null) {
+            String result = formatYuanfenjuIChing(data);
+            if (result != null) {
+                if (question != null && !question.isBlank()) result = "问题：" + question + "\n\n" + result;
+                return result + "\n\n---\n\n📌 数据由缘份居六爻排盘 API 提供";
+            }
+        }
         return callAI(buildIChingPrompt(), "占卜问题：" + question);
     }
 
@@ -48,19 +83,595 @@ public class FortuneService {
     }
 
     public String lunarCalendar(int year, int month, int day) {
+        Map<String, String> params = new HashMap<>();
+        params.put("title_laohuangli", String.format("%04d-%02d-%02d", year, month, day));
+        JsonNode data = callYuanfenjuApi("/Gongju/laohuangli", params);
+        if (data != null) {
+            String result = formatYuanfenjuLunar(data);
+            if (result != null) return result;
+        }
         String info = String.format("公历日期：%d年%d月%d日", year, month, day);
-        return callAI(buildLunarPrompt(), info);
+        return "[AI生成] " + callAI(buildLunarPrompt(), info);
     }
 
     public String auspiciousDate(String eventType, Integer year, Integer month) {
+        int incident = mapEventTypeToIncident(eventType);
+        Map<String, String> params = new HashMap<>();
+        params.put("future", year != null && month != null ? "2" : "0");
+        params.put("incident", String.valueOf(incident));
+        JsonNode data = callYuanfenjuApi("/Gongju/zeshi", params);
+        if (data != null) {
+            String result = formatYuanfenjuAuspiciousDate(data, eventType);
+            if (result != null) {
+                StringBuilder sb = new StringBuilder();
+                sb.append("## 选吉日：").append(eventType).append("\n\n");
+                sb.append(result);
+                sb.append("\n\n---\n\n📌 数据由缘份居择吉日 API 提供");
+                return sb.toString();
+            }
+        }
         String info = "事项：" + (eventType != null ? eventType : "未指定")
             + (year != null ? "\n期望年份：" + year : "")
             + (month != null ? "\n期望月份：" + month : "");
-        return callAI(buildAuspiciousDatePrompt(), info);
+        return "[AI生成] " + callAI(buildAuspiciousDatePrompt(), info);
+    }
+
+    public String bazi(int year, int month, int day, int hour, int minute, Integer gender, String name, int calendarType) {
+        Map<String, String> params = new HashMap<>();
+        params.put("name", name != null && !name.isBlank() ? name : "未知");
+        params.put("sex", gender != null ? String.valueOf(gender) : "0");
+        params.put("type", String.valueOf(calendarType));
+        params.put("year", String.valueOf(year));
+        params.put("month", String.valueOf(month));
+        params.put("day", String.valueOf(day));
+        params.put("hours", String.valueOf(hour));
+        params.put("minute", String.valueOf(minute));
+        StringBuilder sb = new StringBuilder();
+        if (name != null && !name.isBlank()) sb.append("姓名：").append(name).append("\n");
+        JsonNode data = callYuanfenjuApi("/Bazi/paipan", params);
+        if (data != null) {
+            String result = formatYuanfenjuBazi(data);
+            if (result != null) {
+                sb.append(result);
+                String wuxing = buildWuxingAnalysis(data.path("bazi_info").path("bazi"));
+                if (wuxing != null) sb.append("\n\n").append(wuxing);
+            } else {
+                sb.append("[AI生成] ").append(callAI(buildBaziPrompt(), buildUserContent(year, month, day, hour, minute, gender, name)));
+            }
+        } else {
+            sb.append("[AI生成] ").append(callAI(buildBaziPrompt(), buildUserContent(year, month, day, hour, minute, gender, name)));
+        }
+        sb.append("\n\n━━ 紫微斗数 ━━\n");
+        sb.append(doZiwei(year, month, day, hour, minute, gender, name, calendarType));
+        sb.append("\n\n---\n\n📌 数据由缘份居八字排盘 + 紫微排盘 API 提供");
+        return sb.toString();
+    }
+
+    private String doZiwei(int year, int month, int day, int hour, int minute, Integer gender, String name, int calendarType) {
+        Map<String, String> params = new HashMap<>();
+        params.put("name", name != null && !name.isBlank() ? name : "未知");
+        params.put("sex", gender != null ? String.valueOf(gender) : "0");
+        params.put("type", String.valueOf(calendarType));
+        params.put("year", String.valueOf(year));
+        params.put("month", String.valueOf(month));
+        params.put("day", String.valueOf(day));
+        params.put("hours", String.valueOf(hour));
+        params.put("minute", String.valueOf(minute));
+        JsonNode data = callYuanfenjuApi("/Bazi/zwpan", params);
+        if (data != null) {
+            String result = formatYuanfenjuZiWei(data);
+            if (result != null) return result;
+        }
+        return "[AI生成] " + callAI(buildZiWeiPrompt(), buildUserContent(year, month, day, hour, minute, gender, name));
+    }
+
+    public String faceReading(byte[] imageBytes, String prompt) {
+        String imageUrl = uploadToImageHost(imageBytes);
+        if (imageUrl != null) {
+            String result = faceReadingViaYuanfenju(imageUrl);
+            if (result != null) return result;
+        }
+        String base64 = java.util.Base64.getEncoder().encodeToString(imageBytes);
+        return callVisionAI(buildFaceReadingPrompt(), base64, prompt);
     }
 
     public String faceReading(String base64Image, String prompt) {
         return callVisionAI(buildFaceReadingPrompt(), base64Image, prompt);
+    }
+
+    private JsonNode callYuanfenjuApi(String path, Map<String, String> params) {
+        String key = apiConfig.getYuanfenjuApiKey();
+        if (key == null || key.isBlank()) return null;
+        try {
+            StringBuilder body = new StringBuilder();
+            body.append("api_key=").append(URLEncoder.encode(key, "UTF-8"));
+            for (Map.Entry<String, String> e : params.entrySet()) {
+                if (e.getValue() != null && !e.getValue().isBlank()) {
+                    body.append("&").append(e.getKey()).append("=")
+                        .append(URLEncoder.encode(e.getValue(), "UTF-8"));
+                }
+            }
+            var hreq = HttpRequest.newBuilder()
+                    .uri(URI.create(YUANFENJU_BASE + path))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8))
+                    .timeout(Duration.ofSeconds(15))
+                    .build();
+            HttpResponse<String> hresp = httpClient.send(hreq, HttpResponse.BodyHandlers.ofString());
+            var root = new ObjectMapper().readTree(hresp.body());
+            int errcode = root.path("errcode").asInt(-1);
+            if (errcode != 0) {
+                log.warn("缘份居 {} API error: {}", path, root.path("errmsg").asText());
+                return null;
+            }
+            return root.path("data");
+        } catch (Exception e) {
+            log.warn("缘份居 {} API 调用失败: {}", path, e.getMessage());
+            return null;
+        }
+    }
+
+    private String uploadToImageHost(byte[] imageBytes) {
+        try {
+            String boundary = "Boundary" + System.currentTimeMillis();
+            var byteOut = new java.io.ByteArrayOutputStream();
+            write(byteOut, ("--" + boundary + "\r\n").getBytes());
+            write(byteOut, "Content-Disposition: form-data; name=\"smfile\"; filename=\"face.jpg\"\r\n".getBytes());
+            write(byteOut, "Content-Type: image/jpeg\r\n\r\n".getBytes());
+            write(byteOut, imageBytes);
+            write(byteOut, ("\r\n--" + boundary + "--\r\n").getBytes());
+            var hreq = HttpRequest.newBuilder()
+                    .uri(URI.create("https://sm.ms/api/v2/upload"))
+                    .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(byteOut.toByteArray()))
+                    .timeout(Duration.ofSeconds(15))
+                    .build();
+            HttpResponse<String> hresp = httpClient.send(hreq, HttpResponse.BodyHandlers.ofString());
+            var root = new ObjectMapper().readTree(hresp.body());
+            if (root.path("success").asBoolean()) {
+                return root.path("data").path("url").asText();
+            }
+            log.warn("sm.ms 上传失败: {}", hresp.body());
+            return null;
+        } catch (Exception e) {
+            log.warn("图片上传失败: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private static void write(java.io.ByteArrayOutputStream out, byte[] data) {
+        try { out.write(data); } catch (java.io.IOException ignored) {}
+    }
+
+    private String faceReadingViaYuanfenju(String imageUrl) {
+        try {
+            String key = apiConfig.getYuanfenjuApiKey();
+            if (key == null || key.isBlank()) return null;
+            String body = "api_key=" + URLEncoder.encode(key, "UTF-8")
+                + "&image_url=" + URLEncoder.encode(imageUrl, "UTF-8");
+            var hreq = HttpRequest.newBuilder()
+                    .uri(URI.create(YUANFENJU_BASE + "/Dashuju/mianxiang"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                    .timeout(Duration.ofSeconds(20))
+                    .build();
+            HttpResponse<String> hresp = httpClient.send(hreq, HttpResponse.BodyHandlers.ofString());
+            var root = new ObjectMapper().readTree(hresp.body());
+            if (root.path("errcode").asInt(-1) != 0) {
+                log.warn("缘份居面相 API error: {}", root.path("errmsg").asText());
+                return null;
+            }
+            return formatYuanfenjuFaceReading(root.path("data"));
+        } catch (Exception e) {
+            log.warn("缘份居面相 API 调用失败: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private String formatYuanfenjuFaceReading(JsonNode data) {
+        if (data == null || data.isMissingNode()) return null;
+        try {
+            StringBuilder sb = new StringBuilder();
+            sb.append("━━ 面相分析（缘份居）━━\n");
+            sb.append("年龄：").append(data.path("age").asText()).append("岁  ");
+            sb.append("性别：").append(data.path("gender").asText().equals("male") ? "男" : "女").append("\n");
+            sb.append("颜值：").append(data.path("beauty_desc").asText("")).append("\n");
+            sb.append("脸型：").append(data.path("face_shape").asText("")).append("\n");
+            sb.append(data.path("face_shape_desc").asText("")).append("\n\n");
+            sb.append("眉型：").append(data.path("eyebrow_shape").asText("")).append("\n");
+            sb.append(data.path("eyebrow_shape_desc").asText("")).append("\n\n");
+            sb.append("眼型：").append(data.path("eye_shape").asText("")).append("\n");
+            sb.append(data.path("eye_shape_desc").asText("")).append("\n\n");
+            sb.append("鼻型：").append(data.path("nose_shape").asText("")).append("\n");
+            sb.append(data.path("nose_shape_desc").asText("")).append("\n\n");
+            sb.append("嘴型：").append(data.path("mouth_shape").asText("")).append("\n");
+            sb.append(data.path("mouth_shape_desc").asText("")).append("\n\n");
+            sb.append("面相五行：").append(data.path("mianxiang_five").asText(""))
+                .append(" ").append(data.path("mianxiang_five_simple_desc").asText("")).append("\n");
+            sb.append(data.path("mianxiang_five_detail_desc").asText("")).append("\n\n");
+            sb.append("━━ 运势 ━━\n");
+            sb.append("综合概述：").append(data.path("mianxiang_overview_desc").asText("")).append("\n\n");
+            String s30 = data.path("mianxiang_further_30").asText("");
+            String s40 = data.path("mianxiang_further_40").asText("");
+            String s50 = data.path("mianxiang_further_50").asText("");
+            String s60 = data.path("mianxiang_further_60").asText("");
+            if (!s30.isEmpty()) sb.append("【0-30岁】").append(s30).append("\n\n");
+            if (!s40.isEmpty()) sb.append("【31-40岁】").append(s40).append("\n\n");
+            if (!s50.isEmpty()) sb.append("【41-50岁】").append(s50).append("\n\n");
+            if (!s60.isEmpty()) sb.append("【51-60岁】").append(s60).append("\n\n");
+            sb.append("—— 数据由缘份居面相 API 提供（麻衣相术 + 柳庄相法）");
+            return sb.toString();
+        } catch (Exception e) {
+            log.warn("格式化缘份居面相结果失败", e);
+            return null;
+        }
+    }
+
+    private String formatYuanfenjuLunar(JsonNode data) {
+        if (data == null || data.isMissingNode()) return null;
+        StringBuilder sb = new StringBuilder();
+        sb.append("━━ 农历转换 ━━\n");
+        sb.append("公历：").append(data.path("yangli").asText("")).append("\n");
+        sb.append("农历：").append(data.path("yinli").asText("")).append("\n");
+        String shengxiao = getChineseZodiac(Integer.parseInt(data.path("yangli").asText("").substring(0, 4)));
+        sb.append("生肖：").append(shengxiao).append("\n");
+        sb.append("星期：").append(data.path("xingqi").asText("")).append("\n\n");
+
+        JsonNode gz = data.path("ganzhi");
+        if (!gz.isMissingNode()) {
+            sb.append("━━ 干支纪年 ━━\n");
+            sb.append("年柱：").append(gz.path("yeargan").asText("")).append(gz.path("yearzhi").asText("")).append("\n");
+            sb.append("月柱：").append(gz.path("monthgan").asText("")).append(gz.path("monthzhi").asText("")).append("\n");
+            sb.append("日柱：").append(gz.path("daygan").asText("")).append(gz.path("dayzhi").asText("")).append("\n\n");
+        }
+
+        String wuxing = data.path("wuxing").asText("");
+        if (!wuxing.isEmpty()) sb.append("纳音：").append(wuxing).append("\n\n");
+
+        String yi = data.path("yi").asText("");
+        String ji = data.path("ji").asText("");
+        String chongsha = data.path("chongsha").asText("");
+        String jishen = data.path("jishen").asText("");
+        String xiongshen = data.path("xiongshen").asText("");
+
+        sb.append("━━ 黄历宜忌 ━━\n");
+        sb.append("宜：").append(yi.isEmpty() ? "无" : yi).append("\n");
+        sb.append("忌：").append(ji.isEmpty() ? "无" : ji).append("\n");
+        sb.append("冲煞：").append(chongsha.isEmpty() ? "无" : chongsha).append("\n");
+        if (!jishen.isEmpty()) sb.append("吉神：").append(jishen).append("\n");
+        if (!xiongshen.isEmpty()) sb.append("凶神：").append(xiongshen).append("\n");
+
+        String caishen = data.path("caishenfangwei").asText("");
+        String xishen = data.path("xishenfangwei").asText("");
+        if (!caishen.isEmpty()) sb.append("财神方位：").append(caishen).append("\n");
+        if (!xishen.isEmpty()) sb.append("喜神方位：").append(xishen).append("\n");
+
+        String zhixing = data.path("zhixing").asText("");
+        String liuyao = data.path("liuyao").asText("");
+        if (!zhixing.isEmpty()) sb.append("值星：").append(zhixing).append("  六曜：").append(liuyao).append("\n");
+
+        return sb.toString();
+    }
+
+    private String formatYuanfenjuBazi(JsonNode data) {
+        if (data == null || data.isMissingNode()) return null;
+        try {
+            StringBuilder sb = new StringBuilder();
+            JsonNode base = data.path("base_info");
+            sb.append("━━ 四柱八字 ━━\n");
+            sb.append("出生时间：").append(base.path("gongli").asText("")).append("\n");
+            sb.append("农历：").append(base.path("nongli").asText("")).append("\n");
+
+            JsonNode baziInfo = data.path("bazi_info");
+            JsonNode bazi = baziInfo.path("bazi");
+            JsonNode tgGod = baziInfo.path("tg_cg_god");
+            JsonNode nayin = baziInfo.path("na_yin");
+            String[] pillars = {"年柱", "月柱", "日柱", "时柱"};
+            for (int i = 0; i < 4 && i < bazi.size(); i++) {
+                sb.append(pillars[i]).append("：").append(bazi.get(i).asText(""));
+                if (i < nayin.size() && !nayin.get(i).asText("").isEmpty())
+                    sb.append("（").append(nayin.get(i).asText("")).append("）");
+                if (i < tgGod.size() && !tgGod.get(i).asText("").isEmpty())
+                    sb.append(" ").append(tgGod.get(i).asText(""));
+                sb.append("\n");
+            }
+
+            sb.append("\n━━ 起运 ━━\n");
+            sb.append("起运：").append(base.path("qiyun").asText("")).append("\n");
+            sb.append("交运：").append(base.path("jiaoyun").asText("")).append("\n");
+            String zhengge = base.path("zhengge").asText("");
+            if (!zhengge.isEmpty()) sb.append("正格：").append(zhengge).append("\n");
+
+            JsonNode dayun = data.path("dayun_info");
+            JsonNode big = dayun.path("big");
+            JsonNode bigGod = dayun.path("big_god");
+            JsonNode xuSui = dayun.path("xu_sui");
+            JsonNode startYear = dayun.path("big_start_year");
+            JsonNode endYear = dayun.path("big_end_year");
+            if (big.isArray() && big.size() > 0) {
+                sb.append("\n━━ 大运 ━━\n");
+                for (int i = 0; i < Math.min(8, big.size()); i++) {
+                    sb.append(xuSui.get(i).asText("")).append("岁 ")
+                        .append(big.get(i).asText(""));
+                    if (i < bigGod.size() && !bigGod.get(i).asText("").isEmpty())
+                        sb.append(" ").append(bigGod.get(i).asText(""));
+                    if (i < startYear.size() && i < endYear.size())
+                        sb.append("  ").append(startYear.get(i).asText(""))
+                            .append("-").append(endYear.get(i).asText(""));
+                    sb.append("\n");
+                }
+            }
+
+            JsonNode detail = data.path("detail_info");
+            if (!detail.isMissingNode()) {
+                JsonNode zhuxing = detail.path("zhuxing");
+                if (!zhuxing.isMissingNode()) {
+                    sb.append("\n━━ 主星 ━━\n");
+                    sb.append("年柱：").append(zhuxing.path("year").asText("")).append("\n");
+                    sb.append("月柱：").append(zhuxing.path("month").asText("")).append("\n");
+                    sb.append("日主：").append(zhuxing.path("day").asText("")).append("\n");
+                    sb.append("时柱：").append(zhuxing.path("hour").asText("")).append("\n");
+                }
+            }
+
+            return sb.toString();
+        } catch (Exception e) {
+            log.warn("格式化缘份居八字结果失败", e);
+            return null;
+        }
+    }
+
+    private String buildWuxingAnalysis(JsonNode baziArray) {
+        if (baziArray == null || !baziArray.isArray() || baziArray.size() < 4) return null;
+        try {
+            java.util.Map<String, Integer> count = new java.util.HashMap<>();
+            count.put("金", 0); count.put("木", 0); count.put("水", 0); count.put("火", 0); count.put("土", 0);
+            String dayMaster = "";
+            for (int i = 0; i < baziArray.size(); i++) {
+                String pillar = baziArray.get(i).asText("");
+                if (pillar.length() < 2) continue;
+                String gan = pillar.substring(0, 1);
+                String zhi = pillar.substring(1);
+                int gi = GAN.indexOf(gan);
+                if (gi >= 0) {
+                    count.merge(GAN_WUXING[gi], 1, Integer::sum);
+                    if (i == 2) dayMaster = GAN_WUXING[gi];
+                }
+                for (int j = 0; j < zhi.length(); j++) {
+                    int zi = ZHI.indexOf(zhi.charAt(j));
+                    if (zi >= 0) count.merge(ZHI_WUXING[zi], 1, Integer::sum);
+                }
+            }
+            StringBuilder sb = new StringBuilder();
+            sb.append("━━ 五行统计 ━━\n");
+            String maxEle = "", minEle = "";
+            int max = 0, min = Integer.MAX_VALUE;
+            for (java.util.Map.Entry<String, Integer> e : count.entrySet()) {
+                sb.append(e.getKey()).append("：").append(e.getValue()).append("  ");
+                if (e.getValue() > max) { max = e.getValue(); maxEle = e.getKey(); }
+                if (e.getValue() < min) { min = e.getValue(); minEle = e.getKey(); }
+            }
+            sb.append("\n日主：").append(dayMaster.isEmpty() ? "未知" : dayMaster);
+            if (!maxEle.isEmpty()) sb.append("，").append(maxEle).append("最旺");
+            if (!minEle.isEmpty()) sb.append("，").append(minEle).append("最弱");
+            return sb.toString();
+        } catch (Exception e) {
+            log.warn("五行分析失败", e);
+            return null;
+        }
+    }
+
+    private String formatYuanfenjuZiWei(JsonNode data) {
+        if (data == null || data.isMissingNode()) return null;
+        try {
+            StringBuilder sb = new StringBuilder();
+            JsonNode base = data.path("base_info");
+            sb.append("━━ 紫微斗数 ━━\n");
+            sb.append("出生：").append(base.path("gongli").asText("")).append("\n");
+            String sex = base.path("sex").asText("");
+            String gendertype = base.path("gendertype").asText("");
+            if (!sex.isEmpty() || !gendertype.isEmpty()) {
+                sb.append("性别：").append(sex.isEmpty() ? gendertype : sex);
+                if (!gendertype.isEmpty() && !gendertype.equals(sex))
+                    sb.append("（").append(gendertype).append("）");
+                sb.append("\n");
+            }
+            sb.append("命宫/身宫：").append(base.path("minggong").asText(""))
+                .append("/").append(base.path("shengong").asText("")).append("\n");
+            sb.append("命主：").append(base.path("mingzhu").asText(""))
+                .append("  身主：").append(base.path("shenzhu").asText("")).append("\n");
+            sb.append(base.path("mingju").asText("")).append("\n\n");
+
+            JsonNode gongPan = data.path("gong_pan");
+            if (!gongPan.isArray() || gongPan.size() == 0) {
+                sb.append("十二宫数据不可用");
+                return sb.toString();
+            }
+
+            sb.append("━━ 十四主星 ━━\n");
+            java.util.Map<String, String[]> mainStars = new java.util.LinkedHashMap<>();
+            for (JsonNode palace : gongPan) {
+                String pName = palace.path("minggong").asText("");
+                if (pName.isEmpty()) continue;
+                addMainStar(mainStars, palace, "ziweixing", pName);
+                addMainStar(mainStars, palace, "tianfuxing", pName);
+            }
+            int col = 0;
+            for (java.util.Map.Entry<String, String[]> e : mainStars.entrySet()) {
+                sb.append(String.format("%-10s", e.getKey() + "：" + e.getValue()[0] + "[" + e.getValue()[1] + "]"));
+                if (!e.getValue()[2].isEmpty()) sb.append("(").append(e.getValue()[2]).append(")");
+                col++;
+                if (col % 2 == 0) sb.append("\n"); else sb.append("  ");
+            }
+            if (col % 2 != 0) sb.append("\n");
+            sb.append("\n");
+
+            sb.append("━━ 十二宫 ━━\n");
+            for (JsonNode palace : gongPan) {
+                String pName = palace.path("minggong").asText("");
+                if (pName.isEmpty()) continue;
+                String daxian = palace.path("daxian").asText("");
+                String xiaoxian = palace.path("xiaoxian").asText("");
+                sb.append("【").append(pName).append("】");
+                if (!daxian.isEmpty()) sb.append(" ").append(daxian);
+                sb.append("\n");
+                String mainStarsStr = buildMainStarInPalace(palace);
+                if (!mainStarsStr.isEmpty()) sb.append("  ").append(mainStarsStr).append("\n");
+                String auxStars = buildAuxStarString(palace);
+                if (!auxStars.isEmpty()) sb.append("  辅星：").append(auxStars).append("\n");
+            }
+
+            return sb.toString();
+        } catch (Exception e) {
+            log.warn("格式化缘份居紫微结果失败", e);
+            return null;
+        }
+    }
+
+    private void addMainStar(java.util.Map<String, String[]> map, JsonNode palace, String starField, String pName) {
+        String star = palace.path(starField).asText("");
+        if (star.isEmpty()) return;
+        String yao = palace.path(starField + "_xingyao").asText("");
+        String sihua = palace.path(starField + "_sihua").asText("");
+        map.put(star, new String[]{pName, yao.isEmpty() ? "--" : yao, sihua});
+    }
+
+    private String buildMainStarInPalace(JsonNode palace) {
+        StringBuilder sb = new StringBuilder();
+        String[] fields = {"ziweixing", "tianfuxing"};
+        for (String f : fields) {
+            String star = palace.path(f).asText("");
+            if (star.isEmpty()) continue;
+            if (sb.length() > 0) sb.append("\n  ");
+            sb.append("★ ").append(star);
+            String yao = palace.path(f + "_xingyao").asText("");
+            if (!yao.isEmpty()) sb.append("[").append(yao).append("]");
+            String sihua = palace.path(f + "_sihua").asText("");
+            if (!sihua.isEmpty()) sb.append("(").append(sihua).append(")");
+        }
+        return sb.toString();
+    }
+
+    private String buildAuxStarString(JsonNode palace) {
+        StringBuilder sb = new StringBuilder();
+        String[][] groups = {
+            {"monthxing", "monthxing_xingyao", "monthxing_sihua"},
+            {"hourxing", "hourxing_xingyao", "hourxing_sihua"},
+            {"yearganxing", "yearganxing_xingyao", "yearganxing_sihua"},
+            {"yearzhixing", "yearzhixing_xingyao", "yearzhixing_sihua"},
+            {"qitaxing", "qitaxing_xingyao", "qitaxing_sihua"},
+        };
+        for (String[] g : groups) {
+            String star = palace.path(g[0]).asText("");
+            if (star.isEmpty()) continue;
+            if (sb.length() > 0) sb.append("  ");
+            sb.append(star);
+            String yao = palace.path(g[1]).asText("");
+            if (!yao.isEmpty()) sb.append("[").append(yao).append("]");
+            String sihua = palace.path(g[2]).asText("");
+            if (!sihua.isEmpty()) sb.append("(").append(sihua).append(")");
+        }
+        return sb.toString();
+    }
+
+    private String formatYuanfenjuIChing(JsonNode data) {
+        if (data == null || data.isMissingNode()) return null;
+        try {
+            JsonNode guaInfo = data.path("gua_info");
+            if (guaInfo.isMissingNode()) return null;
+            StringBuilder sb = new StringBuilder();
+            sb.append("━━ 六爻占卜 ━━\n");
+
+            JsonNode bengua = guaInfo.path("bengua");
+            if (!bengua.isMissingNode()) {
+                sb.append("本卦：").append(bengua.path("gua_name").asText(""))
+                    .append("（").append(bengua.path("gua_gong").asText("")).append("）")
+                    .append(" ").append(bengua.path("gua_xiongji").asText("")).append("\n");
+                String qian = bengua.path("gua_qian").asText("");
+                if (!qian.isEmpty()) sb.append("卦签：").append(qian).append("\n");
+                String desc = bengua.path("gua_qian_desc").asText("");
+                if (!desc.isEmpty()) sb.append("解卦：").append(desc).append("\n");
+
+                JsonNode guaDesc = bengua.path("gua_description");
+                if (!guaDesc.isMissingNode()) {
+                    sb.append("\n┏ 占事结果 ┓\n");
+                    addDesc(sb, guaDesc, "事业", "gua_shiye");
+                    addDesc(sb, guaDesc, "经商", "gua_jingshang");
+                    addDesc(sb, guaDesc, "求名", "gua_qiuming");
+                    addDesc(sb, guaDesc, "外出", "gua_waichu");
+                    addDesc(sb, guaDesc, "婚恋", "gua_hunlian");
+                    addDesc(sb, guaDesc, "决策", "gua_juece");
+                }
+            }
+
+            JsonNode biangua = guaInfo.path("biangua");
+            if (!biangua.isMissingNode() && !biangua.path("gua_name").asText("").isEmpty()) {
+                sb.append("\n变卦：").append(biangua.path("gua_name").asText(""))
+                    .append("（").append(biangua.path("gua_gong").asText("")).append("）")
+                    .append(" ").append(biangua.path("gua_xiongji").asText("")).append("\n");
+                String bDesc = biangua.path("gua_qian_desc").asText("");
+                if (!bDesc.isEmpty()) sb.append("解卦：").append(bDesc).append("\n");
+            }
+
+            return sb.toString();
+        } catch (Exception e) {
+            log.warn("格式化缘份居六爻结果失败", e);
+            return null;
+        }
+    }
+
+    private void addDesc(StringBuilder sb, JsonNode desc, String label, String field) {
+        String text = desc.path(field).asText("");
+        if (!text.isEmpty()) sb.append("【").append(label).append("】").append(text).append("\n");
+    }
+
+    private String formatYuanfenjuAuspiciousDate(JsonNode data, String eventType) {
+        if (data == null || data.isMissingNode()) return null;
+        try {
+            JsonNode baseInfo = data.path("base_info");
+            JsonNode detailInfo = data.path("detail_info");
+            StringBuilder sb = new StringBuilder();
+
+            if (!baseInfo.isMissingNode()) {
+                sb.append("吉日区间：").append(baseInfo.path("summarize").asText("")).append("\n\n");
+            }
+
+            if (detailInfo.isArray()) {
+                int count = 0;
+                for (JsonNode day : detailInfo) {
+                    if (count >= 5) break;
+                    sb.append("### ").append(day.path("yangli").asText(""))
+                        .append(" ").append(day.path("xingqi").asText("")).append("\n");
+                    sb.append("农历：").append(day.path("yinli").asText("")).append("\n");
+                    String yi = day.path("yi").asText("");
+                    String ji = day.path("ji").asText("");
+                    if (!yi.isEmpty()) sb.append("宜：").append(yi).append("\n");
+                    if (!ji.isEmpty()) sb.append("忌：").append(ji).append("\n");
+                    sb.append("冲煞：").append(day.path("chongsha").asText("")).append("\n");
+                    sb.append("\n");
+                    count++;
+                }
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            log.warn("格式化缘份居择吉结果失败", e);
+            return null;
+        }
+    }
+
+    private int mapEventTypeToIncident(String eventType) {
+        if (eventType == null) return 0;
+        switch (eventType) {
+            case "结婚": case "嫁娶": case "领证": return 4;
+            case "搬家": return 0;
+            case "开业": case "开张": case "开市": return 7;
+            case "出行": return 11;
+            case "入宅": return 2;
+            case "订婚": case "纳采": return 3;
+            case "动土": return 10;
+            case "装修": case "修造": return 1;
+            default: return 0;
+        }
     }
 
     private String callAI(String systemPrompt, String userContent) {
@@ -297,6 +908,43 @@ public class FortuneService {
 3. 结合黄历12值星（建除满平定执破危成收开闭）
 4. 如果用户提供了出生信息，结合八字喜用神推荐
 5. 每条推荐不超过2句话""";
+    }
+
+    private String buildBaziPrompt() {
+        return """
+你是精通中国传统命理学的资深命理师，擅长子平八字（四柱命理）。
+
+请根据用户提供的出生信息，按以下步骤推算：
+
+━━ 第一步：排八字（四柱） ━━
+1. 公历→农历转换
+2. 计算年柱（年干+年支，立春分界）
+3. 计算月柱（月干+月支，节气分界）
+4. 计算日柱（日干+日支）
+5. 计算时柱（时干+时支）
+输出格式：X年 月柱 日柱 时柱，每个天干地支标注五行
+
+━━ 第二步：十神分析 ━━
+- 日主（日干）是什么
+- 年柱、月柱、时柱的十神关系
+
+━━ 第三步：五行分析 ━━
+- 统计八字中金木水火土的数量
+- 判断日主强弱（身强/身弱）
+- 喜用神和忌神
+
+━━ 第四步：大运分析 ━━
+- 起运年龄和时间
+- 排大运（每10年一运）
+
+━━ 第五步：命局总评 ━━
+- 性格特质
+- 事业财运
+- 感情婚姻
+- 健康提示
+- 当前流年运势
+
+格式要求：专业术语后加括号解释，每条分析不超过3句话，不迷信。""";
     }
 
     private String buildUserContent(int year, int month, int day, int hour, int minute, Integer gender, String name) {

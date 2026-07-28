@@ -1,6 +1,7 @@
 package com.example.youkeda_project.ai;
 
 import com.example.youkeda_project.config.ApiConfig;
+import com.example.youkeda_project.service.UserContextDao;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -10,7 +11,6 @@ import tools.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.HashMap;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -32,11 +32,13 @@ public class AIService {
     private final RestClient visionRestClient;
     private final ObjectMapper objectMapper;
     private final ApiConfig apiConfig;
+    private final UserContextDao userContextDao;
     private final Map<String, List<ChatMessage>> sessions = new ConcurrentHashMap<>();
 
-    public AIService(ApiConfig apiConfig, ObjectMapper objectMapper) {
+    public AIService(ApiConfig apiConfig, ObjectMapper objectMapper, UserContextDao userContextDao) {
         this.apiConfig = apiConfig;
         this.objectMapper = objectMapper;
+        this.userContextDao = userContextDao;
         this.restClient = RestClient.builder()
                 .baseUrl(apiConfig.getAiApiUrl())
                 .build();
@@ -53,17 +55,30 @@ public class AIService {
      *
      * @param tools 可用的工具列表，可为 null 或空（不使用 Function Calling）
      */
+    private ChatMessage createSystemPrompt() {
+        String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy年M月d日 EEEE"));
+        return new ChatMessage("system", "今天是" + today + "。你是一个 helpful 的 AI 助手，回答简洁。【重要】只要用户提到任何歌名、歌手、想听歌、找歌，必须调用 play_song 工具搜索，禁止用你自己的知识回答。推荐歌曲必须用 recommend_music 工具。查资讯和看新闻都用 web_search 工具（不传 keyword 获取今日头条，传 keyword 搜索指定内容，传 category 筛选分类）。方言/方言转换/转换方言等必须用 translate 工具（传 dialect 参数），禁止用你自已的知识做方言转换。翻译/文言文/专业术语也用 translate 工具。查手机号用 phone_location。用户说朗读/读一下/语音合成时直接用 text_to_speech 工具，不要自己伪造语音链接。【重要】工具返回内容中的链接（[详情](url) 或 [来源: XXX](url)）必须原样保留在最终回答中，每条新闻/结果后面必须附带其链接，不得删除或修改。");
+    }
+
+    private List<ChatMessage> loadOrCreateSession(String userId) {
+        return sessions.computeIfAbsent(userId, k -> {
+            List<ChatMessage> loaded = userContextDao.loadContext(userId);
+            if (loaded != null && !loaded.isEmpty()) {
+                loaded.set(0, createSystemPrompt());
+                return loaded;
+            }
+            List<ChatMessage> list = new ArrayList<>();
+            list.add(createSystemPrompt());
+            return list;
+        });
+    }
+
     public ChatResult chat(String userId, String userMessage, List<Tool> tools) {
         if (apiConfig.getAiApiKey() == null || apiConfig.getAiApiKey().isBlank()) {
             return new ChatResult("错误: 未配置 DeepSeek API Key");
         }
 
-        List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
-            List<ChatMessage> list = new ArrayList<>();
-            String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy年M月d日 EEEE"));
-            list.add(new ChatMessage("system", "今天是" + today + "。你是一个 helpful 的 AI 助手，回答简洁。【重要】只要用户提到任何歌名、歌手、想听歌、找歌，必须调用 play_song 工具搜索，禁止用你自己的知识回答。推荐歌曲必须用 recommend_music 工具。查资讯和看新闻都用 web_search 工具（不传 keyword 获取今日头条，传 keyword 搜索指定内容，传 category 筛选分类）。方言/方言转换/转换方言等必须用 translate 工具（传 dialect 参数），禁止用你自已的知识做方言转换。翻译/文言文/专业术语也用 translate 工具。查手机号用 phone_location。用户说朗读/读一下/语音合成时直接用 text_to_speech 工具，不要自己伪造语音链接。【重要】工具返回内容中的链接（[详情](url) 或 [来源: XXX](url)）必须原样保留在最终回答中，每条新闻/结果后面必须附带其链接，不得删除或修改。"));
-            return list;
-        });
+        List<ChatMessage> history = loadOrCreateSession(userId);
 
         history.add(new ChatMessage("user", userMessage));
         trimHistory(history);
@@ -171,12 +186,14 @@ public class AIService {
                 history.add(new ChatMessage("assistant", reply));
 
                 // 收集本轮所有工具产生的媒体，返回给调用方处理
+                userContextDao.saveContext(userId, history);
                 return allPendingMedia.isEmpty()
                     ? new ChatResult(reply)
                     : new ChatResult(reply, allPendingMedia);
             }
 
             log.warn("Function Calling 超过最大轮数({})", maxRounds);
+            userContextDao.saveContext(userId, history);
             return new ChatResult("抱歉，工具调用次数过多，请重新提问");
 
         } catch (Exception e) {
@@ -218,11 +235,7 @@ public class AIService {
         }
         contentParts.add(Map.of("type", "image", "image", dataUrl));
 
-        List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
-            List<ChatMessage> list = new ArrayList<>();
-            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，能够识别图片内容。回答简洁。"));
-            return list;
-        });
+        List<ChatMessage> history = loadOrCreateSession(userId);
 
         history.add(new ChatMessage("user", contentParts));
         trimHistory(history);
@@ -250,6 +263,7 @@ public class AIService {
 
             String reply = (String) response.getChoices().get(0).getMessage().content();
             history.add(new ChatMessage("assistant", reply));
+            userContextDao.saveContext(userId, history);
             return reply;
 
         } catch (Exception e) {
@@ -345,11 +359,7 @@ public class AIService {
             return "错误: 未配置 DeepSeek API Key";
         }
 
-        List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
-            List<ChatMessage> list = new ArrayList<>();
-            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，回答简洁。"));
-            return list;
-        });
+        List<ChatMessage> history = loadOrCreateSession(userId);
 
         String combinedMessage = "用户的问题：" + userMessage + "\n查询结果：" + context
             + "\n请根据查询结果用自然语言回复用户。";
@@ -380,6 +390,7 @@ public class AIService {
 
             String reply = (String) response.getChoices().get(0).getMessage().content();
             history.add(new ChatMessage("assistant", reply));
+            userContextDao.saveContext(userId, history);
             return reply;
 
         } catch (Exception e) {
@@ -389,21 +400,19 @@ public class AIService {
     }
 
     public void addExchange(String userId, String userMessage, String assistantReply) {
-        List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
-            List<ChatMessage> list = new ArrayList<>();
-            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，回答简洁。"));
-            return list;
-        });
+        List<ChatMessage> history = loadOrCreateSession(userId);
         history.add(new ChatMessage("user", userMessage));
         history.add(new ChatMessage("assistant", assistantReply));
         trimHistory(history);
+        userContextDao.saveContext(userId, history);
     }
 
     public boolean hasSession(String userId) {
-        return sessions.containsKey(userId);
+        return sessions.containsKey(userId) || userContextDao.hasContext(userId);
     }
 
     public void clearSession(String userId) {
         sessions.remove(userId);
+        userContextDao.deleteContext(userId);
     }
 }

@@ -4,7 +4,6 @@ import com.example.youkeda_project.service.FortuneService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -48,8 +47,7 @@ public class FaceReadingTool implements Tool {
             prompt = "请全面分析我的面相";
         }
         log.info("FaceReadingTool 执行: prompt={}", prompt);
-        String base64 = Base64.getEncoder().encodeToString(imageBytes);
-        String result = fortuneService.faceReading(base64, prompt);
+        String result = fortuneService.faceReading(imageBytes, prompt);
         return ToolResult.text(result);
     }
 }

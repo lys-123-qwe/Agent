@@ -165,6 +165,9 @@ public class ApiConfig {
     @Value("${ilink.channel.version:1.0.2}")
     private String ilinkChannelVersion;
 
+    @Value("${yuanfenju.api.key:}")
+    private String yuanfenjuApiKey;
+
     @Value("${file.extract.max.length:8000}")
     private int fileExtractMaxLength;
 
@@ -245,6 +248,7 @@ public class ApiConfig {
     public int getIlinkBotType() { return ilinkBotType; }
     public String getIlinkChannelVersion() { return ilinkChannelVersion; }
 
+    public String getYuanfenjuApiKey() { return yuanfenjuApiKey; }
     public int getFileExtractMaxLength() { return fileExtractMaxLength; }
     public int getFileMaxSize() { return fileMaxSize; }
 }
