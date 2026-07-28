@@ -78,7 +78,7 @@ public class MarketOverviewTool implements Tool {
 
         sb.append("\n📊 期货:\n");
         for (String name : FUTURES) {
-            String r = futuresService.query(name);
+            String r = futuresService.queryFutures(name);
             if (r != null && !r.startsWith("不支持的") && !r.startsWith("请提供")) {
                 sb.append(r).append("\n");
             } else {
@@ -95,7 +95,7 @@ public class MarketOverviewTool implements Tool {
 
         sb.append("\n📈 基金 (昨日净值):\n");
         for (String name : FUNDS) {
-            String r = fundService.query(name);
+            String r = fundService.queryFund(name);
             if (r != null && !r.startsWith("不支持的")) {
                 sb.append(r).append("\n");
             } else {

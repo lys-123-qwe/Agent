@@ -21,11 +21,19 @@ import java.util.Map;
 public class ChatHistoryService {
 
     private static final Logger log = LoggerFactory.getLogger(ChatHistoryService.class);
-    private static final String DB_URL = "jdbc:sqlite:chat.db";
+    // 固定到用户目录，IDEA / Maven / 命令行都不受工作目录影响
+    private static final String DB_PATH = System.getProperty("user.home") + "/.youkeda/chat.db";
 
     private final DataSource dataSource;
 
     public ChatHistoryService() {
+        // 确保数据库文件所在目录存在（SQLite JDBC 不会自动创建父目录）
+        try {
+            java.nio.file.Files.createDirectories(java.nio.file.Paths.get(
+                    System.getProperty("user.home") + "/.youkeda"));
+        } catch (java.io.IOException e) {
+            throw new RuntimeException("无法创建数据目录", e);
+        }
         this.dataSource = new SqliteDataSource();
         createTableIfNotExists();
     }
@@ -175,7 +183,7 @@ public class ChatHistoryService {
     static class SqliteDataSource implements DataSource {
         @Override
         public Connection getConnection() throws SQLException {
-            return DriverManager.getConnection(DB_URL);
+            return DriverManager.getConnection("jdbc:sqlite:" + DB_PATH);
         }
         @Override
         public Connection getConnection(String username, String password) {

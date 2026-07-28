@@ -10,154 +10,162 @@ import java.awt.geom.Line2D;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
-import java.util.UUID;
 
 @Service
 public class ChartService {
 
     private static final Logger log = LoggerFactory.getLogger(ChartService.class);
 
-    private static final int W = 1600;
-    private static final int H = 1000;
-    private static final int MARGIN_L = 60;
-    private static final int MARGIN_R = 20;
-    private static final int MARGIN_T = 40;
-    private static final int MARGIN_B = 50;
-    private static final int CHART_W = W - MARGIN_L - MARGIN_R;
-    private static final int CHART_H = H - MARGIN_T - MARGIN_B;
+    public static class ChartPoint {
+        private final String label;
+        private final BigDecimal value;
+        private final String changePct;
+        public ChartPoint(String label, BigDecimal value, String changePct) {
+            this.label = label; this.value = value; this.changePct = changePct;
+        }
+        public String getLabel() { return label; }
+        public BigDecimal getValue() { return value; }
+        public String getChangePct() { return changePct; }
+    }
 
-    private static final Color UP_COLOR = new Color(0xE53935);
-    private static final Color DOWN_COLOR = new Color(0x4CAF50);
-    private static final Color MA5_COLOR = new Color(0x2196F3);
-    private static final Color MA10_COLOR = new Color(0xFF9800);
-    private static final Color MA20_COLOR = new Color(0x9C27B0);
-    private static final Color GRID_COLOR = new Color(0xE0E0E0);
+    public static class CandlestickPoint {
+        private final String day;
+        private final BigDecimal open;
+        private final BigDecimal high;
+        private final BigDecimal low;
+        private final BigDecimal close;
+        private final long volume;
+        private final String changeStr;
+        public CandlestickPoint(String day, BigDecimal open, BigDecimal high, BigDecimal low, BigDecimal close, long volume, String changeStr) {
+            this.day = day; this.open = open; this.high = high;
+            this.low = low; this.close = close; this.volume = volume; this.changeStr = changeStr;
+        }
+        public String getDay() { return day; }
+        public BigDecimal getOpen() { return open; }
+        public BigDecimal getHigh() { return high; }
+        public BigDecimal getLow() { return low; }
+        public BigDecimal getClose() { return close; }
+        public long getVolume() { return volume; }
+        public String getChangeStr() { return changeStr; }
+    }
 
-    public byte[] generateKLineChart(List<KLineService.KLineData> data, String title) {
-        if (data == null || data.isEmpty()) return null;
+    public byte[] generateChart(String title, String subtitle, List<ChartPoint> points) {
+        if (points == null || points.size() < 2) return null;
+        try {
+            BufferedImage img = new BufferedImage(800, 400, BufferedImage.TYPE_INT_RGB);
+            Graphics2D g = img.createGraphics();
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setColor(Color.WHITE);
+            g.fillRect(0, 0, 800, 400);
 
-        int count = Math.min(data.size(), 60);
-        data = data.subList(data.size() - count, data.size());
+            double min = points.stream().mapToDouble(p -> p.getValue().doubleValue()).min().orElse(0);
+            double max = points.stream().mapToDouble(p -> p.getValue().doubleValue()).max().orElse(100);
+            double pad = (max - min) * 0.1; if (pad == 0) pad = 1;
+            min -= pad; max += pad;
 
-        BufferedImage img = new BufferedImage(W, H, BufferedImage.TYPE_INT_RGB);
+            g.setFont(new Font("Microsoft YaHei", Font.BOLD, 14));
+            g.setColor(Color.DARK_GRAY);
+            g.drawString(title, 20, 30);
+            g.setFont(new Font("Microsoft YaHei", Font.PLAIN, 11));
+
+            int w = 760, h = 320, x0 = 40, y0 = 60;
+            for (int i = 1; i < points.size(); i++) {
+                var p1 = points.get(i - 1);
+                var p2 = points.get(i);
+                int x1 = x0 + (int) ((i - 1) * (double) w / (points.size() - 1));
+                int x2 = x0 + (int) (i * (double) w / (points.size() - 1));
+                int y1 = y0 + (int) ((max - p1.getValue().doubleValue()) / (max - min) * h);
+                int y2 = y0 + (int) ((max - p2.getValue().doubleValue()) / (max - min) * h);
+                Color c = p2.getValue().compareTo(p1.getValue()) >= 0 ? new Color(0xE53935) : new Color(0x4CAF50);
+                g.setColor(c);
+                g.draw(new Line2D.Double(x1, y1, x2, y2));
+            }
+
+            g.dispose();
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            ImageIO.write(img, "png", baos);
+            return baos.toByteArray();
+        } catch (Exception e) {
+            log.warn("生成图表失败", e);
+            return null;
+        }
+    }
+
+    public byte[] generateCandlestickChart(String title, String subtitle, List<CandlestickPoint> points) {
+        return generateKLineChartFromPoints(title, points);
+    }
+
+    private byte[] generateKLineChartFromPoints(String title, List<CandlestickPoint> points) {
+        if (points == null || points.isEmpty()) return null;
+        int count = Math.min(points.size(), 60);
+        points = points.subList(points.size() - count, points.size());
+
+        BufferedImage img = new BufferedImage(800, 500, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = img.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-
         g.setColor(Color.WHITE);
-        g.fillRect(0, 0, W, H);
+        g.fillRect(0, 0, 800, 500);
 
-        double maxPrice = data.stream().mapToDouble(d -> d.getHigh()).max().orElse(100);
-        double minPrice = data.stream().mapToDouble(d -> d.getLow()).min().orElse(0);
-        double pad = (maxPrice - minPrice) * 0.08;
-        if (pad == 0) pad = 1;
-        maxPrice += pad;
-        minPrice -= pad;
+        double maxPrice = points.stream().mapToDouble(p -> p.getHigh().doubleValue()).max().orElse(100);
+        double minPrice = points.stream().mapToDouble(p -> p.getLow().doubleValue()).min().orElse(0);
+        double pad = (maxPrice - minPrice) * 0.08; if (pad == 0) pad = 1;
+        maxPrice += pad; minPrice -= pad;
 
-        double maxVol = data.stream().mapToDouble(d -> d.getVolume()).max().orElse(1);
-        double candleW = (double) CHART_W / count;
-        int halfW = (int) (candleW * 0.35);
-        if (halfW < 1) halfW = 1;
+        double candleW = 700.0 / count;
+        int halfW = (int) (candleW * 0.35); if (halfW < 1) halfW = 1;
 
-        g.setFont(new Font("Microsoft YaHei", Font.PLAIN, 11));
-        FontMetrics fm = g.getFontMetrics();
-
-        g.setColor(GRID_COLOR);
-        for (int i = 1; i <= 4; i++) {
-            int y = MARGIN_T + CHART_H * i / 5;
-            g.drawLine(MARGIN_L, y, W - MARGIN_R, y);
-            String label = String.format("%.2f", maxPrice - (maxPrice - minPrice) * i / 5);
-            g.setColor(Color.DARK_GRAY);
-            g.drawString(label, 2, y + fm.getHeight() / 3);
-            g.setColor(GRID_COLOR);
-        }
+        g.setFont(new Font("Microsoft YaHei", Font.BOLD, 14));
+        g.setColor(Color.DARK_GRAY);
+        g.drawString(title, 20, 25);
 
         for (int i = 0; i < count; i++) {
-            var d = data.get(i);
-            double cx = MARGIN_L + i * candleW + candleW / 2;
-            boolean up = d.getClose() >= d.getOpen();
-            g.setColor(up ? UP_COLOR : DOWN_COLOR);
+            var p = points.get(i);
+            double cx = 70 + i * candleW + candleW / 2;
+            boolean up = p.getClose().compareTo(p.getOpen()) >= 0;
+            g.setColor(up ? new Color(0xE53935) : new Color(0x4CAF50));
 
-            double oy = priceToY(d.getOpen(), minPrice, maxPrice);
-            double cy = priceToY(d.getClose(), minPrice, maxPrice);
-            double hy = priceToY(d.getHigh(), minPrice, maxPrice);
-            double ly = priceToY(d.getLow(), minPrice, maxPrice);
+            double oy = 50 + 400 * (maxPrice - p.getOpen().doubleValue()) / (maxPrice - minPrice);
+            double cy = 50 + 400 * (maxPrice - p.getClose().doubleValue()) / (maxPrice - minPrice);
+            double hy = 50 + 400 * (maxPrice - p.getHigh().doubleValue()) / (maxPrice - minPrice);
+            double ly = 50 + 400 * (maxPrice - p.getLow().doubleValue()) / (maxPrice - minPrice);
 
             g.draw(new Line2D.Double(cx, hy, cx, ly));
             double top = Math.min(oy, cy);
             double bot = Math.max(oy, cy);
             int barH = Math.max((int) (bot - top), 1);
             g.fill(new Rectangle2D.Double(cx - halfW, top, halfW * 2, barH));
-
-            double volRatio = d.getVolume() / maxVol;
-            int volH = (int) (volRatio * 80);
-            g.setColor(up ? UP_COLOR.darker() : DOWN_COLOR.darker());
-            g.fill(new Rectangle2D.Double(cx - halfW / 2, H - MARGIN_B - volH, halfW, volH));
         }
 
-        g.setColor(MA5_COLOR);
-        drawMALine(g, data, minPrice, maxPrice, 5, count, candleW);
-        g.setColor(MA10_COLOR);
-        drawMALine(g, data, minPrice, maxPrice, 10, count, candleW);
-        g.setColor(MA20_COLOR);
-        drawMALine(g, data, minPrice, maxPrice, 20, count, candleW);
-
-        g.setColor(Color.DARK_GRAY);
-        g.setFont(new Font("Microsoft YaHei", Font.BOLD, 14));
-        fm = g.getFontMetrics();
-        g.drawString(title, (W - fm.stringWidth(title)) / 2, 25);
-
-        g.setFont(new Font("Microsoft YaHei", Font.PLAIN, 11));
-        g.setColor(MA5_COLOR);
-        g.drawString("MA5", W - MARGIN_R - 60, 70);
-        g.setColor(MA10_COLOR);
-        g.drawString("MA10", W - MARGIN_R - 60, 85);
-        g.setColor(MA20_COLOR);
-        g.drawString("MA20", W - MARGIN_R - 60, 100);
-
         g.dispose();
-        return toBytes(img);
-    }
-
-    private byte[] toBytes(BufferedImage img) {
         try {
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             ImageIO.write(img, "png", baos);
             return baos.toByteArray();
         } catch (Exception e) {
-            log.warn("生成K线图失败: {}", e.getMessage());
+            log.warn("生成K线图失败", e);
             return null;
         }
     }
 
-    private double priceToY(double price, double min, double max) {
-        return MARGIN_T + CHART_H * (max - price) / (max - min);
+    public byte[] generateKLineChart(List<KLineService.KLineData> data, String title) {
+        if (data == null || data.isEmpty()) return null;
+        byte[] bytes = generateKLineChartFromPoints(title, convertData(data));
+        if (bytes != null) return bytes;
+        return null;
     }
 
-    private void drawMALine(Graphics2D g, List<KLineService.KLineData> data,
-                            double minPrice, double maxPrice, int period,
-                            int count, double candleW) {
-        for (int i = period; i < count; i++) {
-            double sum = 0;
-            for (int j = i - period + 1; j <= i; j++) sum += data.get(j).getClose();
-            double ma = sum / period;
-            double x = MARGIN_L + i * candleW + candleW / 2;
-            double y = priceToY(ma, minPrice, maxPrice);
-
-            if (i == period) {
-                double px = MARGIN_L + (i - period) * candleW + candleW / 2;
-                double py = priceToY(ma, minPrice, maxPrice);
-                g.draw(new Line2D.Double(px, py, x, y));
-            } else {
-                double prevSum = 0;
-                for (int j = i - period; j < i; j++) prevSum += data.get(j).getClose();
-                double prevMa = prevSum / period;
-                double px = MARGIN_L + (i - 1) * candleW + candleW / 2;
-                double py = priceToY(prevMa, minPrice, maxPrice);
-                g.draw(new Line2D.Double(px, py, x, y));
-            }
-        }
+    private List<CandlestickPoint> convertData(List<KLineService.KLineData> data) {
+        return data.stream().map(d -> new CandlestickPoint(
+            d.getDay(),
+            BigDecimal.valueOf(d.getOpen()),
+            BigDecimal.valueOf(d.getHigh()),
+            BigDecimal.valueOf(d.getLow()),
+            BigDecimal.valueOf(d.getClose()),
+            (long) d.getVolume(),
+            ""
+        )).toList();
     }
 }

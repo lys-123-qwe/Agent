@@ -341,7 +341,29 @@ public class ApiConfig {
         } catch (Exception e) { return List.of(); }
     }
 
+    // ==================== 快递物流查询 ====================
+    @Value("${express.api.appcode:}")
+    private String expressApiAppCode;
+
+    @Value("${express.api.url:}")
+    private String expressApiUrl;
+
+    public String getExpressApiAppCode() { return expressApiAppCode; }
+    public String getExpressApiUrl() { return expressApiUrl; }
+
     // 兼容旧接口
     public String getNewsApiKey() { return ""; }
     public String getNewsSdkApiKey() { return ""; }
+
+    // ==================== 翻译（DeepSeek 通用接口） ====================
+    public String getTranslationApiUrl() { return aiApiUrl; }
+
+    // ==================== 缘份居 ====================
+    @Value("${yuanfenju.api.key:}")
+    private String yuanfenjuApiKey;
+
+    public String getYuanfenjuApiKey() { return yuanfenjuApiKey; }
+
+    // ==================== 博查搜索（兼容旧调用） ====================
+    public String getNewsBochaSearchUrl() { return bochaApiUrl; }
 }

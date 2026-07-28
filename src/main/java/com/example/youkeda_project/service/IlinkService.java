@@ -2,21 +2,14 @@ package com.example.youkeda_project.service;
 
 import com.example.youkeda_project.ai.AIService;
 import com.example.youkeda_project.ai.ChatResult;
-import com.example.youkeda_project.ai.ConstellationTool;
 import com.example.youkeda_project.ai.DateTimeTool;
 import com.example.youkeda_project.ai.EditImageTool;
 import com.example.youkeda_project.ai.ExchangeRateTool;
-import com.example.youkeda_project.ai.FundTool;
-import com.example.youkeda_project.ai.FuturesTool;
-import com.example.youkeda_project.ai.MarketOverviewTool;
-import com.example.youkeda_project.ai.PortfolioTool;
-import com.example.youkeda_project.ai.TechnicalTool;
 import com.example.youkeda_project.ai.ImageTool;
 import com.example.youkeda_project.ai.MusicTool;
 import com.example.youkeda_project.ai.PhoneLocationTool;
 import com.example.youkeda_project.ai.RecommendMusicTool;
 import com.example.youkeda_project.ai.RecognizeImageTool;
-import com.example.youkeda_project.ai.TravelTool;
 import com.example.youkeda_project.ai.SearchTool;
 import com.example.youkeda_project.ai.StockTool;
 import com.example.youkeda_project.ai.Tool;
@@ -24,6 +17,11 @@ import com.example.youkeda_project.ai.ToolResult;
 import com.example.youkeda_project.ai.TranslationTool;
 import com.example.youkeda_project.ai.TtsTool;
 import com.example.youkeda_project.ai.WeatherTool;
+import com.example.youkeda_project.ai.FortuneTool;
+import com.example.youkeda_project.ai.FundTool;
+import com.example.youkeda_project.ai.FuturesTool;
+import com.example.youkeda_project.ai.CopywritingTool;
+
 import com.example.youkeda_project.client.IlinkProtocolClient;
 import com.example.youkeda_project.protocol.GetUpdatesResponse;
 import com.example.youkeda_project.protocol.LoginResult;
@@ -38,6 +36,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.TimeoutException;
 
 /**
  * iLink 微信 Bot 核心服务。
@@ -69,26 +68,21 @@ public class IlinkService {
     private final ImageTool imageTool;
     private final TtsTool ttsTool;
     private final StockTool stockTool;
-    private final FuturesTool futuresTool;
-    private final FundTool fundTool;
     private final ExchangeRateTool exchangeRateTool;
     private final DateTimeTool dateTimeTool;
-    private final ConstellationTool constellationTool;
     private final PhoneLocationTool phoneLocationTool;
     private final SearchTool searchTool;
     private final MusicTool musicTool;
     private final RecommendMusicTool recommendMusicTool;
     private final TranslationTool translationTool;
-    private final TravelTool travelTool;
-    private final TechnicalTool technicalTool;
-    private final MarketOverviewTool marketOverviewTool;
-    private final PortfolioTool portfolioTool;
-
+    private final CopywritingTool copywritingTool;
+    private final FortuneTool fortuneTool;
+    private final FundTool fundTool;
+    private final FuturesTool futuresTool;
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicBoolean polling = new AtomicBoolean(false);
     private final java.util.concurrent.ConcurrentHashMap<String, byte[]> pendingImages = new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.concurrent.ConcurrentHashMap<String, String> lastGeneratedImageUrl = new java.util.concurrent.ConcurrentHashMap<>();
-
     private String ownerId;
     private boolean ownerWelcomed = false;
     private Thread pollThread;
@@ -97,16 +91,16 @@ public class IlinkService {
                         AIService aiService, ImageService imageService, VoiceService voiceService,
                         TtsService ttsService, FileService fileService,
                         WeatherTool weatherTool, ImageTool imageTool, TtsTool ttsTool,
-                         StockTool stockTool, FuturesTool futuresTool, FundTool fundTool,
-                         ExchangeRateTool exchangeRateTool, DateTimeTool dateTimeTool,
-                        ConstellationTool constellationTool, PhoneLocationTool phoneLocationTool,
+                        StockTool stockTool,
+                        ExchangeRateTool exchangeRateTool, DateTimeTool dateTimeTool,
+                        PhoneLocationTool phoneLocationTool,
                         SearchTool searchTool,
                          MusicTool musicTool, RecommendMusicTool recommendMusicTool,
-                          TranslationTool translationTool,
-                          TravelTool travelTool,
-                          TechnicalTool technicalTool,
-                          MarketOverviewTool marketOverviewTool,
-                          PortfolioTool portfolioTool) {
+                         TranslationTool translationTool,
+                         CopywritingTool copywritingTool,
+                          FortuneTool fortuneTool,
+                          FundTool fundTool,
+                          FuturesTool futuresTool) {
         this.client = client;
         this.weatherService = weatherService;
         this.aiService = aiService;
@@ -118,20 +112,17 @@ public class IlinkService {
         this.imageTool = imageTool;
         this.ttsTool = ttsTool;
         this.stockTool = stockTool;
-        this.futuresTool = futuresTool;
-        this.fundTool = fundTool;
         this.exchangeRateTool = exchangeRateTool;
         this.dateTimeTool = dateTimeTool;
-        this.constellationTool = constellationTool;
         this.phoneLocationTool = phoneLocationTool;
         this.searchTool = searchTool;
         this.musicTool = musicTool;
         this.recommendMusicTool = recommendMusicTool;
         this.translationTool = translationTool;
-        this.travelTool = travelTool;
-        this.technicalTool = technicalTool;
-        this.marketOverviewTool = marketOverviewTool;
-        this.portfolioTool = portfolioTool;
+        this.copywritingTool = copywritingTool;
+        this.fortuneTool = fortuneTool;
+        this.fundTool = fundTool;
+        this.futuresTool = futuresTool;
     }
 
     /**
@@ -322,16 +313,19 @@ public class IlinkService {
                 }
 
                 // 无图片上下文，走普通对话
-                List<Tool> voiceTools = List.of(weatherTool, imageTool, ttsTool, searchTool, stockTool, musicTool, recommendMusicTool, technicalTool, marketOverviewTool, portfolioTool);
+                List<Tool> voiceTools = List.of(weatherTool, imageTool, ttsTool, searchTool, stockTool, musicTool, recommendMusicTool, copywritingTool, fortuneTool, fundTool, futuresTool);
                 ChatResult result = aiService.chat(fromUser, transcribedText, voiceTools);
                 String reply = result.getReplyText();
 
                 if (result.hasPendingImage()) {
-                    String imageUrl = result.getFirstPendingImageUrl();
-                    lastGeneratedImageUrl.put(fromUser, imageUrl);
+                    byte[] imageBytes = result.getFirstPendingImageBytes();
+                    String imageUrl = imageBytes == null ? result.getFirstPendingImageUrl() : null;
+                    if (imageUrl != null) lastGeneratedImageUrl.put(fromUser, imageUrl);
                     System.out.println("[系统] 图片已生成，正在上传到微信CDN...");
                     try {
-                        byte[] imageBytes = imageService.downloadImage(imageUrl);
+                        if (imageBytes == null) {
+                            imageBytes = imageService.downloadImage(imageUrl);
+                        }
                         client.uploadAndSendImage(fromUser, msg.contextToken(), imageBytes);
                         log.info("已发送图片 {}", fromUser);
                         System.out.println("[系统] 图片已发送到微信");
@@ -370,7 +364,7 @@ public class IlinkService {
                 long fileSize = 0;
                 try { fileSize = Long.parseLong(fileItem.len()); } catch (NumberFormatException ignored) {}
                 System.out.println("[微信] " + fromUser + " 发送了文件: " + fileName + " (" + fileSize + " bytes)");
-                if (fileSize > fileService.getMaxFileSize()) {
+                if (fileSize > FileService.MAX_FILE_SIZE) {
                     client.sendMessage(fromUser, msg.contextToken(),
                         List.of(MessageItem.text("文件太大了，我只能处理 20MB 以内的文件")));
                     return;
@@ -405,23 +399,23 @@ public class IlinkService {
 
             // Function Calling：将所有工具传递给 DeepSeek，由模型自主决定调用哪些
             System.out.println("[系统] " + fromUser + " 正在等待 AI 回复...");
-            List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, searchTool, stockTool, futuresTool, fundTool,
-                exchangeRateTool, dateTimeTool, constellationTool, phoneLocationTool,
-                musicTool, recommendMusicTool, translationTool, travelTool, technicalTool, marketOverviewTool, portfolioTool);
+            List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, searchTool, stockTool,
+                exchangeRateTool, dateTimeTool, phoneLocationTool,
+                musicTool, recommendMusicTool, translationTool, copywritingTool, fortuneTool, fundTool, futuresTool);
             ChatResult result = aiService.chat(fromUser, text, allTools);
             String reply = result.getReplyText();
 
             // 处理工具产生的媒体侧效应（图片 CDN 上传、音频文件发送）
             if (result.hasPendingImage()) {
-                byte[] imgBytes = result.getFirstPendingImageBytes();
-                if (imgBytes == null) {
-                    String imageUrl = result.getFirstPendingImageUrl();
-                    lastGeneratedImageUrl.put(fromUser, imageUrl);
-                    imgBytes = imageService.downloadImage(imageUrl);
-                }
+                byte[] imageBytes = result.getFirstPendingImageBytes();
+                String imageUrl = imageBytes == null ? result.getFirstPendingImageUrl() : null;
+                if (imageUrl != null) lastGeneratedImageUrl.put(fromUser, imageUrl);
                 System.out.println("[系统] 图片已生成，正在上传到微信CDN...");
                 try {
-                    client.uploadAndSendImage(fromUser, msg.contextToken(), imgBytes);
+                    if (imageBytes == null) {
+                        imageBytes = imageService.downloadImage(imageUrl);
+                    }
+                    client.uploadAndSendImage(fromUser, msg.contextToken(), imageBytes);
                     log.info("已发送图片 {}", fromUser);
                     System.out.println("[系统] 图片已发送到微信");
                 } catch (Exception e) {
@@ -487,7 +481,7 @@ public class IlinkService {
         RecognizeImageTool recognizeTool = new RecognizeImageTool(aiService, fromUser, imageBytes);
         EditImageTool editTool = new EditImageTool(imageService, imageBytes);
         List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, searchTool,
-            musicTool, recommendMusicTool, recognizeTool, editTool, marketOverviewTool, portfolioTool);
+            musicTool, recommendMusicTool, recognizeTool, editTool);
 
         String contextMessage = "[系统提示：当前有一张待处理的图片。请根据用户的指令选择合适的工具。]\n"
             + "[如果用户想识别图片内容（这是什么、描述图片、提取文字等），请调用 recognize_image 工具]\n"
@@ -499,12 +493,13 @@ public class IlinkService {
 
         // 处理编辑后的图片（CDN 上传 → 发送到微信）
         if (result.hasPendingImage()) {
-            String imageUrl = result.getFirstPendingImageUrl();
-            lastGeneratedImageUrl.put(fromUser, imageUrl);
+            byte[] toolImageBytes = result.getFirstPendingImageBytes();
+            String imageUrl = toolImageBytes == null ? result.getFirstPendingImageUrl() : null;
+            if (imageUrl != null) lastGeneratedImageUrl.put(fromUser, imageUrl);
             System.out.println("[系统] 图片编辑完成，正在上传到微信CDN...");
             try {
-                byte[] editedImageBytes = imageService.downloadImage(imageUrl);
-                client.uploadAndSendImage(fromUser, contextToken, editedImageBytes);
+                byte[] uploadBytes = toolImageBytes != null ? toolImageBytes : imageService.downloadImage(imageUrl);
+                client.uploadAndSendImage(fromUser, contextToken, uploadBytes);
                 log.info("已发送编辑后的图片 {}", fromUser);
                 System.out.println("[系统] 图片已发送到微信");
             } catch (Exception e) {
@@ -569,11 +564,33 @@ public class IlinkService {
                 .orElse(null);
     }
 
-    /**
-     * 将语音识别的技术错误转换为用户友好的提示信息。
-     * 技术错误详情记录在日志中，用户只看到友好提示。
-     */
-    private String getVoiceErrorMessage(String technicalError) {
+    // getVoiceErrorMessage 已迁移至 static 兼容桩方法
+
+    // ==================== CliRunner 兼容桩方法 ====================
+
+    public record SessionInfo(String sessionId, String shortId, String label, String status, String botId, boolean listening, String userId) {}
+    public record CliLoginResult(String sessionId, String qrContent, String label, String botId) {}
+
+    /** SessionManager.getSession() 返回的对象，需支持 getUserId() 调用 */
+    public static class SessionSnapshot {
+        private final String userId;
+        public SessionSnapshot(String userId) { this.userId = userId; }
+        public String getUserId() { return userId; }
+    }
+
+    public class SessionManager {
+        public String getDefaultSessionId() { return ownerId; }
+        public SessionSnapshot getSession(String sessionId) {
+            if (ownerId != null && connected.get()) {
+                return new SessionSnapshot(ownerId);
+            }
+            return null;
+        }
+    }
+
+    private final SessionManager sessionManager = new SessionManager();
+
+    public static String getVoiceErrorMessage(String technicalError) {
         if (technicalError.contains("音频数据为空") || technicalError.contains("The audio is empty")) {
             return "抱歉，我没有听清您说的话，请再试一次（语音不要太短）";
         }
@@ -586,7 +603,77 @@ public class IlinkService {
         if (technicalError.contains("语音识别失败")) {
             return "语音识别失败，请再试一次";
         }
-        // 其他未知错误
         return "抱歉，语音识别出现问题，请再试一次";
+    }
+
+    public int restoreAll() { return connected.get() ? 1 : 0; }
+
+    public java.util.List<SessionInfo> listSessions() {
+        if (ownerId != null && connected.get()) {
+            return java.util.List.of(new SessionInfo(ownerId, ownerId.substring(0, Math.min(8, ownerId.length())),
+                "default", "LOGGED_IN", ownerId, polling.get(), ownerId));
+        }
+        return java.util.List.of();
+    }
+
+    public int getSessionCount() { return connected.get() ? 1 : 0; }
+
+    public SessionManager getSessionManager() { return sessionManager; }
+
+    public void stopListening(String sessionId) { /* single-session: no-op */ }
+    public void stopListening() { polling.set(false); }
+
+    public void logout() { stop(); }
+    public void logoutAll() { stop(); }
+    public void saveAll() { /* no-op */ }
+
+    public CliLoginResult login(String label) {
+        String qr = start();
+        String sid = ownerId != null ? ownerId : "pending";
+        return new CliLoginResult(sid, qr, label != null ? label : "default", null);
+    }
+    public CliLoginResult loginNew() {
+        String qr = start();
+        String sid = ownerId != null ? ownerId : "pending";
+        return new CliLoginResult(sid, qr, "default", null);
+    }
+    public String login() { return start(); }
+
+    public CliLoginResult waitForLogin(String sessionId, int timeoutMs) throws TimeoutException {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            if (connected.get() && ownerId != null) {
+                return new CliLoginResult(ownerId, null, "default", ownerId);
+            }
+            try { Thread.sleep(1000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
+        }
+        throw new TimeoutException("Login timeout");
+    }
+
+    public void switchDefaultSession(String sessionId) { /* single-session: no-op */ }
+    public void deleteSession(String sessionId) { stop(); }
+
+    @FunctionalInterface
+    public interface TextHandler { String handle(String userId, String text, String contextToken); }
+    @FunctionalInterface
+    public interface ImageHandler { String handle(String userId, String prompt, byte[] imageBytes, String contextToken); }
+    @FunctionalInterface
+    public interface VoiceHandler { String handle(String userId, byte[] audioBytes, String contextToken); }
+    @FunctionalInterface
+    public interface FileHandler { String handle(String userId, String fileName, byte[] fileBytes, String prompt, String contextToken); }
+
+    public void startListening(String sessionId, TextHandler textHandler,
+                               ImageHandler imageHandler, VoiceHandler voiceHandler,
+                               FileHandler fileHandler) {
+        /* single-session: listening is managed by the existing poll loop */
+    }
+
+    public void sendImage(String sessionId, String userId, String contextToken, byte[] imageBytes) throws Exception {
+        client.uploadAndSendImage(userId, contextToken, imageBytes);
+    }
+
+    public void sendFile(String sessionId, String userId, String contextToken,
+                         byte[] fileBytes, String fileName, long fileSize) throws Exception {
+        client.uploadAndSendFile(userId, contextToken, fileBytes, fileName, (int) fileSize);
     }
 }

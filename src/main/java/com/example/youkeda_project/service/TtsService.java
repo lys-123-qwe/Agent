@@ -237,6 +237,24 @@ public class TtsService {
     public record TtsResult(byte[] audioBytes, int durationSeconds) {}
 
     /**
+     * 音色信息。
+     */
+    public record VoiceInfo(String voiceId, String name, String description) {}
+
+    /**
+     * 获取所有可用音色。
+     */
+    public List<VoiceInfo> getVoices() {
+        List<Map<String, String>> raw = apiConfig.getTtsVoices();
+        return raw.stream()
+            .map(m -> new VoiceInfo(
+                m.getOrDefault("voiceId", ""),
+                m.getOrDefault("name", ""),
+                m.getOrDefault("description", "")))
+            .toList();
+    }
+
+    /**
      * 获取音色选择提示文字。
      */
     public String getVoicePrompt() {

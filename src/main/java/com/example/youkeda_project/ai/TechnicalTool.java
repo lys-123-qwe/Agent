@@ -1,9 +1,7 @@
 package com.example.youkeda_project.ai;
 
-import com.example.youkeda_project.service.ChartService;
 import com.example.youkeda_project.service.KLineService;
 import com.example.youkeda_project.service.TechnicalService;
-import com.example.youkeda_project.service.TempImageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -19,15 +17,10 @@ public class TechnicalTool implements Tool {
 
     private final KLineService kLineService;
     private final TechnicalService technicalService;
-    private final ChartService chartService;
-    private final TempImageService tempImageService;
 
-    public TechnicalTool(KLineService kLineService, TechnicalService technicalService,
-                         ChartService chartService, TempImageService tempImageService) {
+    public TechnicalTool(KLineService kLineService, TechnicalService technicalService) {
         this.kLineService = kLineService;
         this.technicalService = technicalService;
-        this.chartService = chartService;
-        this.tempImageService = tempImageService;
     }
 
     @Override
@@ -106,11 +99,6 @@ public class TechnicalTool implements Tool {
         String[] codes = code.split("[,，、\\s]+");
         StringBuilder sb = new StringBuilder();
 
-        String firstDataCode = null;
-        List<KLineService.KLineData> firstData = null;
-        String firstName = null;
-        boolean isFuturesCode = false;
-
         for (int i = 0; i < codes.length; i++) {
             String single = codes[i].trim();
             if (single.isBlank()) continue;
@@ -118,7 +106,6 @@ public class TechnicalTool implements Tool {
             List<KLineService.KLineData> d;
             String name;
             boolean isFut = kLineService.isFutures(single);
-            if (i == 0) isFuturesCode = isFut;
 
             if (isFut) {
                 d = kLineService.fetchFuturesDailyKLine(single, days);
@@ -136,12 +123,6 @@ public class TechnicalTool implements Tool {
             if (i > 0) sb.append("\n---\n");
             if (name == null) name = single;
 
-            if (firstData == null) {
-                firstDataCode = single;
-                firstData = d;
-                firstName = name;
-            }
-
             sb.append("【").append(name).append("】技术分析\n");
             sb.append(technicalService.formatAnalysis(d, maPeriods, rsiPeriods));
             sb.append(technicalService.formatKLine(d));
@@ -149,16 +130,6 @@ public class TechnicalTool implements Tool {
 
         if (sb.isEmpty()) {
             return ToolResult.text("未找到 " + code + " 的K线数据，请检查股票名称或代码是否正确");
-        }
-        if (firstData != null && codes.length == 1 && !isFuturesCode) {
-            byte[] chartBytes = chartService.generateKLineChart(firstData, firstName);
-            if (chartBytes != null) {
-                String imageId = tempImageService.save(chartBytes);
-                if (imageId != null) {
-                    String imageUrl = "http://localhost:8080/api/chart/" + imageId + ".png";
-                    return ToolResult.image(sb.toString(), imageUrl);
-                }
-            }
         }
         return ToolResult.text(sb.toString());
     }

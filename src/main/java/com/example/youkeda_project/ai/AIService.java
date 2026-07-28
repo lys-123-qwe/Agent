@@ -14,6 +14,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * AI 对话服务，支持 DeepSeek 纯文本对话、通义千问 VL 图片识别、Function Calling 工具调用。
@@ -25,10 +27,17 @@ import java.util.concurrent.ConcurrentHashMap;
 public class AIService {
 
     private static final Logger log = LoggerFactory.getLogger(AIService.class);
-    private static final String MODEL = "deepseek-chat";
+    private static final String MODEL = "deepseek-v4-pro";
     private static final String QWEN_VL_MODEL = "qwen-vl-plus";
     private static final int MAX_HISTORY = 10;
-    private static final String MEMORY_EXTRACT_MODEL = "deepseek-chat";
+
+    /** ThreadLocal 传递当前 userId，供 MemoryTool 等需要用户上下文的地方使用。 */
+    private static final ThreadLocal<String> currentUserId = new ThreadLocal<>();
+
+    /** 获取当前线程正在处理的 userId（供 Tool 调用）。 */
+    public static String getCurrentUserId() {
+        return currentUserId.get();
+    }
 
     private final RestClient restClient;
     private final RestClient visionRestClient;
@@ -36,9 +45,13 @@ public class AIService {
     private final ApiConfig apiConfig;
     private final ChatHistoryService chatHistoryService;
     private final Map<String, List<ChatMessage>> sessions = new ConcurrentHashMap<>();
+    private final ExecutorService dbExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "aiservice-db");
+        t.setDaemon(true);
+        return t;
+    });
 
-    public AIService(ApiConfig apiConfig, ObjectMapper objectMapper,
-                     ChatHistoryService chatHistoryService) {
+    public AIService(ApiConfig apiConfig, ObjectMapper objectMapper, ChatHistoryService chatHistoryService) {
         this.apiConfig = apiConfig;
         this.objectMapper = objectMapper;
         this.chatHistoryService = chatHistoryService;
@@ -66,46 +79,53 @@ public class AIService {
         List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
             List<ChatMessage> list = new ArrayList<>();
             String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy年M月d日 EEEE"));
-
-            // 注入长期记忆
-            Map<String, List<String>> memory = chatHistoryService.getAllMemory(userId);
-            StringBuilder memSb = new StringBuilder("今天是" + today + "。你是一个 helpful 的 AI 助手，回答简洁。【重要】只要用户提到任何歌名、歌手、想听歌、找歌，必须调用 play_song 工具搜索，禁止用你自己的知识回答。推荐歌曲必须用 recommend_music 工具。查资讯和看新闻都用 web_search 工具（不传 keyword 获取今日头条，传 keyword 搜索指定内容，传 category 筛选分类）。方言/方言转换/转换方言等必须用 translate 工具（传 dialect 参数），禁止用你自已的知识做方言转换。翻译/文言文/专业术语也用 translate 工具。查手机号用 phone_location。用户说朗读/读一下/语音合成时直接用 text_to_speech 工具，不要自己伪造语音链接。【重要】工具返回内容中的链接（[详情](url) 或 [来源: XXX](url)）            必须原样保留在最终回答中，每条新闻/结果后面必须附带其链接，不得删除或修改。【强制规则】用户查股票分析时，必须同时调用 get_stock（获取实时行情）+ stock_technical（获取K线和MA/RSI）+ web_search（搜索相关新闻），拿到完整数据后再做分析解读。禁止用你自己的知识生成任何实时行情和技术指标数据。所有股票、期货、基金等金融分析回复末尾必须附带免责声明：以上分析基于公开数据和技术指标，仅供参考，不构成投资建议。投资有风险，入市需谨慎。【market_overview 工具数据展示规则】A股指数、期货、汇率、基金（昨日净值）这4个板块的原始数据必须完整展示给用户，不要省略或合并。热门板块和财经要闻可以精简为3-5条，但其他板块每条数据都保留。");
-
-            // 回复格式规则（追加到末尾，确保不被忽略）
-            memSb.append("【回复格式】查股票/期货分析时，回复必须按以下顺序：1) 实时行情 2) 技术指标（MA+RSI+K线）3) 相关新闻 4) 综合总结。新闻必须在总结之前。");
-            if (!memory.isEmpty()) {
-                memSb.append("\n\n【关于用户的重要信息】");
-                for (var entry : memory.entrySet()) {
-                    String joined = String.join("、", entry.getValue());
-                    memSb.append("\n- ").append(entry.getKey()).append("：").append(joined);
+            String memoryCtx = buildMemoryContext(userId);
+            list.add(new ChatMessage("system", "今天是" + today + "。你是一个 helpful 的 AI 助手，回答简洁。"
+                + (memoryCtx.isEmpty() ? "" : "\n\n" + memoryCtx)
+                + "【重要】只要用户提到任何歌名、歌手、想听歌、找歌，必须调用 play_song 工具搜索，禁止用你自己的知识回答。"
+                + "推荐歌曲必须用 recommend_music 工具。查资讯和看新闻都用 web_search 工具（不传 keyword 获取今日头条，传 keyword 搜索指定内容，传 category 筛选分类）。"
+                + "方言/方言转换/转换方言等必须用 translate 工具（传 dialect 参数），禁止用你自已的知识做方言转换。翻译/文言文/专业术语也用 translate 工具。"
+                + "查手机号用 phone_location。用户说朗读/读一下/语音合成时直接用 text_to_speech 工具，不要自己伪造语音链接。"
+                + "用户提到网易云热评、热评、来条评论时用 get_hot_comment 工具（不传 song 随机返回，传 song 搜索指定歌曲）。"
+                + "用户要查快递、查物流、查包裹时用 query_express 工具（传 number 单号，courier 可选）。"
+                + "【重要】如果用户在对话中提到了关于自己的信息（昵称、喜好、职业、所在地等），必须调用 save_user_info 工具保存。"
+                + "【重要】工具返回内容中的链接（[详情](url) 或 [来源: XXX](url)）必须原样保留在最终回答中，每条新闻/结果后面必须附带其链接，不得删除或修改。"));
+            // 从数据库加载最近 20 条历史消息恢复会话上下文
+            try {
+                List<Map<String, Object>> recentHistory = chatHistoryService.getHistory(userId, 30);
+                if (recentHistory != null && !recentHistory.isEmpty()) {
+                    // 数据库查询是倒序的，反转为正序
+                    java.util.Collections.reverse(recentHistory);
+                    for (Map<String, Object> row : recentHistory) {
+                        String role = (String) row.get("role");
+                        String content = (String) row.get("content");
+                        // 跳过空内容、工具调用占位符、工具返回结果
+                        if (role == null || content == null || content.isBlank()) continue;
+                        if (content.startsWith("[工具调用]") || content.startsWith("[get_")) continue;
+                        // 只恢复 user 和 assistant 的文本消息
+                        if ("user".equals(role) || "assistant".equals(role)) {
+                            list.add(new ChatMessage(role, content));
+                        }
+                    }
+                    log.info("从数据库恢复 {} 条历史消息: user={}", list.size() - 1, userId.substring(0, Math.min(20, userId.length())));
                 }
+            } catch (Exception e) {
+                log.warn("加载历史消息失败: {}", e.getMessage());
             }
-            list.add(new ChatMessage("system", memSb.toString()));
-
-            // 从 SQLite 恢复最近对话历史（重启不忘）
-            List<Map<String, Object>> recentHistory = chatHistoryService.getHistory(userId, MAX_HISTORY);
-            java.util.Collections.reverse(recentHistory); // 按时间正序
-            for (Map<String, Object> msg : recentHistory) {
-                String role = (String) msg.get("role");
-                String content = (String) msg.get("content");
-                if ("user".equals(role)) {
-                    list.add(new ChatMessage("user", content));
-                } else if ("assistant".equals(role)) {
-                    list.add(new ChatMessage("assistant", content));
-                }
-            }
-            log.info("已从数据库恢复 {} 条对话记录给用户 {}", recentHistory.size(), userId);
             return list;
         });
 
         history.add(new ChatMessage("user", userMessage));
-        chatHistoryService.saveMessage(userId, "user", userMessage);
+        persistMessage(userId, "user", userMessage);
         trimHistory(history);
 
+        currentUserId.set(userId);
         try {
             // 收集本轮所有工具执行产生的媒体结果（图片URL、音频等）
             List<ToolResult> allPendingMedia = new ArrayList<>();
-            int maxRounds = 8;
+            // 工具失败追踪：同一工具连续失败≥2次后，跳过调用并通知模型放弃重试
+            Map<String, Integer> toolFailureCount = new HashMap<>();
+            int maxRounds = apiConfig.getAiToolMaxRounds();
 
             for (int round = 0; round < maxRounds; round++) {
                 List<ChatMessage> filteredHistory = filterForTextOnly(history);
@@ -152,7 +172,7 @@ public class AIService {
                         rawToolCalls.add(raw);
                     }
                     history.add(ChatMessage.assistantWithToolCalls(rawToolCalls));
-
+                    persistMessage(userId, "assistant", "[工具调用]");
                     // 执行每个工具调用，收集结果和媒体
                     for (ToolCall tc : calls) {
                         Tool matched = findTool(tc.functionName(), tools);
@@ -162,12 +182,29 @@ public class AIService {
                             continue;
                         }
 
-                        Map<String, Object> args = parseArguments(tc.arguments());
+                        // 如果该工具已连续失败≥2次，跳过执行并通知模型放弃重试
+                        int fails = toolFailureCount.getOrDefault(tc.functionName(), 0);
+                        if (fails >= 2) {
+                            log.warn("工具 {} 已连续失败 {} 次，跳过执行", tc.functionName(), fails);
+                            history.add(ChatMessage.tool(tc.id(), tc.functionName(),
+                                "系统提示：工具[" + tc.functionName() + "]之前已调用两次均失败，请不要再尝试使用此工具，直接用文本回复用户。"));
+                            continue;
+                        }
+
+                        Map<String, Object> args = parseArguments(tc.arguments(), userId);
                         log.info("执行工具: {}({})", tc.functionName(), args);
 
                         ToolResult toolResult = matched.execute(args);
                         log.info("工具结果: {} -> {}, hasImage={}, hasAudio={}",
                             tc.functionName(), toolResult.getText(), toolResult.hasImage(), toolResult.hasAudio());
+
+                        // 检测工具执行结果是否表示失败，失败则递增追踪计数
+                        String resultText = toolResult.getText();
+                        if (resultText != null && (resultText.startsWith("错误:") || resultText.contains("失败"))) {
+                            toolFailureCount.merge(tc.functionName(), 1, Integer::sum);
+                            log.warn("工具执行失败: {} -> {} (失败次数: {})",
+                                tc.functionName(), resultText, toolFailureCount.get(tc.functionName()));
+                        }
 
                         // 收集媒体结果
                         if (toolResult.hasImage() || toolResult.hasAudio()) {
@@ -175,7 +212,8 @@ public class AIService {
                         }
 
                         // 将文本结果加入对话历史（供 LLM 下一轮使用）
-                        history.add(ChatMessage.tool(tc.id(), tc.functionName(), toolResult.getText()));
+                        history.add(ChatMessage.tool(tc.id(), tc.functionName(), resultText));
+                        persistMessage(userId, "tool", "[" + tc.functionName() + "] " + resultText);
                     }
                     trimHistory(history);
                     continue;
@@ -184,10 +222,7 @@ public class AIService {
                 // 正常文本回复
                 String reply = (String) choice.getMessage().content();
                 history.add(new ChatMessage("assistant", reply));
-                chatHistoryService.saveMessage(userId, "assistant", reply);
-
-                // 提取并保存长期记忆（非阻塞，仅基础版）
-                extractMemoryAsync(userId, userMessage, reply);
+                persistMessage(userId, "assistant", reply);
 
                 // 收集本轮所有工具产生的媒体，返回给调用方处理
                 return allPendingMedia.isEmpty()
@@ -207,6 +242,8 @@ public class AIService {
                 return new ChatResult("抱歉，AI 服务请求失败，请稍后再试");
             }
             return new ChatResult("抱歉，AI 服务暂时不可用，请稍后再试");
+        } finally {
+            currentUserId.remove();
         }
     }
 
@@ -244,6 +281,7 @@ public class AIService {
         });
 
         history.add(new ChatMessage("user", contentParts));
+        persistMessage(userId, "user", "[图片] " + (textPrompt != null ? textPrompt : "请描述这张图片"));
         trimHistory(history);
 
         try {
@@ -269,7 +307,7 @@ public class AIService {
 
             String reply = (String) response.getChoices().get(0).getMessage().content();
             history.add(new ChatMessage("assistant", reply));
-            chatHistoryService.saveMessage(userId, "assistant", reply);
+            persistMessage(userId, "assistant", reply);
             return reply;
 
         } catch (Exception e) {
@@ -282,16 +320,20 @@ public class AIService {
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String, Object> parseArguments(String argumentsJson) {
+    private Map<String, Object> parseArguments(String argumentsJson, String userId) {
+        Map<String, Object> args;
         if (argumentsJson == null || argumentsJson.isBlank()) {
-            return Map.of();
+            args = new LinkedHashMap<>();
+        } else {
+            try {
+                args = objectMapper.readValue(argumentsJson, LinkedHashMap.class);
+            } catch (Exception e) {
+                log.warn("解析工具参数失败: {}", argumentsJson, e);
+                args = new LinkedHashMap<>();
+            }
         }
-        try {
-            return objectMapper.readValue(argumentsJson, LinkedHashMap.class);
-        } catch (Exception e) {
-            log.warn("解析工具参数失败: {}", argumentsJson, e);
-            return Map.of();
-        }
+        args.put("_user_id", userId);
+        return args;
     }
 
     private Tool findTool(String name, List<Tool> tools) {
@@ -374,6 +416,7 @@ public class AIService {
         String combinedMessage = "用户的问题：" + userMessage + "\n查询结果：" + context
             + "\n请根据查询结果用自然语言回复用户。";
         history.add(new ChatMessage("user", combinedMessage));
+        persistMessage(userId, "user", combinedMessage);
         trimHistory(history);
 
         try {
@@ -400,7 +443,7 @@ public class AIService {
 
             String reply = (String) response.getChoices().get(0).getMessage().content();
             history.add(new ChatMessage("assistant", reply));
-            chatHistoryService.saveMessage(userId, "assistant", reply);
+            persistMessage(userId, "assistant", reply);
             return reply;
 
         } catch (Exception e) {
@@ -416,7 +459,9 @@ public class AIService {
             return list;
         });
         history.add(new ChatMessage("user", userMessage));
+        persistMessage(userId, "user", userMessage);
         history.add(new ChatMessage("assistant", assistantReply));
+        persistMessage(userId, "assistant", assistantReply);
         trimHistory(history);
     }
 
@@ -426,60 +471,81 @@ public class AIService {
 
     public void clearSession(String userId) {
         sessions.remove(userId);
+        dbExecutor.submit(() -> {
+            try {
+                chatHistoryService.deleteHistory(userId);
+            } catch (Exception e) {
+                log.error("清除数据库对话记录失败: {}", e.getMessage());
+            }
+        });
     }
 
-    /**
-     * 从对话中提取关键信息存入长期记忆。
-     * 调用 DeepSeek 分析用户消息和 AI 回复，识别需要记住的信息。
-     */
-    private void extractMemoryAsync(String userId, String userMsg, String reply) {
-        try {
-            String extractPrompt = "从以下对话中提取需要长期记住的用户信息（如姓名、偏好、习惯、重要日期等）。"
-                + "以 JSON 格式返回，key 用中文，value 用具体值。"
-                + "【重要】判断每条信息应该是追加还是覆盖："
-                + "如果用户提供了新的值替换旧信息（如改名字、改偏好），mode 设为 'overwrite'；"
-                + "如果用户新增了信息但没说要替换之前的，mode 设为 'append'。"
-                + "如果没有需要记住的信息，返回空数组 []。"
-                + "格式：[{\"key\": \"姓名\", \"value\": \"张三\", \"mode\": \"overwrite\"}, {\"key\": \"饮食偏好\", \"value\": \"喜欢辣的\", \"mode\": \"append\"}]"
-                + "\n\n用户说：" + userMsg + "\n回复：" + reply;
+    /** 从数据库加载用户记忆，构建上下文块。 */
+    private String buildMemoryContext(String userId) {
+        Map<String, List<String>> mem = chatHistoryService.getAllMemory(userId);
+        if (mem.isEmpty()) return "";
 
-            ChatRequest req = new ChatRequest(MEMORY_EXTRACT_MODEL, java.util.List.of(
-                new ChatMessage("user", extractPrompt)
-            ));
-            String body = objectMapper.writeValueAsString(req);
-            byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
-            byte[] respBytes = restClient.post()
-                .header("Content-Type", "application/json; charset=UTF-8")
-                .header("Authorization", "Bearer " + apiConfig.getAiApiKey())
-                .body(bodyBytes)
-                .retrieve()
-                .body(byte[].class);
+        StringBuilder sb = new StringBuilder("【以下是关于用户的重要信息，请在对���时自然地引用】\n");
+        for (var entry : mem.entrySet()) {
+            String key = entry.getKey();
+            // 取最新的一条值
+            String value = entry.getValue().getLast();
+            sb.append("- ").append(translateKey(key)).append(": ").append(value).append("\n");
+        }
+        return sb.toString();
+    }
 
-            String respJson = new String(respBytes, StandardCharsets.UTF_8);
-            log.info("记忆提取响应: {}", respJson);
+    private static String translateKey(String key) {
+        return switch (key) {
+            case "nickname" -> "昵称";
+            case "food_preference" -> "食物偏好";
+            case "location" -> "所在地";
+            case "occupation" -> "职业";
+            case "hobby" -> "爱好";
+            case "pet" -> "宠物";
+            case "birthday" -> "生日";
+            case "name" -> "姓名";
+            default -> key;
+        };
+    }
 
-            ChatResponse resp = objectMapper.readValue(respJson, ChatResponse.class);
-            if (resp.getChoices() != null && !resp.getChoices().isEmpty()) {
-                String content = (String) resp.getChoices().get(0).getMessage().content();
-                if (content != null && content.startsWith("[")) {
-                    tools.jackson.databind.JsonNode arr = objectMapper.readTree(content);
-                    if (arr.isArray()) {
-                        for (tools.jackson.databind.JsonNode item : arr) {
-                            String key = item.path("key").asText();
-                            String value = item.path("value").asText();
-                            String mode = item.path("mode").asText("append");
-                            if (!key.isBlank() && !value.isBlank()) {
-                                if ("overwrite".equals(mode)) {
-                                    chatHistoryService.deleteMemoryByKey(userId, key);
-                                }
-                                chatHistoryService.saveMemory(userId, key, value);
-                            }
-                        }
+    // ==================== DB persistence ====================
+
+    /** 异步保存消息到 SQLite。 */
+    private void persistMessage(String userId, String role, Object content) {
+        dbExecutor.submit(() -> {
+            try {
+                String text = serializeContent(content);
+                chatHistoryService.saveMessage(userId, role, text);
+            } catch (Exception e) {
+                log.error("保存消息到数据库失败: {}", e.getMessage());
+            }
+        });
+    }
+
+    private static String serializeContent(Object obj) {
+        if (obj == null) return "";
+        if (obj instanceof String s) return s;
+        if (obj instanceof List<?> list && !list.isEmpty()) {
+            // 提取 text 部分
+            StringBuilder sb = new StringBuilder();
+            for (Object item : list) {
+                if (item instanceof Map<?, ?> map) {
+                    Object type = map.get("type");
+                    if ("text".equals(type) && map.get("text") != null) {
+                        sb.append(map.get("text"));
+                    } else if ("image".equals(type)) {
+                        sb.append("[图片]");
                     }
                 }
             }
+            return sb.toString();
+        }
+        try {
+            return new ObjectMapper().writeValueAsString(obj);
         } catch (Exception e) {
-            log.warn("记忆提取失败（不影响正常对话）: {}", e.getMessage());
+            return obj.toString();
         }
     }
+
 }

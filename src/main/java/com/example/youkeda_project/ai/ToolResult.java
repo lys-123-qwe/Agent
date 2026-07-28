@@ -41,6 +41,8 @@ public class ToolResult {
     public String getAudioFileName() { return audioFileName; }
     public int getAudioDurationSeconds() { return audioDurationSeconds; }
 
-    public boolean hasImage() { return (imageUrl != null && !imageUrl.isBlank()) || (imageBytes != null && imageBytes.length > 0); }
+    public boolean hasImage() {
+        return (imageUrl != null && !imageUrl.isBlank()) || (imageBytes != null && imageBytes.length > 0);
+    }
     public boolean hasAudio() { return audioBytes != null && audioBytes.length > 0; }
 }
