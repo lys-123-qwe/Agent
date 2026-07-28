@@ -1,5 +1,6 @@
 package com.example.youkeda_project.ai;
 
+import com.example.youkeda_project.config.ApiConfig;
 import com.example.youkeda_project.service.TtsService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

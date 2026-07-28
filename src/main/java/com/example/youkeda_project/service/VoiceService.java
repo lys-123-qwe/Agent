@@ -35,12 +35,6 @@ import java.util.Map;
 public class VoiceService {
 
     private static final Logger log = LoggerFactory.getLogger(VoiceService.class);
-
-    private static final String ASR_MODEL = "qwen3-asr-flash";
-    private static final String ASR_API_URL =
-        "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation";
-
-    private static final int WAV_SAMPLE_RATE = 24000;
     private static final int WAV_BITS_PER_SAMPLE = 16;
     private static final int WAV_CHANNELS = 1;
 
@@ -109,7 +103,7 @@ public class VoiceService {
 
         // 构造请求体（qwen3-asr-flash 同步 ASR 格式，含 asr_options）
         Map<String, Object> requestBody = Map.of(
-            "model", ASR_MODEL,
+            "model", apiConfig.getVoiceAsrModel(),
             "input", Map.of(
                 "messages", List.of(Map.of(
                     "role", "user",
@@ -128,7 +122,7 @@ public class VoiceService {
 
         byte[] bodyBytes = bodyJson.getBytes(StandardCharsets.UTF_8);
         byte[] responseBytes = restClient.post()
-                .uri(ASR_API_URL)
+                .uri(apiConfig.getVoiceAsrApiUrl())
                 .header("Content-Type", "application/json; charset=UTF-8")
                 .header("Authorization", "Bearer " + apiKey)
                 .body(bodyBytes)
@@ -213,7 +207,7 @@ public class VoiceService {
             ByteArrayInputStream silkIn = new ByteArrayInputStream(cleanSilk);
             ByteArrayOutputStream pcmOut = new ByteArrayOutputStream();
             log.info("开始 SILK→PCM 解码: {} SILK bytes (去除前缀后)", cleanSilk.length);
-            SilkCoder.decode(silkIn, pcmOut, false, WAV_SAMPLE_RATE, 0);
+            SilkCoder.decode(silkIn, pcmOut, false, apiConfig.getVoiceSampleRate(), 0);
             byte[] pcmData = pcmOut.toByteArray();
 
             log.info("SILK→PCM 解码完成: {} PCM bytes", pcmData.length);
@@ -224,7 +218,7 @@ public class VoiceService {
             }
 
             // 创建 WAV 头部并拼接
-            byte[] wavHeader = createWavHeader(pcmData.length, WAV_SAMPLE_RATE,
+            byte[] wavHeader = createWavHeader(pcmData.length, apiConfig.getVoiceSampleRate(),
                 WAV_BITS_PER_SAMPLE, WAV_CHANNELS);
             byte[] wavBytes = new byte[wavHeader.length + pcmData.length];
             System.arraycopy(wavHeader, 0, wavBytes, 0, wavHeader.length);

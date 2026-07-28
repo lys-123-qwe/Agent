@@ -1,0 +1,25 @@
+{
+  "voices": [
+    {"voiceId": "longanyang", "name": "龙安洋", "description": "阳光男声"},
+    {"voiceId": "longanhuan", "name": "龙安欢", "description": "元气女声"},
+    {"voiceId": "longhuhu_v3", "name": "龙呼呼", "description": "可爱童声"},
+    {"voiceId": "longshu_v3", "name": "龙书", "description": "沉稳青年男"},
+    {"voiceId": "loongbella_v3", "name": "Bella", "description": "干练女声"}
+  ],
+  "aliases": {
+    "阳光男声": "longanyang",
+    "元气女声": "longanhuan",
+    "可爱童声": "longhuhu_v3",
+    "沉稳青年男": "longshu_v3",
+    "干练女声": "loongbella_v3",
+    "热情女声": "longanhuan",
+    "温柔女声": "longanyang",
+    "甜美女声": "longanhuan",
+    "活力女声": "longanhuan",
+    "磁性男声": "longshu_v3",
+    "青年男声": "longshu_v3",
+    "男声": "longanyang",
+    "女声": "longanhuan",
+    "童声": "longhuhu_v3"
+  }
+}

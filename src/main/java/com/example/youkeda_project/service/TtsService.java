@@ -18,6 +18,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioInputStream;
@@ -40,19 +42,6 @@ import javax.sound.sampled.AudioSystem;
 public class TtsService {
 
     private static final Logger log = LoggerFactory.getLogger(TtsService.class);
-
-    private static final int MAX_TEXT_LENGTH = 500;
-
-    // 5 种推荐音色（CosyVoice-v3-flash 兼容）
-    private static final List<VoiceOption> VOICES = List.of(
-        new VoiceOption("longanyang", "龙安洋", "阳光男声"),
-        new VoiceOption("longanhuan", "龙安欢", "元气女声"),
-        new VoiceOption("longhuhu_v3", "龙呼呼", "可爱童声"),
-        new VoiceOption("longshu_v3", "龙书", "沉稳青年男"),
-        new VoiceOption("loongbella_v3", "Bella", "干练女声")
-    );
-
-    private static final String DEFAULT_VOICE = "longanyang";
 
     enum TtsState { IDLE, WAITING_TEXT, WAITING_VOICE }
 
@@ -97,7 +86,8 @@ public class TtsService {
     public TtsResult synthesizeMp3(String text, String voice) {
         byte[] mp3Bytes = callTtsApi(text, voice, "mp3");
         // MP3 按 128kbps 估算时长
-        int durationSeconds = Math.max(1, mp3Bytes.length * 8 / 128000);
+        int bitrate = apiConfig.getTtsMp3Bitrate();
+        int durationSeconds = Math.max(1, mp3Bytes.length * 8 / bitrate);
         log.info("TTS MP3 下载完成: {} bytes, 估算时长: {}s", mp3Bytes.length, durationSeconds);
         return new TtsResult(mp3Bytes, durationSeconds);
     }
@@ -112,9 +102,10 @@ public class TtsService {
         }
 
         // 截断过长的文本
-        if (text.length() > MAX_TEXT_LENGTH) {
-            text = text.substring(0, MAX_TEXT_LENGTH);
-            log.warn("TTS 文本超长，已截断至 {} 字符", MAX_TEXT_LENGTH);
+        int maxLen = apiConfig.getTtsMaxTextLength();
+        if (text.length() > maxLen) {
+            text = text.substring(0, maxLen);
+            log.warn("TTS 文本超长，已截断至 {} 字符", maxLen);
         }
 
         try {
@@ -124,7 +115,7 @@ public class TtsService {
                     "text", text,
                     "voice", voice,
                     "format", format,
-                    "sample_rate", 24000
+                    "sample_rate", apiConfig.getTtsSampleRate()
                 )
             );
 
@@ -246,13 +237,32 @@ public class TtsService {
     public record TtsResult(byte[] audioBytes, int durationSeconds) {}
 
     /**
+     * 音色信息。
+     */
+    public record VoiceInfo(String voiceId, String name, String description) {}
+
+    /**
+     * 获取所有可用音色。
+     */
+    public List<VoiceInfo> getVoices() {
+        List<Map<String, String>> raw = apiConfig.getTtsVoices();
+        return raw.stream()
+            .map(m -> new VoiceInfo(
+                m.getOrDefault("voiceId", ""),
+                m.getOrDefault("name", ""),
+                m.getOrDefault("description", "")))
+            .toList();
+    }
+
+    /**
      * 获取音色选择提示文字。
      */
     public String getVoicePrompt() {
+        List<Map<String, String>> voices = apiConfig.getTtsVoices();
         StringBuilder sb = new StringBuilder("请选择音色（回复数字或音色名）：\n");
-        for (int i = 0; i < VOICES.size(); i++) {
-            VoiceOption v = VOICES.get(i);
-            sb.append(i + 1).append(". ").append(v.name()).append(" - ").append(v.description()).append("\n");
+        for (int i = 0; i < voices.size(); i++) {
+            Map<String, String> v = voices.get(i);
+            sb.append(i + 1).append(". ").append(v.get("name")).append(" - ").append(v.get("description")).append("\n");
         }
         sb.append("\n回复 \"取消\" 取消操作，或发送其他内容继续对话");
         return sb.toString();
@@ -267,69 +277,42 @@ public class TtsService {
         if (userInput == null || userInput.isBlank()) return null;
 
         String trimmed = userInput.trim();
+        List<Map<String, String>> voices = apiConfig.getTtsVoices();
 
         // 数字匹配
         try {
             String numStr = trimmed.replaceAll("[号.。、\\s]", "").trim();
             if (!numStr.isEmpty()) {
                 int idx = Integer.parseInt(numStr) - 1;
-                if (idx >= 0 && idx < VOICES.size()) {
-                    return VOICES.get(idx).voiceId();
+                if (idx >= 0 && idx < voices.size()) {
+                    return voices.get(idx).get("voiceId");
                 }
             }
         } catch (NumberFormatException ignored) {}
 
         // 直接匹配 voice ID
-        for (VoiceOption v : VOICES) {
-            if (v.voiceId().equalsIgnoreCase(trimmed)) return v.voiceId();
+        for (Map<String, String> v : voices) {
+            if (v.get("voiceId").equalsIgnoreCase(trimmed)) return v.get("voiceId");
         }
 
         // 匹配中文名
-        for (VoiceOption v : VOICES) {
-            if (v.name().equals(trimmed)) return v.voiceId();
+        for (Map<String, String> v : voices) {
+            if (v.get("name").equals(trimmed)) return v.get("voiceId");
         }
 
-        // 部分匹配：包含中文名关键词
-        for (VoiceOption v : VOICES) {
-            if (trimmed.contains(v.name()) || v.name().contains(trimmed)) return v.voiceId();
+        // 部分匹配
+        for (Map<String, String> v : voices) {
+            if (trimmed.contains(v.get("name")) || v.get("name").contains(trimmed)) return v.get("voiceId");
         }
 
-        // 别名映射：描述性音色名 → voice ID（兼容用户可能使用的通用名）
-        String aliasMatch = VOICE_ALIASES.get(trimmed);
+        // 别名映射
+        String aliasMatch = apiConfig.getTtsVoiceAliases().get(trimmed);
         if (aliasMatch != null) return aliasMatch;
 
         return null;
     }
 
-    /**
-     * 通用描述性音色名到实际 voice ID 的映射。
-     * 使 "热情女声"/"元气女声" 等通用名也能匹配到正确的 CosyVoice 音色。
-     */
-    private static final java.util.Map<String, String> VOICE_ALIASES = new java.util.LinkedHashMap<>();
-    static {
-        VOICE_ALIASES.put("阳光男声", "longanyang");
-        VOICE_ALIASES.put("元气女声", "longanhuan");
-        VOICE_ALIASES.put("可爱童声", "longhuhu_v3");
-        VOICE_ALIASES.put("沉稳青年男", "longshu_v3");
-        VOICE_ALIASES.put("干练女声", "loongbella_v3");
-        VOICE_ALIASES.put("热情女声", "longanhuan");
-        VOICE_ALIASES.put("温柔女声", "longanyang");
-        VOICE_ALIASES.put("甜美女声", "longanhuan");
-        VOICE_ALIASES.put("活力女声", "longanhuan");
-        VOICE_ALIASES.put("磁性男声", "longshu_v3");
-        VOICE_ALIASES.put("青年男声", "longshu_v3");
-        VOICE_ALIASES.put("男声", "longanyang");
-        VOICE_ALIASES.put("女声", "longanhuan");
-        VOICE_ALIASES.put("童声", "longhuhu_v3");
-    }
-
     public String getDefaultVoice() {
-        return DEFAULT_VOICE;
+        return apiConfig.getTtsDefaultVoice();
     }
-
-    public List<VoiceOption> getVoices() {
-        return VOICES;
-    }
-
-    public record VoiceOption(String voiceId, String name, String description) {}
 }
