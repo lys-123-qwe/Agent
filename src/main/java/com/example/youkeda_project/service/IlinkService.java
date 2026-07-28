@@ -1,5 +1,6 @@
 package com.example.youkeda_project.service;
 
+<<<<<<< HEAD
 import com.example.youkeda_project.ai.AIService;
 import com.example.youkeda_project.ai.ChatResult;
 import com.example.youkeda_project.ai.ConstellationTool;
@@ -26,35 +27,38 @@ import com.example.youkeda_project.protocol.GetUpdatesResponse;
 import com.example.youkeda_project.protocol.LoginResult;
 import com.example.youkeda_project.protocol.MessageItem;
 import com.example.youkeda_project.protocol.QRCodeResponse;
+=======
+>>>>>>> c9fdf72608b04178876c980cce583f737dbdee3d
 import com.example.youkeda_project.protocol.FileItem;
+import com.example.youkeda_project.protocol.MessageItem;
 import com.example.youkeda_project.protocol.VoiceItem;
 import com.example.youkeda_project.protocol.WeixinMessage;
-import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.List;
 
 /**
- * iLink 微信 Bot 核心服务。
- * <p>
- * 管理完整的 iLink 生命周期：扫码登录、消息轮询（长轮询 3s 间隔）、
- * 消息路由分发（天气/AI对话/图片生成/图片识别）、首条消息欢迎机制。
- * <p>
- * 由于 iLink 协议不支持主动推送，采用轮询方式拉取消息。
- * 欢迎消息通过登录时记录 ownerId，在其发送的首条消息时回复。
+ * WeChat iLink service — now delegates to {@link WeChatSessionManager} for
+ * multi-session support.
+ *
+ * <p><b>Default session (backward-compatible):</b>
+ * Calling {@link #login()} / {@link #startListening startListening(...)} / {@link #sendText sendText(...)}
+ * without a sessionId operates on the "default" session — the first one created.</p>
+ *
+ * <p><b>Multi-session:</b>
+ * Use the sessionId overloads for multi-bot scenarios. Each session has its own
+ * IlinkProtocolClient, thread pool, QR code, and contextToken.</p>
  */
 @Service
 public class IlinkService {
 
     private static final Logger log = LoggerFactory.getLogger(IlinkService.class);
-    private static final long POLL_INTERVAL_MS = 3000;
 
-    private static final String WELCOME_TEXT = """
-        嗨！我是 Claw 小助手 😊\n\
-        查天气、看股票、搜新闻、聊天、画图……有啥需要直接跟我说就行～""";
+    private final WeChatSessionManager sessionManager;
 
+<<<<<<< HEAD
     private final IlinkProtocolClient client;
     private final WeatherService weatherService;
     private final AIService aiService;
@@ -77,16 +81,35 @@ public class IlinkService {
     private final TravelTool travelTool;
     private final ScheduledTaskTool scheduledTaskTool;
     private final UserContextStore userContextStore;
+=======
+    public IlinkService(WeChatSessionManager sessionManager) {
+        this.sessionManager = sessionManager;
+    }
+>>>>>>> c9fdf72608b04178876c980cce583f737dbdee3d
 
-    private final AtomicBoolean connected = new AtomicBoolean(false);
-    private final AtomicBoolean polling = new AtomicBoolean(false);
-    private final java.util.concurrent.ConcurrentHashMap<String, byte[]> pendingImages = new java.util.concurrent.ConcurrentHashMap<>();
-    private final java.util.concurrent.ConcurrentHashMap<String, String> lastGeneratedImageUrl = new java.util.concurrent.ConcurrentHashMap<>();
+    // ======================== Single-bot API (default session) ========================
 
-    private String ownerId;
-    private boolean ownerWelcomed = false;
-    private Thread pollThread;
+    /**
+     * Start login for the default session. Creates one if needed.
+     *
+     * @return QR code content
+     */
+    public synchronized String login() {
+        WeChatSession existing = sessionManager.getDefaultSession();
+        if (existing != null && existing.isLoggedIn() && existing.isListening()) {
+            return "Already logged in as " + existing.getBotId()
+                    + ". Use 'wechat login <label>' to add another bot.";
+        }
+        if (existing != null && existing.isLoggedIn() && !existing.isListening()) {
+            log.info("Default session {} is logged in but not listening — replacing",
+                    existing.getSessionId().substring(0, 8));
+            sessionManager.closeSession(existing.getSessionId());
+        }
+        if (existing != null && existing.getStatus() == WeChatSession.Status.WAITING_QR) {
+            return "QR login already in progress. Scan the QR code, or wait for timeout.";
+        }
 
+<<<<<<< HEAD
     public IlinkService(IlinkProtocolClient client, WeatherService weatherService,
                         AIService aiService, ImageService imageService, VoiceService voiceService,
                         TtsService ttsService, FileService fileService,
@@ -122,57 +145,52 @@ public class IlinkService {
         this.travelTool = travelTool;
         this.scheduledTaskTool = scheduledTaskTool;
         this.userContextStore = userContextStore;
+=======
+        WeChatSessionManager.LoginResponse resp = sessionManager.startLogin("default");
+        sessionManager.setDefaultSessionId(resp.sessionId());
+        log.info("Default session {} created, QR ready", resp.sessionId());
+        return resp.qrContent();
+>>>>>>> c9fdf72608b04178876c980cce583f737dbdee3d
     }
 
     /**
-     * 启动 iLink 登录流程：
-     * 1. 获取 QR 码展示给用户
-     * 2. 每 2s 轮询扫码状态
-     * 3. 状态 confirmed 后保存凭据，启动消息轮询
+     * Start login with a custom label (for multi-bot).
      */
-    public String start() {
-        if (connected.get()) {
-            return "iLink 已经连接";
-        }
+    public WeChatSessionManager.LoginResponse login(String label) {
+        return sessionManager.startLogin(label);
+    }
 
+    /**
+     * Always create a fresh login session and make it the default.
+     */
+    public WeChatSessionManager.LoginResponse loginNew() {
+        var resp = sessionManager.startLogin("default");
+        sessionManager.setDefaultSessionId(resp.sessionId());
+        return resp;
+    }
+
+    public com.example.youkeda_project.protocol.LoginResult waitForLogin(long timeoutMs) throws Exception {
+        String sid = sessionManager.getDefaultSessionId();
+        if (sid == null) throw new IllegalStateException("No login in progress. Call login() first.");
+        return sessionManager.waitForLogin(sid, timeoutMs);
+    }
+
+    public com.example.youkeda_project.protocol.LoginResult waitForLogin(String sessionId, long timeoutMs) throws Exception {
+        return sessionManager.waitForLogin(sessionId, timeoutMs);
+    }
+
+    // ---- messaging (default session) ----
+
+    public List<WeixinMessage> getUpdates() {
+        String sid = requireDefaultSession();
         try {
-            QRCodeResponse qrCode = client.getQRCode();
-            String qrcodeId = qrCode.qrcode();
-            String qrCodeUrl = qrCode.qrcodeImgContent();
-
-            log.info("二维码ID={}, URL={}", qrcodeId, qrCodeUrl);
-            System.out.println("\n请用微信扫码登录:");
-            System.out.println(qrCodeUrl + "\n");
-
-            while (true) {
-                LoginResult result = client.pollQRStatus(qrcodeId);
-                String status = result.status();
-
-                if ("confirmed".equals(status)) {
-                    client.setCredentials(result.botToken(), result.baseurl());
-                    connected.set(true);
-                    ownerId = result.userId();
-                    ownerWelcomed = false;
-                    log.info("登录成功, botId={}, userId={}", result.botId(), ownerId);
-                    System.out.println("\n[系统] iLink 登录成功! BotID=" + result.botId());
-                    startPolling();
-                    return "登录成功";
-                } else if ("expired".equals(status)) {
-                    return "二维码已过期，请重新执行 ilink login";
-                }
-
-                Thread.sleep(2000);
-            }
-
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return "登录被中断";
-        } catch (Exception e) {
-            log.error("iLink登录失败", e);
-            return "登录失败: " + e.getMessage();
+            return sessionManager.getUpdates(sid);
+        } catch (java.io.IOException e) {
+            throw new RuntimeException("getUpdates failed: " + e.getMessage(), e);
         }
     }
 
+<<<<<<< HEAD
     /**
      * 启动消息轮询线程（daemon）。
      * 使用 getUpdates 长轮询拉取消息，将 cursor 带回以实现增量拉取。
@@ -237,18 +255,15 @@ public class IlinkService {
         }, "ilink-poll");
         pollThread.setDaemon(true);
         pollThread.start();
+=======
+    public List<WeixinMessage> getUpdates(String sessionId) throws java.io.IOException {
+        return sessionManager.getUpdates(sessionId);
+>>>>>>> c9fdf72608b04178876c980cce583f737dbdee3d
     }
 
-    /**
-     * 消息路由分发核心逻辑：
-     * 1. 含图片 -> 通义千问 VL 识别 / 编辑
-     * 2. 含语音 -> 下载语音→Paraformer 转文字→AI 回复
-     * 3. 含文件 -> 下载→提取文本→AI 总结
-     * 4. 文字 -> DeepSeek AI 对话（Function Calling）
-     * 5. 首条文字消息附带欢迎语（不消耗消息）
-     */
-    private void handleMessage(WeixinMessage msg) {
+    public void sendText(String userId, String contextToken, String text) {
         try {
+<<<<<<< HEAD
             String fromUser = msg.fromUserId();
 
             // 图片处理：不再直接识别，交由 DeepSeek 判断（识图 or 编辑）
@@ -447,24 +462,19 @@ public class IlinkService {
 
         } catch (Exception e) {
             log.error("处理消息失败", e);
+=======
+            sessionManager.sendText(requireDefaultSession(), userId, contextToken, text);
+        } catch (java.io.IOException e) {
+            throw new RuntimeException("sendText failed: " + e.getMessage(), e);
+>>>>>>> c9fdf72608b04178876c980cce583f737dbdee3d
         }
     }
 
-    /**
-     * 断开 iLink 连接，停止轮询线程，清除凭据。
-     */
-    public String stop() {
-        polling.set(false);
-        connected.set(false);
-        if (pollThread != null) {
-            pollThread.interrupt();
-            pollThread = null;
-        }
-        client.setCredentials(null, null);
-        log.info("iLink 已断开");
-        return "iLink 已断开";
+    public void sendText(String sessionId, String userId, String contextToken, String text) throws java.io.IOException {
+        sessionManager.sendText(sessionId, userId, contextToken, text);
     }
 
+<<<<<<< HEAD
     /**
      * 处理带图片的指令：由 DeepSeek 通过 Function Calling 判断是识图还是编辑，
      * 调用对应的工具（RecognizeImageTool / EditImageTool），处理媒体结果。
@@ -505,16 +515,128 @@ public class IlinkService {
         client.sendMessage(fromUser, contextToken, List.of(MessageItem.text(reply)));
         log.info("已回复图片指令 {}: {}", fromUser, reply);
         System.out.println("[微信] " + fromUser + ": " + reply);
+=======
+    public void sendImage(String userId, String contextToken, byte[] imageBytes) {
+        sessionManager.sendImage(requireDefaultSession(), userId, contextToken, imageBytes);
+>>>>>>> c9fdf72608b04178876c980cce583f737dbdee3d
     }
+
+    public void sendImage(String sessionId, String userId, String contextToken, byte[] imageBytes) {
+        sessionManager.sendImage(sessionId, userId, contextToken, imageBytes);
+    }
+
+    public void sendVoice(String userId, String contextToken, byte[] audioBytes, int durationSeconds) {
+        sessionManager.sendVoice(requireDefaultSession(), userId, contextToken, audioBytes, durationSeconds);
+    }
+
+    public void sendFile(String userId, String contextToken, byte[] fileBytes, String fileName, long fileSize) {
+        sessionManager.sendFile(requireDefaultSession(), userId, contextToken, fileBytes, fileName, fileSize);
+    }
+
+    public void sendFile(String sessionId, String userId, String contextToken, byte[] fileBytes, String fileName, long fileSize) {
+        sessionManager.sendFile(sessionId, userId, contextToken, fileBytes, fileName, fileSize);
+    }
+
+    // ---- listener (default session) ----
+
+    public synchronized void startListening(String sessionId,
+                                            WeChatSession.MessageHandler textHandler,
+                                            WeChatSession.ImageMessageHandler imageHandler,
+                                            WeChatSession.VoiceMessageHandler voiceHandler,
+                                            WeChatSession.FileMessageHandler fileHandler) {
+        sessionManager.startListening(sessionId, textHandler, imageHandler, voiceHandler, fileHandler);
+    }
+
+    public void stopListening() {
+        String sid = sessionManager.getDefaultSessionId();
+        if (sid != null) sessionManager.stopListening(sid);
+    }
+
+    public void stopListening(String sessionId) {
+        sessionManager.stopListening(sessionId);
+    }
+
+    // ---- status (default session) ----
 
     public boolean isConnected() {
-        return connected.get();
+        WeChatSession s = sessionManager.getDefaultSession();
+        return s != null && s.isLoggedIn();
     }
 
-    /**
-     * 从消息的 itemList 中提取第一段文本内容。
-     */
-    private String extractText(WeixinMessage msg) {
+    public boolean isConnected(String sessionId) {
+        WeChatSession s = sessionManager.getSession(sessionId);
+        return s != null && s.isLoggedIn();
+    }
+
+    public boolean isListening() {
+        WeChatSession s = sessionManager.getDefaultSession();
+        return s != null && s.isListening();
+    }
+
+    public boolean isListening(String sessionId) {
+        WeChatSession s = sessionManager.getSession(sessionId);
+        return s != null && s.isListening();
+    }
+
+    public String getBotId() {
+        WeChatSession s = sessionManager.getDefaultSession();
+        return s != null ? s.getBotId() : null;
+    }
+
+    // ---- session management ----
+
+    public List<WeChatSessionManager.SessionInfo> listSessions() {
+        return sessionManager.listSessionInfos();
+    }
+
+    public int getSessionCount() {
+        return sessionManager.getSessionCount();
+    }
+
+    public void switchDefaultSession(String sessionId) {
+        sessionManager.setDefaultSessionId(sessionId);
+        System.out.println("Switched to session " + sessionId.substring(0, 8));
+    }
+
+    public WeChatSessionManager getSessionManager() {
+        return sessionManager;
+    }
+
+    public void saveAll() {
+        sessionManager.saveAllSessions();
+        System.out.println("All sessions saved.");
+    }
+
+    public int restoreAll() {
+        return sessionManager.restoreSessions();
+    }
+
+    public void closeSession(String sessionId) {
+        sessionManager.closeSession(sessionId);
+    }
+
+    public void deleteSession(String sessionId) {
+        sessionManager.deleteSession(sessionId);
+    }
+
+    // ---- lifecycle (default session) ----
+
+    public synchronized void logout() {
+        String sid = sessionManager.getDefaultSessionId();
+        if (sid != null) {
+            sessionManager.closeSession(sid);
+        }
+    }
+
+    public synchronized void logoutAll() {
+        sessionManager.closeAll();
+        System.out.println("All sessions logged out.");
+    }
+
+    // ---- utility methods (used by CliRunner) ----
+
+    /** Extract first text from a message. */
+    public static String extractText(WeixinMessage msg) {
         if (msg.itemList() == null) return null;
         return msg.itemList().stream()
                 .filter(item -> item.textItem() != null)
@@ -523,11 +645,8 @@ public class IlinkService {
                 .orElse(null);
     }
 
-    /**
-     * 从消息的 itemList 中提取第一张图片项。
-     * 纯图片消息不会附带文本，在 polling 中通过 hasImage 单独判断避免漏掉。
-     */
-    private MessageItem extractFirstImage(WeixinMessage msg) {
+    /** Extract first image item from a message. */
+    public static MessageItem extractFirstImage(WeixinMessage msg) {
         if (msg.itemList() == null) return null;
         return msg.itemList().stream()
                 .filter(item -> item.imageItem() != null)
@@ -535,10 +654,8 @@ public class IlinkService {
                 .orElse(null);
     }
 
-    /**
-     * 从消息的 itemList 中提取第一条语音项。
-     */
-    private MessageItem extractFirstVoice(WeixinMessage msg) {
+    /** Extract first voice item from a message. */
+    public static MessageItem extractFirstVoice(WeixinMessage msg) {
         if (msg.itemList() == null) return null;
         return msg.itemList().stream()
                 .filter(item -> item.voiceItem() != null)
@@ -546,10 +663,8 @@ public class IlinkService {
                 .orElse(null);
     }
 
-    /**
-     * 从消息的 itemList 中提取第一个文件项。
-     */
-    private MessageItem extractFirstFile(WeixinMessage msg) {
+    /** Extract first file item from a message. */
+    public static MessageItem extractFirstFile(WeixinMessage msg) {
         if (msg.itemList() == null) return null;
         return msg.itemList().stream()
                 .filter(item -> item.fileItem() != null)
@@ -557,11 +672,8 @@ public class IlinkService {
                 .orElse(null);
     }
 
-    /**
-     * 将语音识别的技术错误转换为用户友好的提示信息。
-     * 技术错误详情记录在日志中，用户只看到友好提示。
-     */
-    private String getVoiceErrorMessage(String technicalError) {
+    /** Translate voice recognition technical errors to user-friendly messages. */
+    public static String getVoiceErrorMessage(String technicalError) {
         if (technicalError.contains("音频数据为空") || technicalError.contains("The audio is empty")) {
             return "抱歉，我没有听清您说的话，请再试一次（语音不要太短）";
         }
@@ -574,7 +686,20 @@ public class IlinkService {
         if (technicalError.contains("语音识别失败")) {
             return "语音识别失败，请再试一次";
         }
-        // 其他未知错误
         return "抱歉，语音识别出现问题，请再试一次";
+    }
+
+    // ---- helpers ----
+
+    private String requireDefaultSession() {
+        String sid = sessionManager.getDefaultSessionId();
+        if (sid == null) {
+            throw new IllegalStateException("No session. Call login() first.");
+        }
+        WeChatSession s = sessionManager.getSession(sid);
+        if (s == null || !s.isLoggedIn()) {
+            throw new IllegalStateException("Not logged in. Call login() first.");
+        }
+        return sid;
     }
 }
