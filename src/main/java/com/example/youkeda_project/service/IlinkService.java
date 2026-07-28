@@ -11,6 +11,7 @@ import com.example.youkeda_project.ai.MusicTool;
 import com.example.youkeda_project.ai.PhoneLocationTool;
 import com.example.youkeda_project.ai.RecommendMusicTool;
 import com.example.youkeda_project.ai.RecognizeImageTool;
+import com.example.youkeda_project.ai.ScheduledTaskTool;
 import com.example.youkeda_project.ai.TravelTool;
 import com.example.youkeda_project.ai.SearchTool;
 import com.example.youkeda_project.ai.StockTool;
@@ -20,6 +21,7 @@ import com.example.youkeda_project.ai.TranslationTool;
 import com.example.youkeda_project.ai.TtsTool;
 import com.example.youkeda_project.ai.WeatherTool;
 import com.example.youkeda_project.client.IlinkProtocolClient;
+import com.example.youkeda_project.config.UserContextStore;
 import com.example.youkeda_project.protocol.GetUpdatesResponse;
 import com.example.youkeda_project.protocol.LoginResult;
 import com.example.youkeda_project.protocol.MessageItem;
@@ -73,6 +75,8 @@ public class IlinkService {
     private final RecommendMusicTool recommendMusicTool;
     private final TranslationTool translationTool;
     private final TravelTool travelTool;
+    private final ScheduledTaskTool scheduledTaskTool;
+    private final UserContextStore userContextStore;
 
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicBoolean polling = new AtomicBoolean(false);
@@ -92,8 +96,10 @@ public class IlinkService {
                         ConstellationTool constellationTool, PhoneLocationTool phoneLocationTool,
                         SearchTool searchTool,
                          MusicTool musicTool, RecommendMusicTool recommendMusicTool,
-                         TranslationTool translationTool,
-                         TravelTool travelTool) {
+                          TranslationTool translationTool,
+                          TravelTool travelTool,
+                          ScheduledTaskTool scheduledTaskTool,
+                          UserContextStore userContextStore) {
         this.client = client;
         this.weatherService = weatherService;
         this.aiService = aiService;
@@ -114,6 +120,8 @@ public class IlinkService {
         this.recommendMusicTool = recommendMusicTool;
         this.translationTool = translationTool;
         this.travelTool = travelTool;
+        this.scheduledTaskTool = scheduledTaskTool;
+        this.userContextStore = userContextStore;
     }
 
     /**
@@ -208,6 +216,7 @@ public class IlinkService {
                                     log.info("微信消息 from={}, [文件]", fromUser);
                                     System.out.println("\n[微信] " + fromUser + ": [文件]");
                                 }
+                                userContextStore.updateToken(fromUser, msg.contextToken());
                                 handleMessage(msg);
                             }
                         }
@@ -304,7 +313,7 @@ public class IlinkService {
                 }
 
                 // 无图片上下文，走普通对话
-                List<Tool> voiceTools = List.of(weatherTool, imageTool, ttsTool, searchTool, stockTool, musicTool, recommendMusicTool);
+                List<Tool> voiceTools = List.of(weatherTool, imageTool, ttsTool, searchTool, stockTool, musicTool, recommendMusicTool, scheduledTaskTool);
                 ChatResult result = aiService.chat(fromUser, transcribedText, voiceTools);
                 String reply = result.getReplyText();
 
@@ -389,7 +398,7 @@ public class IlinkService {
             System.out.println("[系统] " + fromUser + " 正在等待 AI 回复...");
             List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, searchTool, stockTool,
                 exchangeRateTool, dateTimeTool, constellationTool, phoneLocationTool,
-                musicTool, recommendMusicTool, translationTool, travelTool);
+                musicTool, recommendMusicTool, translationTool, travelTool, scheduledTaskTool);
             ChatResult result = aiService.chat(fromUser, text, allTools);
             String reply = result.getReplyText();
 
@@ -466,7 +475,7 @@ public class IlinkService {
         RecognizeImageTool recognizeTool = new RecognizeImageTool(aiService, fromUser, imageBytes);
         EditImageTool editTool = new EditImageTool(imageService, imageBytes);
         List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, searchTool,
-            musicTool, recommendMusicTool, recognizeTool, editTool);
+            musicTool, recommendMusicTool, recognizeTool, editTool, scheduledTaskTool);
 
         String contextMessage = "[系统提示：当前有一张待处理的图片。请根据用户的指令选择合适的工具。]\n"
             + "[如果用户想识别图片内容（这是什么、描述图片、提取文字等），请调用 recognize_image 工具]\n"

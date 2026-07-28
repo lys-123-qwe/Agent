@@ -170,7 +170,7 @@ public class AIService {
                             continue;
                         }
 
-                        Map<String, Object> args = parseArguments(tc.arguments());
+                        Map<String, Object> args = parseArguments(tc.arguments(), userId);
                         log.info("执行工具: {}({})", tc.functionName(), args);
 
                         ToolResult toolResult = matched.execute(args);
@@ -298,16 +298,20 @@ public class AIService {
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String, Object> parseArguments(String argumentsJson) {
+    private Map<String, Object> parseArguments(String argumentsJson, String userId) {
+        Map<String, Object> args;
         if (argumentsJson == null || argumentsJson.isBlank()) {
-            return Map.of();
+            args = new LinkedHashMap<>();
+        } else {
+            try {
+                args = objectMapper.readValue(argumentsJson, LinkedHashMap.class);
+            } catch (Exception e) {
+                log.warn("解析工具参数失败: {}", argumentsJson, e);
+                args = new LinkedHashMap<>();
+            }
         }
-        try {
-            return objectMapper.readValue(argumentsJson, LinkedHashMap.class);
-        } catch (Exception e) {
-            log.warn("解析工具参数失败: {}", argumentsJson, e);
-            return Map.of();
-        }
+        args.put("_user_id", userId);
+        return args;
     }
 
     private Tool findTool(String name, List<Tool> tools) {
