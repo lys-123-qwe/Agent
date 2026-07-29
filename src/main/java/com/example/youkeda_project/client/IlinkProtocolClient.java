@@ -95,10 +95,10 @@ public class IlinkProtocolClient {
     }
 
     /**
-     * 轮询二维码扫码状态。
+     * 轮询二维码扫码状态（使用更长超时避免网络波动导致超时）。
      */
     public LoginResult pollQRStatus(String qrcode) {
-        String json = restClient.get()
+        String json = buildTimeoutRestClient(this.baseUrl).get()
                 .uri("/ilink/bot/get_qrcode_status?qrcode=" + qrcode)
                 .retrieve()
                 .body(String.class);
@@ -843,12 +843,22 @@ public class IlinkProtocolClient {
      * 创建一个带超时的 RestClient（用于 ad-hoc CDN 下载/上传等）。
      */
     private static RestClient buildTimeoutRestClient() {
+        return buildTimeoutRestClient(null);
+    }
+
+    /**
+     * 创建一个带超时和 base URL 的 RestClient。
+     */
+    private static RestClient buildTimeoutRestClient(String baseUrl) {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(Duration.ofSeconds(10));
-        factory.setReadTimeout(Duration.ofSeconds(30));
-        return RestClient.builder()
-                .requestFactory(factory)
-                .build();
+        factory.setConnectTimeout(Duration.ofSeconds(15));
+        factory.setReadTimeout(Duration.ofSeconds(60));
+        RestClient.Builder builder = RestClient.builder()
+                .requestFactory(factory);
+        if (baseUrl != null && !baseUrl.isBlank()) {
+            builder.baseUrl(baseUrl);
+        }
+        return builder.build();
     }
 
     /**

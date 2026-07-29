@@ -39,7 +39,7 @@ public class FundTool implements Tool {
 
     @Override
     public String getDescription() {
-        return "查询基金的实时行情、最新净值或历史涨幅图表。"
+        return "查询基金的实时行情、最新净值或历史走势图。"
             + "ETF（场内基金）: 沪深300ETF(sh510300)、上证50ETF(sh510050)、创业板ETF(sz159915)、"
             + "芯片ETF(sz159995)、新能源ETF(sh516160)、医药ETF(sh512010)、白酒ETF(sz159869)、"
             + "军工ETF(sh512660)、证券ETF(sh512880)、黄金ETF(sh518880)等。"
@@ -47,7 +47,7 @@ public class FundTool implements Tool {
             + "景顺长城新兴成长(260108)、富国天惠成长(161005)、兴全合润(163406)、"
             + "天弘沪深300(000961)、余额宝(000198)等。"
             + "支持中文名称（沪深300ETF/易方达蓝筹精选）或代码（510300/005827）。"
-            + "设置 days 参数可生成历史涨幅折线图（如 7天/30天/90天）。";
+            + "设置 days 参数可生成走势图（如 7天/30天/90天）。基金只有净值数据，仅支持折线图。";
     }
 
     @Override
@@ -68,7 +68,7 @@ public class FundTool implements Tool {
 
         Map<String, Object> days = new LinkedHashMap<>();
         days.put("type", "integer");
-        days.put("description", "查询最近N天的历史净值并生成涨幅折线图。"
+        days.put("description", "查询最近N天的历史净值并生成走势图。"
             + "7=近一周，30=近一月，90=近三月。不填或0=只查实时行情。");
         properties.put("days", days);
 

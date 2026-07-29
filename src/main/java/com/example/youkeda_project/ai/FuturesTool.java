@@ -51,7 +51,7 @@ public class FuturesTool implements Tool {
             + "白糖(nf_SR0)、棉花(nf_CF0)、苹果(nf_AP0)、生猪(nf_LH0)、鸡蛋(nf_JD0)、花生(nf_PK0)。"
             + "股指期货: 沪深300(nf_IF0)、中证500(nf_IC0)、上证50(nf_IH0)、中证1000(nf_IM0)。"
             + "国债期货: 十年国债(nf_T0)、五年国债(nf_TF0)、两年国债(nf_TS0)。"
-            + "支持中文名称、代码或简称。设置 days 参数可生成历史涨幅折线图。"
+             + "支持中文名称、代码或简称。设置 days 参数可生成走势图（chart_type=line 折线图，chart_type=candlestick K线图）。"
             + "注意: 国际期货(hf_)暂不支持历史K线图表，建议使用国内品种(如沪金/沪银)。";
     }
 
@@ -74,9 +74,15 @@ public class FuturesTool implements Tool {
 
         Map<String, Object> days = new LinkedHashMap<>();
         days.put("type", "integer");
-        days.put("description", "查询最近N个交易日的历史数据并生成涨幅折线图。"
+        days.put("description", "查询最近N个交易日的历史数据并生成走势图。"
             + "7=近一周，30=近一月，90=近三月。不填或0=只查实时行情。");
         properties.put("days", days);
+
+        Map<String, Object> chartType = new LinkedHashMap<>();
+        chartType.put("type", "string");
+        chartType.put("description", "图表类型：不填=折线图（默认），line=折线图，candlestick=K线蜡烛图");
+        chartType.put("enum", java.util.List.of("line", "candlestick"));
+        properties.put("chart_type", chartType);
 
         params.put("properties", properties);
         params.put("required", java.util.List.of("futures"));
@@ -98,16 +104,19 @@ public class FuturesTool implements Tool {
             } catch (NumberFormatException ignored) {}
         }
 
-        log.info("FuturesTool 执行: futures={}, days={}", futures, days);
+        String chartType = arguments != null ? (String) arguments.get("chart_type") : null;
+        if (chartType == null || chartType.isBlank()) chartType = "line";
+
+        log.info("FuturesTool 执行: futures={}, days={}, chart_type={}", futures, days, chartType);
 
         if (days > 0) {
-            return generateChart(futures, days);
+            return generateChart(futures, days, chartType);
         }
 
         return ToolResult.text(futuresService.queryFutures(futures));
     }
 
-    private ToolResult generateChart(String futures, int days) {
+    private ToolResult generateChart(String futures, int days, String chartType) {
         List<FuturesService.KlineData> history = futuresService.getHistoricalKline(futures, days);
 
         if (history.size() < 2) {
@@ -115,38 +124,8 @@ public class FuturesTool implements Tool {
             return ToolResult.text(textResult + "\n\n⚠️ 历史数据不足，无法生成图表");
         }
 
-        // 解析品种名称（从代码映射）
         String displayName = resolveDisplayName(futures);
         String code = futures;
-
-        // 转换为 CandlestickPoint（含OHLC+成交量）
-        List<ChartService.CandlestickPoint> candlePoints = new ArrayList<>();
-        for (int i = 0; i < history.size(); i++) {
-            FuturesService.KlineData k = history.get(i);
-            String changePct = null;
-            if (i > 0) {
-                BigDecimal prevClose = new BigDecimal(history.get(i - 1).close());
-                BigDecimal close = new BigDecimal(k.close());
-                if (prevClose.compareTo(BigDecimal.ZERO) > 0) {
-                    changePct = close.subtract(prevClose)
-                        .divide(prevClose, 4, RoundingMode.HALF_UP)
-                        .multiply(new BigDecimal("100"))
-                        .setScale(2, RoundingMode.HALF_UP)
-                        .toString();
-                }
-            }
-            long vol = 0;
-            try { vol = Long.parseLong(k.volume()); } catch (NumberFormatException ignored) {}
-            candlePoints.add(new ChartService.CandlestickPoint(
-                k.date(),
-                new BigDecimal(k.open()),
-                new BigDecimal(k.high()),
-                new BigDecimal(k.low()),
-                new BigDecimal(k.close()),
-                vol,
-                changePct
-            ));
-        }
 
         String period = switch (days) {
             case 7 -> "近一周";
@@ -155,10 +134,57 @@ public class FuturesTool implements Tool {
             default -> "近" + days + "天";
         };
 
-        String title = displayName + "（" + code + "）";
-        String subtitle = period + "K线走势 · 含MA5/10/20均线";
+        byte[] chartBytes;
+        String title;
 
-        byte[] chartBytes = chartService.generateCandlestickChart(title, subtitle, candlePoints);
+        if ("candlestick".equals(chartType)) {
+            List<ChartService.CandlestickPoint> candlePoints = new ArrayList<>();
+            for (int i = 0; i < history.size(); i++) {
+                FuturesService.KlineData k = history.get(i);
+                String changePct = null;
+                if (i > 0) {
+                    BigDecimal prevClose = new BigDecimal(history.get(i - 1).close());
+                    BigDecimal close = new BigDecimal(k.close());
+                    if (prevClose.compareTo(BigDecimal.ZERO) > 0) {
+                        changePct = close.subtract(prevClose)
+                            .divide(prevClose, 4, RoundingMode.HALF_UP)
+                            .multiply(new BigDecimal("100"))
+                            .setScale(2, RoundingMode.HALF_UP)
+                            .toString();
+                    }
+                }
+                long vol = 0;
+                try { vol = Long.parseLong(k.volume()); } catch (NumberFormatException ignored) {}
+                candlePoints.add(new ChartService.CandlestickPoint(
+                    k.date(), new BigDecimal(k.open()), new BigDecimal(k.high()),
+                    new BigDecimal(k.low()), new BigDecimal(k.close()), vol, changePct
+                ));
+            }
+            title = displayName + "（" + code + "）";
+            String subtitle = period + "K线走势";
+            chartBytes = chartService.generateCandlestickChart(title, subtitle, candlePoints);
+        } else {
+            List<ChartService.ChartPoint> linePoints = new ArrayList<>();
+            for (int i = 0; i < history.size(); i++) {
+                FuturesService.KlineData k = history.get(i);
+                String changePct = null;
+                if (i > 0) {
+                    BigDecimal prevClose = new BigDecimal(history.get(i - 1).close());
+                    BigDecimal close = new BigDecimal(k.close());
+                    if (prevClose.compareTo(BigDecimal.ZERO) > 0) {
+                        changePct = close.subtract(prevClose)
+                            .divide(prevClose, 4, RoundingMode.HALF_UP)
+                            .multiply(new BigDecimal("100"))
+                            .setScale(2, RoundingMode.HALF_UP)
+                            .toString();
+                    }
+                }
+                linePoints.add(new ChartService.ChartPoint(k.date(), new BigDecimal(k.close()), changePct));
+            }
+            title = displayName + "（" + code + "）" + period + "收盘价走势";
+            chartBytes = chartService.generateChart(title, null, linePoints);
+        }
+
         if (chartBytes == null) {
             return ToolResult.text("⚠️ 图表生成失败");
         }

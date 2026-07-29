@@ -21,7 +21,7 @@ import com.example.youkeda_project.ai.FortuneTool;
 import com.example.youkeda_project.ai.FundTool;
 import com.example.youkeda_project.ai.FuturesTool;
 import com.example.youkeda_project.ai.CopywritingTool;
-
+import com.example.youkeda_project.ai.FinancialAnalysisTool;
 import com.example.youkeda_project.client.IlinkProtocolClient;
 import com.example.youkeda_project.protocol.GetUpdatesResponse;
 import com.example.youkeda_project.protocol.LoginResult;
@@ -30,6 +30,8 @@ import com.example.youkeda_project.protocol.QRCodeResponse;
 import com.example.youkeda_project.protocol.FileItem;
 import com.example.youkeda_project.protocol.VoiceItem;
 import com.example.youkeda_project.protocol.WeixinMessage;
+import com.example.youkeda_project.service.SessionPersistenceService;
+import com.example.youkeda_project.service.WeChatSession;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -79,6 +81,9 @@ public class IlinkService {
     private final FortuneTool fortuneTool;
     private final FundTool fundTool;
     private final FuturesTool futuresTool;
+    private final FinancialAnalysisTool financialAnalysisTool;
+    private final SessionPersistenceService sessionPersistenceService;
+
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicBoolean polling = new AtomicBoolean(false);
     private final java.util.concurrent.ConcurrentHashMap<String, byte[]> pendingImages = new java.util.concurrent.ConcurrentHashMap<>();
@@ -98,9 +103,11 @@ public class IlinkService {
                          MusicTool musicTool, RecommendMusicTool recommendMusicTool,
                          TranslationTool translationTool,
                          CopywritingTool copywritingTool,
-                          FortuneTool fortuneTool,
-                          FundTool fundTool,
-                          FuturesTool futuresTool) {
+                         FortuneTool fortuneTool,
+                         FundTool fundTool,
+                         FuturesTool futuresTool,
+                         FinancialAnalysisTool financialAnalysisTool,
+                         SessionPersistenceService sessionPersistenceService) {
         this.client = client;
         this.weatherService = weatherService;
         this.aiService = aiService;
@@ -123,17 +130,26 @@ public class IlinkService {
         this.fortuneTool = fortuneTool;
         this.fundTool = fundTool;
         this.futuresTool = futuresTool;
+        this.financialAnalysisTool = financialAnalysisTool;
+        this.sessionPersistenceService = sessionPersistenceService;
     }
 
     /**
      * 启动 iLink 登录流程：
-     * 1. 获取 QR 码展示给用户
-     * 2. 每 2s 轮询扫码状态
-     * 3. 状态 confirmed 后保存凭据，启动消息轮询
+     * 1. 先尝试从持久化存储恢复会话
+     * 2. 如果恢复失败，获取 QR 码展示给用户扫码登录
      */
     public String start() {
         if (connected.get()) {
             return "iLink 已经连接";
+        }
+
+        // 先尝试恢复已保存的会话
+        if (tryRestoreSession()) {
+            log.info("已恢复会话，无需扫码登录");
+            System.out.println("\n[系统] 已恢复会话，无需扫码登录");
+            startPolling();
+            return "会话已恢复，无需扫码";
         }
 
         try {
@@ -156,6 +172,14 @@ public class IlinkService {
                     ownerWelcomed = false;
                     log.info("登录成功, botId={}, userId={}", result.botId(), ownerId);
                     System.out.println("\n[系统] iLink 登录成功! BotID=" + result.botId());
+
+                    // 登录成功后自动保存会话到持久化存储
+                    sessionPersistenceService.saveSessionState(
+                        ownerId, "default",
+                        result.botToken(), result.baseurl(),
+                        result.botId(), result.userId(), "");
+                    log.info("会话已持久化: {}", ownerId);
+
                     startPolling();
                     return "登录成功";
                 } else if ("expired".equals(status)) {
@@ -171,6 +195,55 @@ public class IlinkService {
         } catch (Exception e) {
             log.error("iLink登录失败", e);
             return "登录失败: " + e.getMessage();
+        }
+    }
+
+    /**
+     * 尝试从持久化存储恢复会话
+     */
+    private boolean tryRestoreSession() {
+        try {
+            // 从持久化存储加载会话索引
+            List<SessionPersistenceService.SessionMeta> metas = sessionPersistenceService.loadIndex();
+            if (metas.isEmpty()) {
+                log.debug("没有找到持久化的会话");
+                return false;
+            }
+
+            // 尝试加载第一个可用的会话（最新的）
+for (SessionPersistenceService.SessionMeta meta : metas) {
+                var state = sessionPersistenceService.loadState(meta.sessionId());
+                if (state != null && state.botToken() != null && state.baseUrl() != null) {
+                    log.info("尝试恢复会话: {}", meta.sessionId());
+
+                    // 恢复凭据
+                    client.setCredentials(state.botToken(), state.baseUrl());
+
+                    // 验证会话是否有效
+                    try {
+                        GetUpdatesResponse resp = client.getUpdates(state.cursor() != null ? state.cursor() : "");
+                        if (resp != null) {
+                            connected.set(true);
+                            ownerId = state.userId();
+                            ownerWelcomed = false;
+                            log.info("会话恢复成功: sessionId={}, botId={}, userId={}",
+                                    meta.sessionId(), state.botId(), state.userId());
+                            System.out.println("\n[系统] 会话恢复成功！BotID=" + state.botId());
+                            return true;
+                        }
+                    } catch (Exception e) {
+                        log.warn("恢复会话 {} 失败: {}", meta.sessionId(), e.getMessage());
+                        // 继续尝试下一个会话
+                    }
+                }
+            }
+
+            log.debug("所有持久化会话均已失效或无法恢复");
+            return false;
+
+        } catch (Exception e) {
+            log.warn("恢复会话时发生错误: {}", e.getMessage());
+            return false;
         }
     }
 
@@ -283,7 +356,7 @@ public class IlinkService {
                     log.warn("语音识别失败: {}", transcribedText);
                     System.out.println("[微信] " + fromUser + " 语音识别失败: " + transcribedText);
                     // 发送友好的错误提示给用户
-                    String userMessage = getVoiceErrorMessage(transcribedText);
+                    String userMessage = IlinkService.getVoiceErrorMessage(transcribedText);
                     client.sendMessage(fromUser, msg.contextToken(),
                         List.of(MessageItem.text(userMessage)));
                     return;
@@ -401,7 +474,8 @@ public class IlinkService {
             System.out.println("[系统] " + fromUser + " 正在等待 AI 回复...");
             List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, searchTool, stockTool,
                 exchangeRateTool, dateTimeTool, phoneLocationTool,
-                musicTool, recommendMusicTool, translationTool, copywritingTool, fortuneTool, fundTool, futuresTool);
+                musicTool, recommendMusicTool, translationTool, copywritingTool, fortuneTool, fundTool, futuresTool,
+                financialAnalysisTool);
             ChatResult result = aiService.chat(fromUser, text, allTools);
             String reply = result.getReplyText();
 
@@ -590,25 +664,9 @@ public class IlinkService {
 
     private final SessionManager sessionManager = new SessionManager();
 
-    public static String getVoiceErrorMessage(String technicalError) {
-        if (technicalError.contains("音频数据为空") || technicalError.contains("The audio is empty")) {
-            return "抱歉，我没有听清您说的话，请再试一次（语音不要太短）";
-        }
-        if (technicalError.contains("未能从响应中提取识别文本")) {
-            return "抱歉，语音识别没有返回结果，请再试一次";
-        }
-        if (technicalError.contains("未配置阿里云 API Key")) {
-            return "语音识别服务暂时不可用，请稍后再试";
-        }
-        if (technicalError.contains("语音识别失败")) {
-            return "语音识别失败，请再试一次";
-        }
-        return "抱歉，语音识别出现问题，请再试一次";
-    }
+    // ==================== CliRunner 兼容方法 ====================
 
-    public int restoreAll() { return connected.get() ? 1 : 0; }
-
-    public java.util.List<SessionInfo> listSessions() {
+    public List<SessionInfo> listSessions() {
         if (ownerId != null && connected.get()) {
             return java.util.List.of(new SessionInfo(ownerId, ownerId.substring(0, Math.min(8, ownerId.length())),
                 "default", "LOGGED_IN", ownerId, polling.get(), ownerId));
@@ -616,28 +674,97 @@ public class IlinkService {
         return java.util.List.of();
     }
 
-    public int getSessionCount() { return connected.get() ? 1 : 0; }
+    public int getSessionCount() {
+        return connected.get() ? 1 : 0;
+    }
 
-    public SessionManager getSessionManager() { return sessionManager; }
+    public SessionManager getSessionManager() {
+        return sessionManager;
+    }
 
-    public void stopListening(String sessionId) { /* single-session: no-op */ }
-    public void stopListening() { polling.set(false); }
+    public void stopListening(String sessionId) {
+        polling.set(false);
+    }
 
-    public void logout() { stop(); }
-    public void logoutAll() { stop(); }
-    public void saveAll() { /* no-op */ }
+    public void stopListening() {
+        polling.set(false);
+    }
+
+    public void logout() {
+        stop();
+    }
+
+    public void logoutAll() {
+        stop();
+    }
+
+    public void saveAll() {
+        // 当前单会话模式下，会话状态已在登录成功时自动持久化
+        // WeChatSessionManager 是多会话管理的正确方式，这里仅作兼容处理
+        log.info("保存会话状态 (单会话模式，实际由 WeChatSessionManager 管理持久化)");
+    }
+
+    public int restoreAll() {
+        try {
+            // 从持久化存储加载会话索引
+            List<SessionPersistenceService.SessionMeta> metas = sessionPersistenceService.loadIndex();
+            if (metas.isEmpty()) {
+                return 0;
+            }
+
+            int restored = 0;
+            for (SessionPersistenceService.SessionMeta meta : metas) {
+                var state = sessionPersistenceService.loadState(meta.sessionId());
+                if (state != null && state.botToken() != null && state.baseUrl() != null) {
+                    // 恢复凭据
+                    client.setCredentials(state.botToken(), state.baseUrl());
+
+                    // 验证会话是否有效
+                    try {
+                        GetUpdatesResponse resp = client.getUpdates(state.cursor() != null ? state.cursor() : "");
+                        if (resp != null) {
+                            connected.set(true);
+                            ownerId = state.userId();
+                            ownerWelcomed = false;
+                            log.info("自动恢复会话成功: sessionId={}, botId={}, userId={}",
+                                    meta.sessionId(), state.botId(), state.userId());
+                            restored++;
+                        }
+                    } catch (Exception e) {
+                        log.warn("恢复会话 {} 失败: {}", meta.sessionId(), e.getMessage());
+                    }
+                }
+            }
+
+            // 恢复成功且有连接，启动消息轮询
+            if (restored > 0 && connected.get()) {
+                startPolling();
+            }
+
+            return restored;
+        } catch (Exception e) {
+            log.warn("恢复会话时发生错误: {}", e.getMessage());
+            return 0;
+        }
+    }
+
+    // ==================== CliRunner 兼容方法 ====================
 
     public CliLoginResult login(String label) {
         String qr = start();
         String sid = ownerId != null ? ownerId : "pending";
         return new CliLoginResult(sid, qr, label != null ? label : "default", null);
     }
+
     public CliLoginResult loginNew() {
         String qr = start();
         String sid = ownerId != null ? ownerId : "pending";
         return new CliLoginResult(sid, qr, "default", null);
     }
-    public String login() { return start(); }
+
+    public String login() {
+        return start();
+    }
 
     public CliLoginResult waitForLogin(String sessionId, int timeoutMs) throws TimeoutException {
         long deadline = System.currentTimeMillis() + timeoutMs;
@@ -675,5 +802,21 @@ public class IlinkService {
     public void sendFile(String sessionId, String userId, String contextToken,
                          byte[] fileBytes, String fileName, long fileSize) throws Exception {
         client.uploadAndSendFile(userId, contextToken, fileBytes, fileName, (int) fileSize);
+    }
+
+    public static String getVoiceErrorMessage(String technicalError) {
+        if (technicalError.contains("音频数据为空") || technicalError.contains("The audio is empty")) {
+            return "抱歉，我没有听清您说的话，请再试一次（语音不要太短）";
+        }
+        if (technicalError.contains("未能从响应中提取识别文本")) {
+            return "抱歉，语音识别没有返回结果，请再试一次";
+        }
+        if (technicalError.contains("未配置阿里云 API Key")) {
+            return "语音识别服务暂时不可用，请稍后再试";
+        }
+        if (technicalError.contains("语音识别失败")) {
+            return "语音识别失败，请再试一次";
+        }
+        return "抱歉，语音识别出现问题，请再试一次";
     }
 }
