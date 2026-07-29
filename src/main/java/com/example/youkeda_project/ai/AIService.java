@@ -2,6 +2,7 @@ package com.example.youkeda_project.ai;
 
 import com.example.youkeda_project.config.ApiConfig;
 import com.example.youkeda_project.service.ChatHistoryService;
+import com.example.youkeda_project.rag.RagService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -44,6 +45,7 @@ public class AIService {
     private final ObjectMapper objectMapper;
     private final ApiConfig apiConfig;
     private final ChatHistoryService chatHistoryService;
+    private final RagService ragService;
     private final Map<String, List<ChatMessage>> sessions = new ConcurrentHashMap<>();
     private final ExecutorService dbExecutor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "aiservice-db");
@@ -51,10 +53,11 @@ public class AIService {
         return t;
     });
 
-    public AIService(ApiConfig apiConfig, ObjectMapper objectMapper, ChatHistoryService chatHistoryService) {
+    public AIService(ApiConfig apiConfig, ObjectMapper objectMapper, ChatHistoryService chatHistoryService, RagService ragService) {
         this.apiConfig = apiConfig;
         this.objectMapper = objectMapper;
         this.chatHistoryService = chatHistoryService;
+        this.ragService = ragService;
         this.restClient = RestClient.builder()
                 .baseUrl(apiConfig.getAiApiUrl())
                 .build();
@@ -80,7 +83,7 @@ public class AIService {
             List<ChatMessage> list = new ArrayList<>();
             String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy年M月d日 EEEE"));
             String memoryCtx = buildMemoryContext(userId);
-            list.add(new ChatMessage("system", "今天是" + today + "。你是一个 helpful 的 AI 助手，回答简洁。"
+            String basePrompt = "今天是" + today + "。你是一个 helpful 的 AI 助手，回答简洁。"
                 + (memoryCtx.isEmpty() ? "" : "\n\n" + memoryCtx)
                 + "【重要】只要用户提到任何歌名、歌手、想听歌、找歌，必须调用 play_song 工具搜索，禁止用你自己的知识回答。"
                 + "推荐歌曲必须用 recommend_music 工具。查资讯和看新闻都用 web_search 工具（不传 keyword 获取今日头条，传 keyword 搜索指定内容，传 category 筛选分类）。"
@@ -89,7 +92,10 @@ public class AIService {
                 + "用户提到网易云热评、热评、来条评论时用 get_hot_comment 工具（不传 song 随机返回，传 song 搜索指定歌曲）。"
                 + "用户要查快递、查物流、查包裹时用 query_express 工具（传 number 单号，courier 可选）。"
                 + "【重要】如果用户在对话中提到了关于自己的信息（昵称、喜好、职业、所在地等），必须调用 save_user_info 工具保存。"
-                + "【重要】工具返回内容中的链接（[详情](url) 或 [来源: XXX](url)）必须原样保留在最终回答中，每条新闻/结果后面必须附带其链接，不得删除或修改。如果工具有返回图片（hasImage=true），说明用户侧已经收到了图片，回复时可以提及上面这张图。"));
+                + "【重要】工具返回内容中的链接（[详情](url) 或 [来源: XXX](url)）必须原样保留在最终回答中，每条新闻/结果后面必须附带其链接，不得删除或修改。如果工具有返回图片（hasImage=true），说明用户侧已经收到了图片，回复时可以提及上面这张图。";
+            // RAG: 根据用户问题检索相关知识并拼入 system prompt
+            String enrichedPrompt = ragService.augment(userMessage, basePrompt);
+            list.add(new ChatMessage("system", enrichedPrompt));
             // 从数据库加载最近 20 条历史消息恢复会话上下文
             try {
                 List<Map<String, Object>> recentHistory = chatHistoryService.getHistory(userId, 30);

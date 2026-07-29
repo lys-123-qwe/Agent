@@ -27,8 +27,8 @@ public class CliRunner implements CommandLineRunner {
         嗨！我是 Claw 小助手 😊\n\
         查天气、看股票、搜新闻、聊天、画图……有啥需要直接跟我说就行～""";
 
-    /** All tools available for LLM Function Calling. */
-    private final List<Tool> TOOLS;
+    /** 自动收集所有 @Component Tool 实现，新增工具类无需手动注册 */
+    private final List<Tool> allTools;
 
     private final IlinkService ilinkService;
     private final AIService aiService;
@@ -36,23 +36,6 @@ public class CliRunner implements CommandLineRunner {
     private final VoiceService voiceService;
     private final TtsService ttsService;
     private final FileService fileService;
-
-    // Tool instances
-    private final WeatherTool weatherTool;
-    private final StockTool stockTool;
-    private final LogisticsTool logisticsTool;
-    private final HotCommentTool hotCommentTool;
-    private final ImageTool imageTool;
-    private final TtsTool ttsTool;
-    private final SearchTool searchTool;
-    private final ExchangeRateTool exchangeRateTool;
-    private final DateTimeTool dateTimeTool;
-    private final PhoneLocationTool phoneLocationTool;
-    private final MusicTool musicTool;
-    private final RecommendMusicTool recommendMusicTool;
-    private final TranslationTool translationTool;
-    private final MemoryTool memoryTool;
-    private final FinancialAnalysisTool financialAnalysisTool;
 
     // Per-user state
     private final Map<String, byte[]> pendingImages = new ConcurrentHashMap<>();
@@ -65,47 +48,14 @@ public class CliRunner implements CommandLineRunner {
                      VoiceService voiceService,
                      TtsService ttsService,
                      FileService fileService,
-                     WeatherTool weatherTool,
-                     StockTool stockTool,
-                     LogisticsTool logisticsTool,
-                     HotCommentTool hotCommentTool,
-                     ImageTool imageTool,
-                     TtsTool ttsTool,
-                     SearchTool searchTool,
-                     ExchangeRateTool exchangeRateTool,
-                     DateTimeTool dateTimeTool,
-                     PhoneLocationTool phoneLocationTool,
-                     MusicTool musicTool,
-                     RecommendMusicTool recommendMusicTool,
-                     TranslationTool translationTool,
-                     MemoryTool memoryTool,
-                     FinancialAnalysisTool financialAnalysisTool) {
+                     List<Tool> allTools) {
         this.ilinkService = ilinkService;
         this.aiService = aiService;
         this.imageService = imageService;
         this.voiceService = voiceService;
         this.ttsService = ttsService;
         this.fileService = fileService;
-        this.weatherTool = weatherTool;
-        this.stockTool = stockTool;
-        this.logisticsTool = logisticsTool;
-        this.hotCommentTool = hotCommentTool;
-        this.imageTool = imageTool;
-        this.ttsTool = ttsTool;
-        this.searchTool = searchTool;
-        this.exchangeRateTool = exchangeRateTool;
-        this.dateTimeTool = dateTimeTool;
-        this.phoneLocationTool = phoneLocationTool;
-        this.musicTool = musicTool;
-        this.recommendMusicTool = recommendMusicTool;
-        this.translationTool = translationTool;
-        this.memoryTool = memoryTool;
-        this.financialAnalysisTool = financialAnalysisTool;
-
-        this.TOOLS = List.of(weatherTool, stockTool, logisticsTool, hotCommentTool,
-                imageTool, ttsTool, searchTool, exchangeRateTool, dateTimeTool,
-                phoneLocationTool, musicTool, recommendMusicTool,
-                translationTool, memoryTool);
+        this.allTools = allTools;
     }
 
     @Override
@@ -218,7 +168,14 @@ public class CliRunner implements CommandLineRunner {
             }
             System.out.println("  ★ = default session");
         }
-        System.out.println("Tools: " + TOOLS.stream().map(Tool::getName).toList());
+        System.out.println("Tools: " + allTools.stream().map(Tool::getName).toList());
+    }
+
+    private Tool findTool(String name) {
+        for (Tool t : allTools) {
+            if (t.getName().equals(name)) return t;
+        }
+        return null;
     }
 
     // ==================== Direct tool commands ====================
@@ -228,7 +185,8 @@ public class CliRunner implements CommandLineRunner {
             System.out.println("Usage: weather <city>");
             return;
         }
-        System.out.println(weatherTool.execute(Map.of("location", city)).getText());
+        Tool t = findTool("get_weather");
+        if (t != null) System.out.println(t.execute(Map.of("location", city)).getText());
     }
 
     private void handleStock(String keyword) {
@@ -236,7 +194,8 @@ public class CliRunner implements CommandLineRunner {
             System.out.println("Usage: stock <name or code>");
             return;
         }
-        System.out.println(stockTool.execute(Map.of("stock", keyword)).getText());
+        Tool t = findTool("get_stock");
+        if (t != null) System.out.println(t.execute(Map.of("stock", keyword)).getText());
     }
 
     private void handleLogistics(String arg) {
@@ -247,11 +206,13 @@ public class CliRunner implements CommandLineRunner {
         String[] parts = arg.split("\\s+", 2);
         String number = parts[0];
         String courier = parts.length > 1 ? parts[1] : null;
-        System.out.println(logisticsTool.execute(Map.of("number", number, "courier", courier)).getText());
+        Tool t = findTool("query_express");
+        if (t != null) System.out.println(t.execute(Map.of("number", number, "courier", courier)).getText());
     }
 
     private void handleHotComment() {
-        System.out.println(hotCommentTool.execute(Map.of()).getText());
+        Tool t = findTool("get_hot_comment");
+        if (t != null) System.out.println(t.execute(Map.of()).getText());
     }
 
     private void handleChat(String message) {
@@ -260,7 +221,7 @@ public class CliRunner implements CommandLineRunner {
             return;
         }
         System.out.print("Thinking... ");
-        ChatResult result = aiService.chat("CLI", message, TOOLS);
+        ChatResult result = aiService.chat("CLI", message, allTools);
         System.out.println("\n" + result.getReplyText());
     }
 
@@ -290,7 +251,8 @@ public class CliRunner implements CommandLineRunner {
             return;
         }
         System.out.print("Generating... ");
-        System.out.println("\n" + imageTool.execute(Map.of("prompt", prompt)).getText());
+        Tool t = findTool("generate_image");
+        if (t != null) System.out.println("\n" + t.execute(Map.of("prompt", prompt)).getText());
     }
 
     private void handleTts(String args) {
@@ -507,11 +469,6 @@ public class CliRunner implements CommandLineRunner {
                 }
 
                 // Normal text → AI with Function Calling
-                List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, searchTool, stockTool,
-                    exchangeRateTool, dateTimeTool, phoneLocationTool,
-                    musicTool, recommendMusicTool, translationTool, hotCommentTool, logisticsTool,
-                    memoryTool, financialAnalysisTool);
-
                 ChatResult result = aiService.chat(userId, text, allTools);
                 String reply = result.getReplyText();
 
@@ -547,10 +504,7 @@ public class CliRunner implements CommandLineRunner {
                 log.info("语音转文字: {}", transcribedText);
                 System.out.println("[微信] " + userId + " (语音): " + transcribedText);
 
-                List<Tool> voiceTools = List.of(weatherTool, imageTool, ttsTool, searchTool,
-                    stockTool, musicTool, recommendMusicTool, hotCommentTool,
-                    logisticsTool, memoryTool, financialAnalysisTool);
-                ChatResult result = aiService.chat(userId, transcribedText, voiceTools);
+                ChatResult result = aiService.chat(userId, transcribedText, allTools);
                 String reply = result.getReplyText();
 
                 reply = handleMediaResult(sessionId, userId, contextToken, result, reply);
@@ -583,8 +537,7 @@ public class CliRunner implements CommandLineRunner {
 
         RecognizeImageTool recognizeTool = new RecognizeImageTool(aiService, userId, imageBytes);
         EditImageTool editTool = new EditImageTool(imageService, imageBytes);
-        List<Tool> imgTools = new ArrayList<>(List.of(weatherTool, imageTool, ttsTool, searchTool,
-            musicTool, recommendMusicTool, hotCommentTool, logisticsTool));
+        List<Tool> imgTools = new ArrayList<>(allTools);
         imgTools.add(recognizeTool);
         imgTools.add(editTool);
 

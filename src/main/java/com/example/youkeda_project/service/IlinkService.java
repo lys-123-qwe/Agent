@@ -66,22 +66,7 @@ public class IlinkService {
     private final VoiceService voiceService;
     private final TtsService ttsService;
     private final FileService fileService;
-    private final WeatherTool weatherTool;
-    private final ImageTool imageTool;
-    private final TtsTool ttsTool;
-    private final StockTool stockTool;
-    private final ExchangeRateTool exchangeRateTool;
-    private final DateTimeTool dateTimeTool;
-    private final PhoneLocationTool phoneLocationTool;
-    private final SearchTool searchTool;
-    private final MusicTool musicTool;
-    private final RecommendMusicTool recommendMusicTool;
-    private final TranslationTool translationTool;
-    private final CopywritingTool copywritingTool;
-    private final FortuneTool fortuneTool;
-    private final FundTool fundTool;
-    private final FuturesTool futuresTool;
-    private final FinancialAnalysisTool financialAnalysisTool;
+    private final List<Tool> allTools;
     private final SessionPersistenceService sessionPersistenceService;
 
     private final AtomicBoolean connected = new AtomicBoolean(false);
@@ -95,19 +80,8 @@ public class IlinkService {
     public IlinkService(IlinkProtocolClient client, WeatherService weatherService,
                         AIService aiService, ImageService imageService, VoiceService voiceService,
                         TtsService ttsService, FileService fileService,
-                        WeatherTool weatherTool, ImageTool imageTool, TtsTool ttsTool,
-                        StockTool stockTool,
-                        ExchangeRateTool exchangeRateTool, DateTimeTool dateTimeTool,
-                        PhoneLocationTool phoneLocationTool,
-                        SearchTool searchTool,
-                         MusicTool musicTool, RecommendMusicTool recommendMusicTool,
-                         TranslationTool translationTool,
-                         CopywritingTool copywritingTool,
-                         FortuneTool fortuneTool,
-                         FundTool fundTool,
-                         FuturesTool futuresTool,
-                         FinancialAnalysisTool financialAnalysisTool,
-                         SessionPersistenceService sessionPersistenceService) {
+                        List<Tool> allTools,
+                        SessionPersistenceService sessionPersistenceService) {
         this.client = client;
         this.weatherService = weatherService;
         this.aiService = aiService;
@@ -115,22 +89,7 @@ public class IlinkService {
         this.voiceService = voiceService;
         this.ttsService = ttsService;
         this.fileService = fileService;
-        this.weatherTool = weatherTool;
-        this.imageTool = imageTool;
-        this.ttsTool = ttsTool;
-        this.stockTool = stockTool;
-        this.exchangeRateTool = exchangeRateTool;
-        this.dateTimeTool = dateTimeTool;
-        this.phoneLocationTool = phoneLocationTool;
-        this.searchTool = searchTool;
-        this.musicTool = musicTool;
-        this.recommendMusicTool = recommendMusicTool;
-        this.translationTool = translationTool;
-        this.copywritingTool = copywritingTool;
-        this.fortuneTool = fortuneTool;
-        this.fundTool = fundTool;
-        this.futuresTool = futuresTool;
-        this.financialAnalysisTool = financialAnalysisTool;
+        this.allTools = allTools;
         this.sessionPersistenceService = sessionPersistenceService;
     }
 
@@ -386,7 +345,7 @@ for (SessionPersistenceService.SessionMeta meta : metas) {
                 }
 
                 // 无图片上下文，走普通对话
-                List<Tool> voiceTools = List.of(weatherTool, imageTool, ttsTool, searchTool, stockTool, musicTool, recommendMusicTool, copywritingTool, fortuneTool, fundTool, futuresTool);
+                List<Tool> voiceTools = allTools;
                 ChatResult result = aiService.chat(fromUser, transcribedText, voiceTools);
                 String reply = result.getReplyText();
 
@@ -472,10 +431,6 @@ for (SessionPersistenceService.SessionMeta meta : metas) {
 
             // Function Calling：将所有工具传递给 DeepSeek，由模型自主决定调用哪些
             System.out.println("[系统] " + fromUser + " 正在等待 AI 回复...");
-            List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, searchTool, stockTool,
-                exchangeRateTool, dateTimeTool, phoneLocationTool,
-                musicTool, recommendMusicTool, translationTool, copywritingTool, fortuneTool, fundTool, futuresTool,
-                financialAnalysisTool);
             ChatResult result = aiService.chat(fromUser, text, allTools);
             String reply = result.getReplyText();
 
@@ -554,8 +509,9 @@ for (SessionPersistenceService.SessionMeta meta : metas) {
 
         RecognizeImageTool recognizeTool = new RecognizeImageTool(aiService, fromUser, imageBytes);
         EditImageTool editTool = new EditImageTool(imageService, imageBytes);
-        List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, searchTool,
-            musicTool, recommendMusicTool, recognizeTool, editTool);
+        List<Tool> allTools = new java.util.ArrayList<>(this.allTools);
+        allTools.add(recognizeTool);
+        allTools.add(editTool);
 
         String contextMessage = "[系统提示：当前有一张待处理的图片。请根据用户的指令选择合适的工具。]\n"
             + "[如果用户想识别图片内容（这是什么、描述图片、提取文字等），请调用 recognize_image 工具]\n"
