@@ -63,6 +63,15 @@ public class ChatResult {
                 .findFirst().orElse(null);
     }
 
+    /** 获取所有待上传的图片字节 */
+    public List<byte[]> getAllPendingImageBytes() {
+        return pendingMedia.stream()
+                .filter(ToolResult::hasImage)
+                .map(ToolResult::getImageBytes)
+                .filter(bytes -> bytes != null && bytes.length > 0)
+                .toList();
+    }
+
     /** 获取待发送的第一个音频 */
     public ToolResult getFirstPendingAudio() {
         return pendingMedia.stream()

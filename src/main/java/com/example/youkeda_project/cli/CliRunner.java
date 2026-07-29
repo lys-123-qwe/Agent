@@ -571,16 +571,10 @@ public class CliRunner implements CommandLineRunner {
     /** Handle media side-effects from AI tool results. Returns augmented reply text. */
     private String handleMediaResult(String sessionId, String userId, String contextToken,
                                      ChatResult result, String reply) {
-        if (result.hasPendingImage()) {
-            byte[] imageBytes = result.getFirstPendingImageBytes();
-            String imageUrl = imageBytes == null ? result.getFirstPendingImageUrl() : null;
-            if (imageUrl != null) lastGeneratedImageUrl.put(userId, imageUrl);
+        for (byte[] imgBytes : result.getAllPendingImageBytes()) {
             System.out.println("[系统] 图片已生成，正在上传...");
             try {
-                if (imageBytes == null) {
-                    imageBytes = imageService.downloadImage(imageUrl);
-                }
-                ilinkService.sendImage(sessionId, userId, contextToken, imageBytes);
+                ilinkService.sendImage(sessionId, userId, contextToken, imgBytes);
                 log.info("已发送图片到 {}", userId);
             } catch (Exception e) {
                 log.error("图片上传失败", e);

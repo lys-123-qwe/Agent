@@ -52,6 +52,79 @@ public class ChartService {
         public String getChangeStr() { return changeStr; }
     }
 
+    public record OverlaySeries(String name, Color color, List<ChartPoint> points) {}
+
+    public byte[] generateOverlayChart(String title, List<OverlaySeries> series) {
+        if (series == null || series.size() < 1) return null;
+        try {
+            BufferedImage img = new BufferedImage(800, 450, BufferedImage.TYPE_INT_RGB);
+            Graphics2D g = img.createGraphics();
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setColor(Color.WHITE);
+            g.fillRect(0, 0, 800, 450);
+
+            // 找出所有系列的数据范围（以百分比变化为基准归一化）
+            double min = 0, max = 0;
+            for (var s : series) {
+                double firstClose = s.points().get(0).getValue().doubleValue();
+                for (var p : s.points()) {
+                    double pct = (p.getValue().doubleValue() - firstClose) / firstClose * 100;
+                    if (pct < min) min = pct;
+                    if (pct > max) max = pct;
+                }
+            }
+            double pad = (max - min) * 0.1; if (pad == 0) pad = 1;
+            min -= pad; max += pad;
+
+            g.setFont(new Font("Microsoft YaHei", Font.BOLD, 14));
+            g.setColor(Color.DARK_GRAY);
+            g.drawString(title, 20, 25);
+
+            int w = 700, h = 330, x0 = 80, y0 = 50;
+            int maxLen = series.stream().mapToInt(s -> s.points().size()).max().orElse(0);
+
+            Color[] lineColors = {new Color(0xE53935), new Color(0x2196F3), new Color(0x4CAF50), new Color(0xFF9800)};
+
+            for (int si = 0; si < series.size(); si++) {
+                var s = series.get(si);
+                double base = s.points().get(0).getValue().doubleValue();
+                Color lineColor = lineColors[si % lineColors.length];
+                g.setColor(lineColor);
+                g.setStroke(new BasicStroke(2f));
+
+                for (int i = 1; i < s.points().size(); i++) {
+                    double v1 = (s.points().get(i - 1).getValue().doubleValue() - base) / base * 100;
+                    double v2 = (s.points().get(i).getValue().doubleValue() - base) / base * 100;
+                    int x1 = x0 + (int) ((i - 1) * (double) w / maxLen);
+                    int x2 = x0 + (int) (i * (double) w / maxLen);
+                    int y1 = y0 + (int) ((max - v1) / (max - min) * h);
+                    int y2 = y0 + (int) ((max - v2) / (max - min) * h);
+                    g.draw(new Line2D.Double(x1, y1, x2, y2));
+                }
+            }
+
+            // 图例
+            g.setFont(new Font("Microsoft YaHei", Font.PLAIN, 12));
+            int legX = 600, legY = 40;
+            for (int si = 0; si < series.size(); si++) {
+                var s = series.get(si);
+                Color c = lineColors[si % lineColors.length];
+                g.setColor(c);
+                g.fillRect(legX, legY + si * 20, 12, 12);
+                g.setColor(Color.DARK_GRAY);
+                g.drawString(s.name(), legX + 18, legY + si * 20 + 11);
+            }
+
+            g.dispose();
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            ImageIO.write(img, "png", baos);
+            return baos.toByteArray();
+        } catch (Exception e) {
+            log.warn("生成叠加图表失败", e);
+            return null;
+        }
+    }
+
     public byte[] generateChart(String title, String subtitle, List<ChartPoint> points) {
         if (points == null || points.size() < 2) return null;
         try {

@@ -92,7 +92,9 @@ public class AIService {
                 + "用户提到网易云热评、热评、来条评论时用 get_hot_comment 工具（不传 song 随机返回，传 song 搜索指定歌曲）。"
                 + "用户要查快递、查物流、查包裹时用 query_express 工具（传 number 单号，courier 可选）。"
                 + "【重要】如果用户在对话中提到了关于自己的信息（昵称、喜好、职业、所在地等），必须调用 save_user_info 工具保存。"
-                + "【重要】工具返回内容中的链接（[详情](url) 或 [来源: XXX](url)）必须原样保留在最终回答中，每条新闻/结果后面必须附带其链接，不得删除或修改。如果工具有返回图片（hasImage=true），说明用户侧已经收到了图片，回复时可以提及上面这张图。";
+                + "【重要】工具返回内容中的链接（[详情](url) 或 [来源: XXX](url)）必须原样保留在最终回答中，每条新闻/结果后面必须附带其链接，不得删除或修改。如果工具有返回图片（hasImage=true），说明用户侧已经收到了图片，回复时可以提及上面这张图。"
+                + "【市场概况回复格式】调用 market_overview 后：热点板块和汇率直接列数据无需分析，新闻逐条列出发链接（不要忽略工具返回的新闻，也不要自行概括说\u201C无相关新闻\u201D），最后用一两句话总结整体盘面。"
+                + "【对比分析回复格式】调用 compare_stocks 后：必须保留评分规则说明原文，不能省略或自行概括。";
             // RAG: 根据用户问题检索相关知识并拼入 system prompt
             String enrichedPrompt = ragService.augment(userMessage, basePrompt);
             list.add(new ChatMessage("system", enrichedPrompt));

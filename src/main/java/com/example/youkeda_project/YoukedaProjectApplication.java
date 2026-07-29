@@ -2,6 +2,7 @@ package com.example.youkeda_project;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Claw 助手入口。
@@ -12,6 +13,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * 支持多 Bot 同时登录（wechat login <label>）。
  */
 @SpringBootApplication
+@EnableScheduling
 public class YoukedaProjectApplication {
 
     public static void main(String[] args) {

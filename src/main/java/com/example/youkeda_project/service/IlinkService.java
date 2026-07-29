@@ -349,16 +349,10 @@ for (SessionPersistenceService.SessionMeta meta : metas) {
                 ChatResult result = aiService.chat(fromUser, transcribedText, voiceTools);
                 String reply = result.getReplyText();
 
-                if (result.hasPendingImage()) {
-                    byte[] imageBytes = result.getFirstPendingImageBytes();
-                    String imageUrl = imageBytes == null ? result.getFirstPendingImageUrl() : null;
-                    if (imageUrl != null) lastGeneratedImageUrl.put(fromUser, imageUrl);
+                for (byte[] imgBytes : result.getAllPendingImageBytes()) {
                     System.out.println("[系统] 图片已生成，正在上传到微信CDN...");
                     try {
-                        if (imageBytes == null) {
-                            imageBytes = imageService.downloadImage(imageUrl);
-                        }
-                        client.uploadAndSendImage(fromUser, msg.contextToken(), imageBytes);
+                        client.uploadAndSendImage(fromUser, msg.contextToken(), imgBytes);
                         log.info("已发送图片 {}", fromUser);
                         System.out.println("[系统] 图片已发送到微信");
                     } catch (Exception e) {
@@ -435,16 +429,11 @@ for (SessionPersistenceService.SessionMeta meta : metas) {
             String reply = result.getReplyText();
 
             // 处理工具产生的媒体侧效应（图片 CDN 上传、音频文件发送）
-            if (result.hasPendingImage()) {
-                byte[] imageBytes = result.getFirstPendingImageBytes();
-                String imageUrl = imageBytes == null ? result.getFirstPendingImageUrl() : null;
-                if (imageUrl != null) lastGeneratedImageUrl.put(fromUser, imageUrl);
+            List<byte[]> allImages = result.getAllPendingImageBytes();
+            for (byte[] imgBytes : allImages) {
                 System.out.println("[系统] 图片已生成，正在上传到微信CDN...");
                 try {
-                    if (imageBytes == null) {
-                        imageBytes = imageService.downloadImage(imageUrl);
-                    }
-                    client.uploadAndSendImage(fromUser, msg.contextToken(), imageBytes);
+                    client.uploadAndSendImage(fromUser, msg.contextToken(), imgBytes);
                     log.info("已发送图片 {}", fromUser);
                     System.out.println("[系统] 图片已发送到微信");
                 } catch (Exception e) {
