@@ -9,10 +9,10 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * 天气查询工具（Function Calling）。
+ * 天气查询工具(Function Calling).
  * <p>
- * 定义 get_weather 函数，供 DeepSeek 通过 Function Calling 调用。
- * 内部委托 WeatherService 执行实际查询。
+ * 定义 get_weather 函数,供 DeepSeek 通过 Function Calling 调用.
+ * 内部委托 WeatherService 执行实际查询.
  */
 @Component
 public class WeatherTool implements Tool {
@@ -32,7 +32,7 @@ public class WeatherTool implements Tool {
 
     @Override
     public String getDescription() {
-        return "查询任意中国城市的实时天气信息，包括温度、湿度、风向等。通过高德地理编码获取城市坐标，再用和风天气API查询";
+        return "查询任意中国城市的实时天气信息,包括温度,湿度,风向等.通过高德地理编码获取城市坐标,再用和风天气API查询";
     }
 
     @Override
@@ -43,7 +43,7 @@ public class WeatherTool implements Tool {
         Map<String, Object> properties = new LinkedHashMap<>();
         Map<String, Object> location = new LinkedHashMap<>();
         location.put("type", "string");
-        location.put("description", "城市名，如：北京、上海、广州、深圳、杭州、成都、武汉、南京、西安、重庆、长沙等");
+        location.put("description", "城市名,如:北京,上海,广州,深圳,杭州,成都,武汉,南京,西安,重庆,长沙等");
         properties.put("location", location);
 
         params.put("properties", properties);

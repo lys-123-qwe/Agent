@@ -36,7 +36,7 @@ public class ApiConfig {
     public String getWeatherApiKey() { return weatherApiKey; }
     public String getWeatherApiUrl() { return weatherApiUrl; }
 
-    // ==================== AI 模型（DeepSeek） ====================
+    // ==================== AI 模型(DeepSeek) ====================
     @Value("${ai.api.key:}")
     private String aiApiKey;
 
@@ -52,7 +52,7 @@ public class ApiConfig {
     @Value("${ai.tool.max.rounds:8}")
     private int aiToolMaxRounds;
 
-    @Value("${ai.system.prompt:你是一个 helpful 的 AI 助手，回答简洁。}")
+    @Value("${ai.system.prompt:你是一个 helpful 的 AI 助手,回答简洁.}")
     private String aiSystemPrompt;
 
     public String getAiApiKey() { return aiApiKey; }
@@ -62,7 +62,7 @@ public class ApiConfig {
     public int getAiToolMaxRounds() { return aiToolMaxRounds; }
     public String getAiSystemPrompt() { return aiSystemPrompt; }
 
-    // ==================== 通义万相（图片生成） ====================
+    // ==================== 通义万相(图片生成) ====================
     @Value("${image.api.key:}")
     private String imageApiKey;
 
@@ -88,7 +88,7 @@ public class ApiConfig {
     public String getImageGenerateSize() { return imageGenerateSize; }
     public String getImageEditSize() { return imageEditSize; }
 
-    // ==================== 通义千问 VL（图片识别） ====================
+    // ==================== 通义千问 VL(图片识别) ====================
     @Value("${vision.api.url:https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions}")
     private String visionApiUrl;
 
@@ -99,7 +99,7 @@ public class ApiConfig {
     public String getVisionApiUrl() { return visionApiUrl; }
     public String getVisionModel() { return visionModel; }
 
-    // ==================== 语音识别（阿里云 ASR） ====================
+    // ==================== 语音识别(阿里云 ASR) ====================
     @Value("${voice.asr.api.url:https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation}")
     private String voiceAsrApiUrl;
 

@@ -27,22 +27,22 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * iLink 协议 HTTP 客户端。
- * <p>
- * 自实现 iLink 协议所有关键接口，无官方 SDK：
- * - 扫码登录：getQRCode → pollQRStatus
- * - 消息拉取：getUpdates（长轮询 35s）
- * - 消息发送：sendMessage（文本/图片）
- * - 图片收发完整链路：通义万相生图 → OSS 下载 → AES-128-ECB 加密 → CDN 上传 → 发送 image_item
- * - 图片接收：CDN 下载 → deriveAesKey() 兼容 3 种 key 格式 → AES 解密 → 传给通义千问 VL
- * <p>
- * 所有 HTTP 请求/响应使用 byte[] + UTF-8 编解码，避免 Windows 控制台 GBK 编码污染 JSON。
+ * iLink protocol HTTP client.
+ *
+ * <p>Implements key iLink interfaces without official SDK:
+ * - QR login: getQRCode → pollQRStatus
+ * - Message polling: getUpdates (long poll 35s)
+ * - Message sending: sendMessage (text/image)
+ * - Image upload/download with AES-128-ECB encryption/decryption
+ * - Voice download/upload helpers
  */
+@Component
 public class IlinkProtocolClient {
 
     private static final Logger log = LoggerFactory.getLogger(IlinkProtocolClient.class);
@@ -62,7 +62,7 @@ public class IlinkProtocolClient {
     }
 
     /**
-     * 设置登录后的凭据（botToken + baseUrl），baseUrl 变化时重建 RestClient。
+     * 设置登录后的凭据(botToken + baseUrl),baseUrl 变化时重建 RestClient.
      */
     public void setCredentials(String botToken, String baseUrl) {
         this.botToken = botToken;
@@ -82,7 +82,7 @@ public class IlinkProtocolClient {
     }
 
     /**
-     * 获取登录二维码 bot_type=3 表示第三方 Bot。
+     * 获取登录二维码 bot_type=3 表示第三方 Bot.
      */
     public QRCodeResponse getQRCode() {
         String json = restClient.get()
@@ -93,7 +93,7 @@ public class IlinkProtocolClient {
     }
 
     /**
-     * 轮询二维码扫码状态。
+     * 轮询二维码扫码状态.
      */
     public LoginResult pollQRStatus(String qrcode) {
         String json = restClient.get()
@@ -104,7 +104,7 @@ public class IlinkProtocolClient {
     }
 
     /**
-     * 长轮询拉取消息（35s 超时），通过 cursor 实现增量拉取。
+     * 长轮询拉取消息(35s 超时),通过 cursor 实现增量拉取.
      */
     public GetUpdatesResponse getUpdates(String cursor) {
         String body = "{\"get_updates_buf\":\"" + (cursor != null ? cursor : "") + "\"}";
@@ -113,8 +113,8 @@ public class IlinkProtocolClient {
     }
 
     /**
-     * 发送文本消息（可包含多项内容，如图文混排）。
-     * 使用 SendMessageRequest.items() 构造请求体。
+     * 发送文本消息(可包含多项内容,如图文混排).
+     * 使用 SendMessageRequest.items() 构造请求体.
      */
     public String sendMessage(String toUserId, String contextToken, List<MessageItem> items) {
         SendMessageRequest request = SendMessageRequest.items(toUserId, contextToken, items);
@@ -130,9 +130,9 @@ public class IlinkProtocolClient {
     }
 
     /**
-     * 从微信 CDN 下载图片并 AES-ECB 解密。
-     * 优先使用 fullUrl，否则使用 encryptQueryParam 拼装下载 URL。
-     * AES key 可能出现在 ImageItem.aeskey 或 CDNMedia.aesKey 中，两处都检查。
+     * 从微信 CDN 下载图片并 AES-ECB 解密.
+     * 优先使用 fullUrl,否则使用 encryptQueryParam 拼装下载 URL.
+     * AES key 可能出现在 ImageItem.aeskey 或 CDNMedia.aesKey 中,两处都检查.
      */
     public byte[] downloadAndDecryptImage(MessageItem item) {
         ImageItem imageItem = item.imageItem();
@@ -163,13 +163,13 @@ public class IlinkProtocolClient {
         log.info("CDN下载完成: {} bytes", encryptedBytes != null ? encryptedBytes.length : 0);
 
         if (aesKeyStr == null) {
-            log.warn("图片无AES key，返回原始密文");
+            log.warn("图片无AES key,返回原始密文");
             return encryptedBytes;
         }
 
         byte[] key = deriveAesKey(aesKeyStr);
         try {
-            // AES-128-ECB 解密，去除 PKCS5Padding
+            // AES-128-ECB 解密,去除 PKCS5Padding
             Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
             cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"));
             byte[] decrypted = cipher.doFinal(encryptedBytes);
@@ -184,8 +184,8 @@ public class IlinkProtocolClient {
     }
 
     /**
-     * 从微信 CDN 下载文件并 AES-ECB 解密。
-     * 流程与 downloadAndDecryptImage 相同，仅入参类型不同。
+     * 从微信 CDN 下载文件并 AES-ECB 解密.
+     * 流程与 downloadAndDecryptImage 相同,仅入参类型不同.
      */
     public byte[] downloadAndDecryptFile(FileItem fileItem) {
         if (fileItem == null || fileItem.media() == null) {
@@ -211,7 +211,7 @@ public class IlinkProtocolClient {
         log.info("文件CDN下载完成: {} bytes", encryptedBytes != null ? encryptedBytes.length : 0);
 
         if (aesKeyStr == null) {
-            log.warn("文件无AES key，返回原始密文");
+            log.warn("文件无AES key,返回原始密文");
             return encryptedBytes;
         }
 
@@ -231,8 +231,8 @@ public class IlinkProtocolClient {
     }
 
     /**
-     * 将 AES key 从不同格式统一转换为 16 字节密钥。
-     * 兼容格式：
+     * 将 AES key 从不同格式统一转换为 16 字节密钥.
+     * 兼容格式:
      * 1. 32 位 hex 字符串直接解析
      * 2. base64 解码后是 32 字节 hex 字符串
      * 3. base64 解码后直接是 16 字节密钥
@@ -253,7 +253,7 @@ public class IlinkProtocolClient {
             throw new RuntimeException("无法解析AES key: " + aesKeyStr);
         }
 
-        // 情况 2: 解码后是一段 32 位 hex 字符串（如 "aabb..." 的 ASCII 字节）
+        // 情况 2: 解码后是一段 32 位 hex 字符串(如 "aabb..." 的 ASCII 字节)
         if (decoded.length == 32) {
             String asHex = new String(decoded, StandardCharsets.UTF_8);
             if (asHex.matches("^[0-9a-fA-F]{32}$")) {
@@ -266,28 +266,28 @@ public class IlinkProtocolClient {
             return decoded;
         }
 
-        throw new RuntimeException("无法解析AES key，长度不匹配: " + aesKeyStr);
+        throw new RuntimeException("无法解析AES key,长度不匹配: " + aesKeyStr);
     }
 
     /**
-     * 完整图片发送链路：
+     * 完整图片发送链路:
      * 1. 生成随机 AES 密钥
      * 2. 调用 getUploadUrl 获取 CDN 上传地址
      * 3. AES-128-ECB 加密图片字节
      * 4. POST 密文到 CDN
-     * 5. 从响应 header（x-encrypted-param）获取加密查询参数
+     * 5. 从响应 header(x-encrypted-param)获取加密查询参数
      * 6. 构造 CDNMedia + SendMessageRequest 发送 image_item
      */
     public void uploadAndSendImage(String toUserId, String contextToken, byte[] imageBytes) {
         try {
-            // 步骤 1: 生成随机 AES 密钥（16 字节）
+            // 步骤 1: 生成随机 AES 密钥(16 字节)
             byte[] aesKeyBytes = new byte[16];
             ThreadLocalRandom.current().nextBytes(aesKeyBytes);
             String aesKeyHex = HexFormat.of().formatHex(aesKeyBytes);
 
             String fileKey = generateFileKey();
 
-            // 步骤 2: 计算 MD5 和补齐后的文件大小（AES 要求 16 字节对齐）
+            // 步骤 2: 计算 MD5 和补齐后的文件大小(AES 要求 16 字节对齐)
             byte[] md5Bytes = MessageDigest.getInstance("MD5").digest(imageBytes);
             String md5Hex = HexFormat.of().formatHex(md5Bytes);
 
@@ -347,9 +347,9 @@ public class IlinkProtocolClient {
     }
 
     /**
-     * 将 AES 加密后的图片字节 POST 到微信 CDN。
-     * 支持两种上传方式：upload_full_url（直连）或 CDN_BASE + upload_param。
-     * 上传成功后从响应 header 中获取 x-encrypted-param。
+     * 将 AES 加密后的图片字节 POST 到微信 CDN.
+     * 支持两种上传方式:upload_full_url(直连)或 CDN_BASE + upload_param.
+     * 上传成功后从响应 header 中获取 x-encrypted-param.
      */
     private String uploadToCdn(byte[] encryptedBytes, String uploadFullUrl, String uploadParam, String fileKey) {
         String cdnUrl;
@@ -384,7 +384,7 @@ public class IlinkProtocolClient {
     }
 
     /**
-     * 生成随机 16 字节 hex 字符串作为 fileKey。
+     * 生成随机 16 字节 hex 字符串作为 fileKey.
      */
     private String generateFileKey() {
         byte[] bytes = new byte[16];
@@ -393,13 +393,13 @@ public class IlinkProtocolClient {
     }
 
     /**
-     * 带鉴权的 POST 请求。
-     * 使用 byte[] + UTF-8 编解码避免 GBK 编码污染。
-     * 必须携带 Authorization + X-WECHAT-UIN 两个 HTTP header。
+     * 带鉴权的 POST 请求.
+     * 使用 byte[] + UTF-8 编解码避免 GBK 编码污染.
+     * 必须携带 Authorization + X-WECHAT-UIN 两个 HTTP header.
      */
     private String postWithAuth(String path, String body, int timeoutMs) {
         if (botToken == null || botToken.isBlank()) {
-            throw new IllegalStateException("未登录，缺少 bot_token");
+            throw new IllegalStateException("未登录,缺少 bot_token");
         }
         byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
         byte[] responseBytes = restClient.post()
@@ -415,10 +415,10 @@ public class IlinkProtocolClient {
     }
 
     /**
-     * 从 VoiceItem 中提取公开可访问的 CDN 下载 URL（用于传给外部 ASR 服务）。
+     * 从 VoiceItem 中提取公开可访问的 CDN 下载 URL(用于传给外部 ASR 服务).
      * <p>
-     * 优先通过 media.encrypt_query_param 拼接 URL（避免 fullUrl 中的 taskid 等追踪参数），
-     * 否则使用 media.fullUrl 并去除 taskid，最后降级到 voice_url 直链。
+     * 优先通过 media.encrypt_query_param 拼接 URL(避免 fullUrl 中的 taskid 等追踪参数),
+     * 否则使用 media.fullUrl 并去除 taskid,最后降级到 voice_url 直链.
      */
     public String getVoiceDownloadUrl(VoiceItem voiceItem) {
         if (voiceItem == null) {
@@ -427,7 +427,7 @@ public class IlinkProtocolClient {
 
         CDNMedia media = voiceItem.media();
 
-        // 优先用 encryptQueryParam 构造，避免 fullUrl 里的 taskid 等额外参数
+        // 优先用 encryptQueryParam 构造,避免 fullUrl 里的 taskid 等额外参数
         if (media != null && media.encryptQueryParam() != null && !media.encryptQueryParam().isBlank()) {
             return CDN_BASE + "/download?encrypted_query_param="
                 + URLEncoder.encode(media.encryptQueryParam(), StandardCharsets.UTF_8);
@@ -441,11 +441,11 @@ public class IlinkProtocolClient {
             return voiceItem.voiceUrl();
         }
 
-        throw new RuntimeException("语音无下载 URL（media 和 voice_url 均为空）");
+        throw new RuntimeException("语音无下载 URL(media 和 voice_url 均为空)");
     }
 
     /**
-     * 去掉 URL 中的 taskid 等追踪参数，缩短 URL 长度。
+     * 去掉 URL 中的 taskid 等追踪参数,缩短 URL 长度.
      */
     private String stripTrackingParams(String url) {
         try {
@@ -468,10 +468,10 @@ public class IlinkProtocolClient {
     }
 
     /**
-     * 从微信 CDN 下载语音文件并 AES-ECB 解密（和图片下载逻辑相同）。
+     * 从微信 CDN 下载语音文件并 AES-ECB 解密(和图片下载逻辑相同).
      * <p>
-     * 优先从 VoiceItem.media 构造 CDN 下载 URL（fullUrl 或 encrypt_query_param），
-     * 降级到 voiceUrl 直链。AES key 从 media.aesKey 获取。
+     * 优先从 VoiceItem.media 构造 CDN 下载 URL(fullUrl 或 encrypt_query_param),
+     * 降级到 voiceUrl 直链.AES key 从 media.aesKey 获取.
      */
     public byte[] downloadVoice(VoiceItem voiceItem) {
         String url = getVoiceDownloadUrl(voiceItem);
@@ -483,7 +483,7 @@ public class IlinkProtocolClient {
             .body(byte[].class);
         log.info("语音下载完成: {} bytes", encryptedBytes != null ? encryptedBytes.length : 0);
 
-        // 如果有 AES key 则解密，否则直接返回原始字节
+        // 如果有 AES key 则解密,否则直接返回原始字节
         CDNMedia media = voiceItem.media();
         if (media == null || media.aesKey() == null || media.aesKey().isBlank()) {
             return encryptedBytes;
@@ -518,9 +518,9 @@ public class IlinkProtocolClient {
     }
 
     /**
-     * 将音频字节上传到微信 CDN，返回可公开访问的下载 URL。
-     * 用于语音识别降级策略：当原始语音 URL 需要鉴权无法被 ASR 服务访问时，
-     * 先通过 CDN 上传获取公开 URL，再传给 dashscope。
+     * 将音频字节上传到微信 CDN,返回可公开访问的下载 URL.
+     * 用于语音识别降级策略:当原始语音 URL 需要鉴权无法被 ASR 服务访问时,
+     * 先通过 CDN 上传获取公开 URL,再传给 dashscope.
      */
     public String uploadAudioToCdn(byte[] audioBytes, String toUserId) {
         try {
@@ -570,7 +570,7 @@ public class IlinkProtocolClient {
 
             String encryptQueryParam = uploadToCdn(encryptedBytes, uploadFullUrl, uploadParam, fileKey);
 
-            // 构造 CDN 下载 URL（含 encrypt_query_param，公开可访问）
+            // 构造 CDN 下载 URL(含 encrypt_query_param,公开可访问)
             String cdnDownloadUrl = CDN_BASE + "/download?encrypted_query_param="
                 + URLEncoder.encode(encryptQueryParam, StandardCharsets.UTF_8);
             log.info("音频已上传到CDN: {}", cdnDownloadUrl);
@@ -582,12 +582,12 @@ public class IlinkProtocolClient {
     }
 
     /**
-     * 完整语音发送链路（用于 TTS 语音合成结果发送）：
+     * 完整语音发送链路(用于 TTS 语音合成结果发送):
      * 1. 生成随机 AES 密钥
-     * 2. 调用 getUploadUrl 获取 CDN 上传地址，media_type=3（音频）
+     * 2. 调用 getUploadUrl 获取 CDN 上传地址,media_type=3(音频)
      * 3. AES-128-ECB 加密音频字节
-     * 4. 用 HttpURLConnection POST 密文到 CDN（避免 RestClient 编码问题）
-     * 5. 从响应 header（x-encrypted-param）获取加密查询参数
+     * 4. 用 HttpURLConnection POST 密文到 CDN(避免 RestClient 编码问题)
+     * 5. 从响应 header(x-encrypted-param)获取加密查询参数
      * 6. 构造 CDNMedia + SendMessageRequest 发送 voice_item
      */
     public void uploadAndSendVoice(String toUserId, String contextToken, byte[] audioBytes, int durationSeconds) {
@@ -637,7 +637,7 @@ public class IlinkProtocolClient {
             String uploadParam = uploadResp.has("upload_param")
                 ? uploadResp.get("upload_param").asText() : null;
 
-            // 用 HttpURLConnection 直接上传 CDN，避免 RestClient 编码问题
+            // 用 HttpURLConnection 直接上传 CDN,避免 RestClient 编码问题
             String cdnUrl;
             if (uploadFullUrl != null && !uploadFullUrl.isBlank()) {
                 cdnUrl = uploadFullUrl;
@@ -678,7 +678,7 @@ public class IlinkProtocolClient {
             String aesKeyBase64 = Base64.getEncoder().encodeToString(aesKeyHex.getBytes(StandardCharsets.UTF_8));
             CDNMedia media = new CDNMedia(encryptQueryParam, aesKeyBase64);
 
-            // 构造 voice_url（CDN 下载 URL）
+            // 构造 voice_url(CDN 下载 URL)
             String voiceUrl = CDN_BASE + "/download?encrypted_query_param="
                 + URLEncoder.encode(encryptQueryParam, StandardCharsets.UTF_8);
 
@@ -695,12 +695,12 @@ public class IlinkProtocolClient {
     }
 
     /**
-     * 把文件上传到微信 CDN 并作为 file_item 发送。
+     * 把文件上传到微信 CDN 并作为 file_item 发送.
      * <p>
-     * iLink 文件消息结构（基于 weixin-ilink SDK 确认）：
-     * - getUploadUrl 时 media_type=3（FILE）
-     * - sendMessage 时 item type=4（FILE）
-     * - file_item 包含 media（CDNMedia）、file_name、len（文件大小字符串）
+     * iLink 文件消息结构(基于 weixin-ilink SDK 确认):
+     * - getUploadUrl 时 media_type=3(FILE)
+     * - sendMessage 时 item type=4(FILE)
+     * - file_item 包含 media(CDNMedia),file_name,len(文件大小字符串)
      */
     public void uploadAndSendFile(String toUserId, String contextToken, byte[] fileBytes,
                                    String fileName, long fileSize) {
@@ -719,7 +719,7 @@ public class IlinkProtocolClient {
 
             Map<String, Object> uploadReq = Map.of(
                 "filekey", fileKey,
-                "media_type", 3, // FILE（不是 VOICE=4）
+                "media_type", 3, // FILE(不是 VOICE=4)
                 "to_user_id", toUserId,
                 "rawsize", rawSize,
                 "rawfilemd5", md5Hex,
@@ -803,8 +803,8 @@ public class IlinkProtocolClient {
     }
 
     /**
-     * 生成随机 X-WECHAT-UIN header，iLink 协议要求的客户端标识。
-     * 将 int 转 unsigned decimal string，再 base64 编码。
+     * 生成随机 X-WECHAT-UIN header,iLink 协议要求的客户端标识.
+     * 将 int 转 unsigned decimal string,再 base64 编码.
      */
     private String generateWechatUin() {
         int random = ThreadLocalRandom.current().nextInt();
@@ -823,7 +823,7 @@ public class IlinkProtocolClient {
     }
 
     /**
-     * 创建一个带超时的 RestClient（用于 ad-hoc CDN 下载/上传等）。
+     * 创建一个带超时的 RestClient(用于 ad-hoc CDN 下载/上传等).
      */
     private static RestClient buildTimeoutRestClient() {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
@@ -835,7 +835,7 @@ public class IlinkProtocolClient {
     }
 
     /**
-     * 通用 JSON 反序列化，统一异常处理。
+     * 通用 JSON 反序列化,统一异常处理.
      */
     private <T> T parseJson(String json, Class<T> clazz) {
         try {

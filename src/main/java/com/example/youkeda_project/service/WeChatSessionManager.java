@@ -16,7 +16,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Central manager for multiple WeChat bot sessions.
  *
- * <p>Each session runs independently — its own IlinkProtocolClient,
+ * <p>Each session runs independently - its own IlinkProtocolClient,
  * thread pool, QR code, login state, and message listener.
  * Sessions are keyed by a unique sessionId (UUID).</p>
  */
@@ -30,7 +30,7 @@ public class WeChatSessionManager {
     private final SessionConfig config;
     private final ObjectMapper objectMapper;
 
-    /** The "default" session id — for backward-compatible single-bot usage. */
+    /** The "default" session id - for backward-compatible single-bot usage. */
     private volatile String defaultSessionId;
 
     public WeChatSessionManager(SessionPersistenceService persistenceService,
@@ -55,7 +55,7 @@ public class WeChatSessionManager {
 
     @PreDestroy
     public void onShutdown() {
-        log.info("Shutting down — saving {} active sessions", sessions.size());
+        log.info("Shutting down - saving {} active sessions", sessions.size());
         saveAllSessions();
         closeAll();
     }
@@ -87,7 +87,7 @@ public class WeChatSessionManager {
             defaultSessionId = session.getSessionId();
         }
 
-        log.info("Created session {} ({}) — QR ready", session.getSessionId(), label);
+        log.info("Created session {} ({}) - QR ready", session.getSessionId(), label);
         return new LoginResponse(session.getSessionId(), label, qrContent);
     }
 

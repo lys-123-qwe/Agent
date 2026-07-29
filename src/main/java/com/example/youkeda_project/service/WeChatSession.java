@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Wraps a single WeChat bot session — independent IlinkProtocolClient, thread pool,
+ * Wraps a single WeChat bot session - independent IlinkProtocolClient, thread pool,
  * QR code, login state, and message listener.
  *
  * <p>Each session is fully isolated: its own HTTP client, its own polling thread,
@@ -319,7 +319,7 @@ public class WeChatSession implements AutoCloseable {
                 } catch (Exception e) {
                     // Session expired on server
                     if (isSessionExpired(e)) {
-                        log.warn("Session {} ({}) expired on server — stopping listener",
+                        log.warn("Session {} ({}) expired on server - stopping listener",
                                 sessionId, label);
                         this.status = Status.EXPIRED;
                         this.errorMessage = "session expired on server";

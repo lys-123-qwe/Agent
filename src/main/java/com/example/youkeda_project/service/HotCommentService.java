@@ -17,16 +17,16 @@ import java.time.ZoneId;
 import java.util.Random;
 
 /**
- * 网易云热评服务 — 支持随机热评 + 按歌曲名精准搜索。
+ * 网易云热评服务 - 支持随机热评 + 按歌曲名精准搜索.
  * <p>
- * 直接调用网易云公开 GET 接口，无需加密，无需外部服务。
+ * 直接调用网易云公开 GET 接口,无需加密,无需外部服务.
  */
 @Service
 public class HotCommentService {
 
     private static final Logger log = LoggerFactory.getLogger(HotCommentService.class);
 
-    // 随机热评（免费接口，回退用）
+    // 随机热评(免费接口,回退用)
     private static final String RANDOM_API = "https://free.wqwlkj.cn/wqwlapi/wyy_rp.php?type=json";
 
     // 网易云公开接口
@@ -41,7 +41,7 @@ public class HotCommentService {
 
     // ==================== 公开方法 ====================
 
-    /** 随机热评（回退方案）。 */
+    /** 随机热评(回退方案). */
     public String getRandomComment() {
         log.info("Fetching random NetEase hot comment");
         try {
@@ -60,12 +60,12 @@ public class HotCommentService {
             throw e;
         } catch (Exception e) {
             log.error("Failed to fetch random comment: {}", e.getMessage());
-            throw new RuntimeException("获取热评失败：" + e.getMessage(), e);
+            throw new RuntimeException("获取热评失败:" + e.getMessage(), e);
         }
     }
 
     /**
-     * 搜索指定歌曲并返回一条热评。
+     * 搜索指定歌曲并返回一条热评.
      */
     public String searchComment(String keyword) {
         log.info("Searching hot comment for: {}", keyword);
@@ -73,7 +73,7 @@ public class HotCommentService {
         // 1) 搜歌曲
         SongInfo song = searchSong(keyword);
         if (song == null) {
-            return "❌ 没找到歌曲「" + keyword + "」，请换个关键词试试。";
+            return "❌ 没找到歌曲「" + keyword + "」,请换个关键词试试.";
         }
 
         // 2) 获取热评
@@ -83,12 +83,12 @@ public class HotCommentService {
             resp = objectMapper.readTree(body);
         } catch (Exception e) {
             log.error("Parse comment response failed: {}", e.getMessage());
-            return "😔 获取评论失败，请稍后再试。";
+            return "😔 获取评论失败,请稍后再试.";
         }
 
         JsonNode hot = resp.path("hotComments");
         if (!hot.isArray() || hot.isEmpty()) {
-            return "😔 「" + song.name + " - " + song.artist + "」暂无热评，换首歌试试～";
+            return "😔 「" + song.name + " - " + song.artist + "」暂无热评,换首歌试试～";
         }
 
         // 3) 随机挑一条
@@ -156,7 +156,7 @@ public class HotCommentService {
     private String formatComment(String content, String user, String song, int likes, String time) {
         StringBuilder sb = new StringBuilder();
         sb.append("💬 \"").append(content).append("\"\n");
-        sb.append("    —— ").append(user).append("\n");
+        sb.append("    -- ").append(user).append("\n");
         if (song != null && !song.isBlank()) {
             sb.append("    🎵 ").append(song);
         }

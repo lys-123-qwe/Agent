@@ -31,12 +31,12 @@ public class ScheduledTaskService {
     private static final String DB_URL = "jdbc:sqlite:tasks.db";
     private static final DateTimeFormatter DTF = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    private final IlinkProtocolClient client;
+    private final WeChatSessionManager sessionManager;
     private final UserContextStore contextStore;
     private ScheduledExecutorService scheduler;
 
-    public ScheduledTaskService(IlinkProtocolClient client, UserContextStore contextStore) {
-        this.client = client;
+    public ScheduledTaskService(WeChatSessionManager sessionManager, UserContextStore contextStore) {
+        this.sessionManager = sessionManager;
         this.contextStore = contextStore;
     }
 
@@ -181,7 +181,7 @@ public class ScheduledTaskService {
             return t;
         });
         scheduler.scheduleAtFixedRate(this::fireDueTasks, 0, 1, TimeUnit.SECONDS);
-        log.info("定时任务调度器已启动（每秒扫描）");
+        log.info("定时任务调度器已启动(每秒扫描)");
     }
 
     private void fireDueTasks() {
@@ -200,12 +200,17 @@ public class ScheduledTaskService {
 
                     String token = contextStore.getToken(userId);
                     if (token == null) {
-                        log.warn("用户 {} 无 contextToken，无法发送提醒", userId);
+                        log.warn("用户 {} 无 contextToken,无法发送提醒", userId);
                         continue;
                     }
 
                     try {
-                        client.sendMessage(userId, token, List.of(MessageItem.text("⏰ 你设置的提醒：" + message)));
+                        WeChatSession session = sessionManager.getDefaultSession();
+                        if (session == null) {
+                            log.warn("No active session to send reminder to {}", userId);
+                            continue;
+                        }
+                        session.getClient().sendMessage(userId, token, List.of(MessageItem.text("提醒: " + message)));
                         log.info("已发送定时提醒 userId={}, taskId={}", userId, id);
                     } catch (Exception e) {
                         log.warn("发送定时提醒失败 userId={}, taskId={}", userId, id, e);

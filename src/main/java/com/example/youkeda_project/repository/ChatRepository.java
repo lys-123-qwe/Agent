@@ -17,7 +17,7 @@ public class ChatRepository {
 
     private static final Logger log = LoggerFactory.getLogger(ChatRepository.class);
 
-    @Value("${sqlite.db.path}")
+    @Value("${sqlite.db.path:data/chat_history.db}")
     private String dbPath;
 
     private final ObjectMapper objectMapper;
@@ -126,7 +126,7 @@ public class ChatRepository {
             try {
                 return objectMapper.readValue(text, List.class);
             } catch (Exception e) {
-                log.warn("反序列化 content 失败，按纯文本处理", e);
+                log.warn("反序列化 content 失败,按纯文本处理", e);
                 return text;
             }
         }

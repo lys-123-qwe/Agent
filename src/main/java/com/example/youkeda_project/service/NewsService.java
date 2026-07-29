@@ -59,7 +59,7 @@ public class NewsService {
             if (!result.startsWith("错误:") && !result.startsWith("没有找到")) {
                 return result;
             }
-            log.warn("天聚数行返回空，降级到博查: {}", result);
+            log.warn("天聚数行返回空,降级到博查: {}", result);
         }
 
         String apiKey = apiConfig.getBochaApiKey();
@@ -133,7 +133,7 @@ public class NewsService {
             }
 
             StringBuilder sb = new StringBuilder();
-            sb.append("今日新闻").append("：\n");
+            sb.append("今日新闻").append(":\n");
             for (int i = 0; i < items.size(); i++) {
                 sb.append(i + 1).append(". ").append(items.get(i)[0])
                         .append(" [详情](").append(items.get(i)[1]).append(")\n");
@@ -152,10 +152,10 @@ public class NewsService {
     }
 
     /**
-     * 从天聚数行获取新闻，按关键词客户端过滤。
+     * 从天聚数行获取新闻,按关键词客户端过滤.
      * <p>
-     * 不传 word 参数（服务器端过滤不准确），而是取最新 50 条头条，
-     * 在客户端按标题/来源匹配关键词。关键词太泛（如"今日""新闻"）则不过滤。
+     * 不传 word 参数(服务器端过滤不准确),而是取最新 50 条头条,
+     * 在客户端按标题/来源匹配关键词.关键词太泛(如"今日""新闻")则不过滤.
      */
     private String tianApiSearch(String keyword, int pageSize) {
         try {
@@ -177,7 +177,7 @@ public class NewsService {
     }
 
     /**
-     * 解析天聚数行响应，可选客户端关键词过滤。
+     * 解析天聚数行响应,可选客户端关键词过滤.
      */
     private String tianApiParseResponse(byte[] responseBytes, String keyword, String fallbackPrefix) {
         try {
@@ -207,13 +207,13 @@ public class NewsService {
                 String source = article.path("source").asText("");
                 String ctime = article.path("ctime").asText(""); // 发布时间
                 if (title.isEmpty() || url == null || url.isEmpty()) continue;
-                // 过滤非今日的文章（ctime 格式：2026-07-24 10:30:00）
+                // 过滤非今日的文章(ctime 格式:2026-07-24 10:30:00)
                 if (!ctime.isBlank() && !ctime.startsWith(todayStr)) continue;
                 String clean = cleanTitle(title);
                 if (clean.length() < 4) continue;
                 if (!seenUrls.add(url)) continue;
                 if (doFilter && !matchKeyword(title, source, keyword)) continue;
-                // 同一来源最多取 3 条，避免结果单一
+                // 同一来源最多取 3 条,避免结果单一
                 int srcMax = 3;
                 if (!source.isEmpty() && sourceCount.merge(source, 1, Integer::sum) > srcMax) continue;
                 String display = source.isEmpty() ? clean : clean + " [" + source + "]";
@@ -224,7 +224,7 @@ public class NewsService {
                 return doFilter ? "没有找到与关键词匹配的结果" : "没有找到相关新闻";
             }
             StringBuilder sb = new StringBuilder();
-            sb.append(prefix).append("：\n");
+            sb.append(prefix).append(":\n");
             for (int i = 0; i < allItems.size(); i++) {
                 sb.append(i + 1).append(". ").append(allItems.get(i)[0])
                     .append(" [详情](").append(allItems.get(i)[1]).append(")\n");
@@ -237,10 +237,10 @@ public class NewsService {
     }
 
     /**
-     * 判断关键词是否太泛（自然语言/无具体指向），是则不过滤直接返回全部头条。
+     * 判断关键词是否太泛(自然语言/无具体指向),是则不过滤直接返回全部头条.
      */
     private boolean isGenericQuery(String keyword) {
-        String kw = keyword.replaceAll("[\\s,，、。！？;；:：\"\"''【】（）\\[\\]{}]", "").toLowerCase();
+        String kw = keyword.replaceAll("[\\s,,,.!？;;::\"\"''[]()\\[\\]{}]", "").toLowerCase();
         if (kw.isEmpty()) return true;
         // 纯中文短词匹配预定义集合
         Set<String> generic = Set.of(
@@ -256,13 +256,13 @@ public class NewsService {
     }
 
     /**
-     * 客户端模糊匹配：关键词分词后任一有意义的 token 出现在标题或来源中即算匹配。
+     * 客户端模糊匹配:关键词分词后任一有意义的 token 出现在标题或来源中即算匹配.
      */
     private boolean matchKeyword(String title, String source, String keyword) {
         String kw = keyword.trim().toLowerCase();
         String t = (title + " " + source).toLowerCase();
         if (t.contains(kw)) return true;
-        String[] tokens = kw.split("[\\s,，、；;]+");
+        String[] tokens = kw.split("[\\s,,,;;]+");
         if (tokens.length > 1) {
             for (String token : tokens) {
                 token = token.trim();
@@ -275,32 +275,32 @@ public class NewsService {
     // ========== 博查 ==========
 
     public String searchNews(int num, String keyword, String category) {
-        // 1) 天聚数行：新闻类查询首选
+        // 1) 天聚数行:新闻类查询首选
         String tianKey = apiConfig.getNewsSdkApiKey();
         if (tianKey != null && !tianKey.isBlank()) {
             String result = tianApiSearch(keyword, num);
-            // 有匹配结果或关键词太泛（直接返回头条）→ 直接返回
+            // 有匹配结果或关键词太泛(直接返回头条)→ 直接返回
             if (!result.startsWith("没有找到")) {
                 return result;
             }
-            // 空结果且是具体关键词 → 降级到博查（可能是非新闻类查询）
+            // 空结果且是具体关键词 → 降级到博查(可能是非新闻类查询)
             if (!isGenericQuery(keyword)) {
-                log.warn("天聚数行无匹配，降级到博查搜索: {}", keyword);
+                log.warn("天聚数行无匹配,降级到博查搜索: {}", keyword);
                 String bocha = bochaSearch(keyword, num);
                 if (!bocha.startsWith("没有找到") && !bocha.startsWith("错误:")) {
                     return bocha;
                 }
             }
-            // 兜底：头条新闻
+            // 兜底:头条新闻
             return tianApiTopHeadlines();
         }
 
-        // 2) 博查（仅当天聚数行未配置时）
+        // 2) 博查(仅当天聚数行未配置时)
         return bochaSearch(keyword, num);
     }
 
     /**
-     * 博查搜索，过滤宽松（用于非新闻类通用查询）。
+     * 博查搜索,过滤宽松(用于非新闻类通用查询).
      */
     private String bochaSearch(String keyword, int pageSize) {
         return bochaSearch(keyword, pageSize, null);
@@ -341,7 +341,7 @@ public class NewsService {
     }
 
     /**
-     * 解析博查搜索结果（宽松过滤，保留百科/资讯/官网等）。
+     * 解析博查搜索结果(宽松过滤,保留百科/资讯/官网等).
      */
     private String bochaSearchParse(String json, String keyword, int maxItems) {
         try {
@@ -369,15 +369,15 @@ public class NewsService {
                 String display = title;
                 if (!snippet.isBlank()) {
                     String s = snippet.replaceAll("\\s+", " ").trim();
-                    if (s.length() > 80) s = s.substring(0, 80) + "…";
-                    display = title + " — " + s;
+                    if (s.length() > 80) s = s.substring(0, 80) + "...";
+                    display = title + " - " + s;
                 }
                 items.add(new String[]{display, url});
                 if (items.size() >= maxItems) break;
             }
             if (items.isEmpty()) return "没有找到相关结果";
             StringBuilder sb = new StringBuilder();
-            sb.append(keyword).append("搜索结果：\n");
+            sb.append(keyword).append("搜索结果:\n");
             for (int i = 0; i < items.size(); i++) {
                 sb.append(i + 1).append(". ").append(items.get(i)[0])
                     .append(" [详情](").append(items.get(i)[1]).append(")\n");
@@ -414,7 +414,7 @@ public class NewsService {
 
     private boolean isNewsDigest(String rawTitle) {
         if (rawTitle == null || rawTitle.isBlank()) return false;
-        if (rawTitle.split("[；;]").length > 1) return true;
+        if (rawTitle.split("[;;]").length > 1) return true;
         String[] digestKws = {"早新闻", "早读", "晨报", "晚报", "午报", "速览", "一览",
                 "快报", "新闻早餐", "新闻来了", "新闻早班车", "新闻联播",
                 "读报", "夜读", "早间", "今日焦点", "新闻速递",
@@ -425,7 +425,7 @@ public class NewsService {
         }
         int cnt = 0;
         for (int i = 0; i < rawTitle.length(); i++) {
-            if (rawTitle.charAt(i) == '！') {
+            if (rawTitle.charAt(i) == '!') {
                 cnt++;
                 if (cnt >= 3) return true;
             }
@@ -478,13 +478,13 @@ public class NewsService {
         if (raw == null || raw.isBlank()) return "";
         String t = raw.trim();
         t = t.replaceAll("(?:[_＿][^_＿]+)+$", "").trim();
-        t = t.replaceAll("\\s*[-—]\\s*\\S+$", "").trim();
+        t = t.replaceAll("\\s*[--]\\s*\\S+$", "").trim();
         t = t.replaceAll("^[^|\uFF5C]+[|\uFF5C]", "").trim();
-        t = t.replaceAll("^(原标题|快讯|热点|今日关注|最新消息|滚动)[：:]?", "").trim();
-        t = t.replaceAll("（[^）]*图[^）]*）$", "").trim();
+        t = t.replaceAll("^(原标题|快讯|热点|今日关注|最新消息|滚动)[::]?", "").trim();
+        t = t.replaceAll("([^)]*图[^)]*)$", "").trim();
         t = t.replaceAll("\\([^)]*图[^)]*\\)$", "").trim();
-        t = t.replaceAll("[\\[【][^\\]】]*(?:视频|音频|组图|图集|海报|直播|专题)[\\]】]$", "").trim();
-        t = t.replaceAll("^[\\[【][^\\]】]*[\\]】]", "").trim();
+        t = t.replaceAll("[\\[[][^\\]]]*(?:视频|音频|组图|图集|海报|直播|专题)[\\]]]$", "").trim();
+        t = t.replaceAll("^[\\[[][^\\]]]*[\\]]]", "").trim();
         t = t.replaceAll("\\d+张照片$", "").trim();
         t = t.replaceAll("\\s+", " ").trim();
         return t;

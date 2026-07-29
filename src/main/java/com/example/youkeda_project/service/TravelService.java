@@ -31,20 +31,20 @@ public class TravelService {
             return "错误: 未配置高德地图 API Key";
         }
 
-        // 地理编码：地名 → 坐标
+        // 地理编码:地名 → 坐标
         String originLoc = geocode(origin);
-        if (originLoc == null) return "无法定位：" + origin;
+        if (originLoc == null) return "无法定位:" + origin;
         String destLoc = geocode(destination);
-        if (destLoc == null) return "无法定位：" + destination;
+        if (destLoc == null) return "无法定位:" + destination;
 
-        log.info("起点: {} → {}，终点: {} → {}", origin, originLoc, destination, destLoc);
+        log.info("起点: {} → {},终点: {} → {}", origin, originLoc, destination, destLoc);
 
         StringBuilder sb = new StringBuilder();
         sb.append("🗺️ **").append(origin).append(" → ").append(destination).append("**\n\n");
 
         // 驾车
         appendDriving(sb, originLoc, destLoc);
-        // 公交（含地铁）
+        // 公交(含地铁)
         appendTransit(sb, originLoc, destLoc, origin, destination);
         // 骑行
         appendBicycling(sb, originLoc, destLoc);
@@ -74,18 +74,18 @@ public class TravelService {
 
             sb.append("🚗 **驾车**");
             if (!"0".equals(taxiCost) && !taxiCost.isEmpty()) {
-                sb.append("（打车约 ").append(taxiCost).append(" 元）");
+                sb.append("(打车约 ").append(taxiCost).append(" 元)");
             }
-            sb.append("\n距离：").append(distance).append(" | 耗时：").append(duration);
+            sb.append("\n距离:").append(distance).append(" | 耗时:").append(duration);
             if (!"0".equals(tolls) && !tolls.isEmpty()) {
-                sb.append(" | 过路费：").append(tolls).append(" 元");
+                sb.append(" | 过路费:").append(tolls).append(" 元");
             }
             sb.append("\n");
 
             // 途经道路
             JsonNode steps = best.path("steps");
             if (steps.isArray()) {
-                sb.append("  途经：");
+                sb.append("  途经:");
                 int count = 0;
                 for (JsonNode step : steps) {
                     if (count++ >= 5) { sb.append("..."); break; }
@@ -125,13 +125,13 @@ public class TravelService {
             String walkingDist = formatDistance(best.path("walking_distance").asLong());
 
             sb.append("🚇 **公交/地铁**");
-            if (!cost.isBlank()) sb.append("（票价 ").append(cost).append(" 元）");
-            sb.append("\n耗时：").append(duration).append(" | 步行：").append(walkingDist).append("\n");
+            if (!cost.isBlank()) sb.append("(票价 ").append(cost).append(" 元)");
+            sb.append("\n耗时:").append(duration).append(" | 步行:").append(walkingDist).append("\n");
 
             // 途经站点
             JsonNode segments = best.path("segments");
             if (segments.isArray()) {
-                sb.append("  路线：");
+                sb.append("  路线:");
                 for (JsonNode seg : segments) {
                 JsonNode bus = seg.path("bus");
                 if (!bus.isNull() && bus.has("buslines")) {
@@ -157,7 +157,7 @@ public class TravelService {
                             }
                         }
                         sb.append(arrivalStop);
-                        sb.append("（").append(stopCount).append("站）");
+                        sb.append("(").append(stopCount).append("站)");
                         sb.append("\n");
                     }
                 }
@@ -196,7 +196,7 @@ public class TravelService {
             String distance = formatDistance(best.path("distance").asLong());
             String duration = formatDuration(best.path("duration").asLong());
 
-            sb.append("🚲 **骑行**\n距离：").append(distance).append(" | 耗时：").append(duration).append("\n\n");
+            sb.append("🚲 **骑行**\n距离:").append(distance).append(" | 耗时:").append(duration).append("\n\n");
         } catch (Exception e) {
             log.warn("骑行查询失败", e);
         }
@@ -217,7 +217,7 @@ public class TravelService {
             String distance = formatDistance(best.path("distance").asLong());
             String duration = formatDuration(best.path("duration").asLong());
 
-            sb.append("🚶 **步行**\n距离：").append(distance).append(" | 耗时：").append(duration).append("\n");
+            sb.append("🚶 **步行**\n距离:").append(distance).append(" | 耗时:").append(duration).append("\n");
         } catch (Exception e) {
             log.warn("步行查询失败", e);
         }

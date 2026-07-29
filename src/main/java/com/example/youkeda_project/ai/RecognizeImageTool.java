@@ -27,7 +27,7 @@ public class RecognizeImageTool implements Tool {
 
     @Override
     public String getDescription() {
-        return "识别已上传图片的内容，回答关于图片的问题。适用于：这是什么、图片里有什么、描述图片、提取图片中的文字等场景";
+        return "识别已上传图片的内容,回答关于图片的问题.适用于:这是什么,图片里有什么,描述图片,提取图片中的文字等场景";
     }
 
     @Override
@@ -38,7 +38,7 @@ public class RecognizeImageTool implements Tool {
         Map<String, Object> properties = new LinkedHashMap<>();
         Map<String, Object> prompt = new LinkedHashMap<>();
         prompt.put("type", "string");
-        prompt.put("description", "对图片的提问或识别要求，如：这张图里有什么、请描述这张图片、提取图中的文字。默认为'请描述这张图片'");
+        prompt.put("description", "对图片的提问或识别要求,如:这张图里有什么,请描述这张图片,提取图中的文字.默认为'请描述这张图片'");
         properties.put("prompt", prompt);
 
         params.put("properties", properties);

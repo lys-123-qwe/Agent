@@ -26,7 +26,7 @@ public class EditImageTool implements Tool {
 
     @Override
     public String getDescription() {
-        return "根据文字描述编辑已上传的图片，如修改物体、替换元素、调整颜色或风格、改变背景等，返回编辑后的图片";
+        return "根据文字描述编辑已上传的图片,如修改物体,替换元素,调整颜色或风格,改变背景等,返回编辑后的图片";
     }
 
     @Override
@@ -37,7 +37,7 @@ public class EditImageTool implements Tool {
         Map<String, Object> properties = new LinkedHashMap<>();
         Map<String, Object> prompt = new LinkedHashMap<>();
         prompt.put("type", "string");
-        prompt.put("description", "编辑描述，如：把猫换成狗、让背景变成蓝色、给图片添加文字'Hello World'、改为油画风格");
+        prompt.put("description", "编辑描述,如:把猫换成狗,让背景变成蓝色,给图片添加文字'Hello World',改为油画风格");
         properties.put("prompt", prompt);
 
         params.put("properties", properties);

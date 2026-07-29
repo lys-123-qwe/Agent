@@ -26,7 +26,7 @@ public class RecommendMusicTool implements Tool {
 
     @Override
     public String getDescription() {
-        return "【推荐歌曲】根据风格、心情、场景推荐歌曲。用户说'推荐一些歌''有什么好听的歌''推荐古风歌曲''推荐适合跑步听的歌'时用此工具。搜指定歌曲/歌手请用 play_song。";
+        return "[推荐歌曲]根据风格,心情,场景推荐歌曲.用户说'推荐一些歌''有什么好听的歌''推荐古风歌曲''推荐适合跑步听的歌'时用此工具.搜指定歌曲/歌手请用 play_song.";
     }
 
     @Override
@@ -38,7 +38,7 @@ public class RecommendMusicTool implements Tool {
 
         Map<String, Object> description = new LinkedHashMap<>();
         description.put("type", "string");
-        description.put("description", "用户对歌曲的描述，如'古风'、'伤感'、'周杰伦'、'适合跑步听'、'最近热门'等");
+        description.put("description", "用户对歌曲的描述,如'古风','伤感','周杰伦','适合跑步听','最近热门'等");
         properties.put("description", description);
 
         params.put("properties", properties);

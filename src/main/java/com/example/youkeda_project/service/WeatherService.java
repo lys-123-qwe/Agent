@@ -9,13 +9,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
 /**
- * 和风天气查询服务。
+ * 和风天气查询服务.
  * <p>
- * 通过高德地理编码 API 将城市名转换为经纬度坐标，
- * 再用坐标调用和风天气实时天气 API（devapi.qweather.com），
- * 返回格式化天气信息字符串。
+ * 通过高德地理编码 API 将城市名转换为经纬度坐标,
+ * 再用坐标调用和风天气实时天气 API(devapi.qweather.com),
+ * 返回格式化天气信息字符串.
  * <p>
- * 支持任意中国城市名称（中文）。
+ * 支持任意中国城市名称(中文).
  */
 @Service
 public class WeatherService {
@@ -33,29 +33,29 @@ public class WeatherService {
     }
 
     /**
-     * 查询指定城市的实时天气。
+     * 查询指定城市的实时天气.
      * <p>
-     * 流程：城市名 → 高德地理编码 → 经纬度坐标 → 和风天气 API → 格式化天气信息。
+     * 流程:城市名 → 高德地理编码 → 经纬度坐标 → 和风天气 API → 格式化天气信息.
      */
     public String queryWeather(String cityName) {
         if (cityName == null || cityName.trim().isEmpty()) {
             log.warn("天气查询失败: 城市名为空");
-            return "错误: 请输入城市名，例如: weather 北京";
+            return "错误: 请输入城市名,例如: weather 北京";
         }
 
         String cityNameTrimmed = cityName.trim();
         log.info("查询天气: 城市={}", cityNameTrimmed);
 
         try {
-            // 第1步：高德地理编码，城市名 → 坐标
+            // 第1步:高德地理编码,城市名 → 坐标
             String location = geocode(cityNameTrimmed);
             if (location == null) {
                 return "错误: 未找到城市 '" + cityNameTrimmed
-                        + "' 的地理坐标，请检查城市名是否正确";
+                        + "' 的地理坐标,请检查城市名是否正确";
             }
             log.info("地理编码结果: {} -> {}", cityNameTrimmed, location);
 
-            // 第2步：用坐标查询和风天气
+            // 第2步:用坐标查询和风天气
             String url = apiConfig.getWeatherApiUrl() + "?location=" + location
                     + "&key=" + apiConfig.getWeatherApiKey();
 
@@ -74,10 +74,10 @@ public class WeatherService {
     }
 
     /**
-     * 调用高德地理编码 API，将城市名转换为经纬度坐标。
+     * 调用高德地理编码 API,将城市名转换为经纬度坐标.
      *
-     * @param cityName 城市名称（中文）
-     * @return "lon,lat" 格式的坐标字符串，无结果时返回 null
+     * @param cityName 城市名称(中文)
+     * @return "lon,lat" 格式的坐标字符串,无结果时返回 null
      */
     private String geocode(String cityName) {
         try {
@@ -122,8 +122,8 @@ public class WeatherService {
     }
 
     /**
-     * 解析和风天气 API 的 JSON 响应。
-     * 提取天气状况、温度、体感温度、湿度、风向、风力等级。
+     * 解析和风天气 API 的 JSON 响应.
+     * 提取天气状况,温度,体感温度,湿度,风向,风力等级.
      */
     private String parseWeatherResponse(String json, String cityName) {
         try {
@@ -132,7 +132,7 @@ public class WeatherService {
 
             if (!"200".equals(code)) {
                 log.warn("天气API返回错误: code={}", code);
-                return "错误: 天气API返回异常，状态码: " + code;
+                return "错误: 天气API返回异常,状态码: " + code;
             }
 
             JsonNode now = root.path("now");

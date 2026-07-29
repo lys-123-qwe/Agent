@@ -26,17 +26,17 @@ import javax.sound.sampled.AudioInputStream;
 import javax.sound.sampled.AudioSystem;
 
 /**
- * 语音合成（TTS）服务，基于阿里云 dashscope CosyVoice-v3-flash 非实时 HTTP API。
+ * 语音合成(TTS)服务,基于阿里云 dashscope CosyVoice-v3-flash 非实时 HTTP API.
  * <p>
- * 支持多轮交互状态管理，流程：
- * 1. 用户首次表达朗读意图 → 获取文本内容（如未指定则追问）
+ * 支持多轮交互状态管理,流程:
+ * 1. 用户首次表达朗读意图 → 获取文本内容(如未指定则追问)
  * 2. 确定文本后 → 请用户选择音色
  * 3. 用户选择音色后 → 调用 TTS API 合成 → 返回音频字节
  * <p>
- * API 说明：
- * - 端点：POST /api/v1/services/audio/tts/SpeechSynthesizer（非实时 HTTP）
- * - 模型：cosyvoice-v3-flash
- * - 响应：返回音频文件 URL（有效期 24h），需再下载
+ * API 说明:
+ * - 端点:POST /api/v1/services/audio/tts/SpeechSynthesizer(非实时 HTTP)
+ * - 模型:cosyvoice-v3-flash
+ * - 响应:返回音频文件 URL(有效期 24h),需再下载
  */
 @Service
 public class TtsService {
@@ -72,8 +72,8 @@ public class TtsService {
     }
 
     /**
-     * 调用 dashscope CosyVoice-v3-flash 非实时 HTTP API 合成语音，
-     * 返回 SILK 格式（用于尝试发送语音消息）。
+     * 调用 dashscope CosyVoice-v3-flash 非实时 HTTP API 合成语音,
+     * 返回 SILK 格式(用于尝试发送语音消息).
      */
     public TtsResult synthesize(String text, String voice) {
         byte[] wavBytes = callTtsApi(text, voice, "wav");
@@ -81,7 +81,7 @@ public class TtsService {
     }
 
     /**
-     * 调用 TTS 并返回 MP3 格式（用于发送文件消息）。
+     * 调用 TTS 并返回 MP3 格式(用于发送文件消息).
      */
     public TtsResult synthesizeMp3(String text, String voice) {
         byte[] mp3Bytes = callTtsApi(text, voice, "mp3");
@@ -93,19 +93,19 @@ public class TtsService {
     }
 
     /**
-     * 通用 TTS API 调用：请求指定格式并下载音频字节。
+     * 通用 TTS API 调用:请求指定格式并下载音频字节.
      */
     private byte[] callTtsApi(String text, String voice, String format) {
         String apiKey = apiConfig.getVoiceApiKey();
         if (apiKey == null || apiKey.isBlank()) {
-            throw new RuntimeException("未配置阿里云 API Key，无法使用语音合成");
+            throw new RuntimeException("未配置阿里云 API Key,无法使用语音合成");
         }
 
         // 截断过长的文本
         int maxLen = apiConfig.getTtsMaxTextLength();
         if (text.length() > maxLen) {
             text = text.substring(0, maxLen);
-            log.warn("TTS 文本超长，已截断至 {} 字符", maxLen);
+            log.warn("TTS 文本超长,已截断至 {} 字符", maxLen);
         }
 
         try {
@@ -182,7 +182,7 @@ public class TtsService {
     }
 
     /**
-     * WAV → PCM → SILK（含 WeChat 0x02 前缀）。
+     * WAV → PCM → SILK(含 WeChat 0x02 前缀).
      */
     private TtsResult convertWavToSilk(byte[] wavBytes) {
         try {
@@ -232,17 +232,17 @@ public class TtsService {
     }
 
     /**
-     * TTS 合成结果：音频字节 + 语音时长（秒）。
+     * TTS 合成结果:音频字节 + 语音时长(秒).
      */
     public record TtsResult(byte[] audioBytes, int durationSeconds) {}
 
     /**
-     * 音色信息。
+     * 音色信息.
      */
     public record VoiceInfo(String voiceId, String name, String description) {}
 
     /**
-     * 获取所有可用音色。
+     * 获取所有可用音色.
      */
     public List<VoiceInfo> getVoices() {
         List<Map<String, String>> raw = apiConfig.getTtsVoices();
@@ -255,23 +255,23 @@ public class TtsService {
     }
 
     /**
-     * 获取音色选择提示文字。
+     * 获取音色选择提示文字.
      */
     public String getVoicePrompt() {
         List<Map<String, String>> voices = apiConfig.getTtsVoices();
-        StringBuilder sb = new StringBuilder("请选择音色（回复数字或音色名）：\n");
+        StringBuilder sb = new StringBuilder("请选择音色(回复数字或音色名):\n");
         for (int i = 0; i < voices.size(); i++) {
             Map<String, String> v = voices.get(i);
             sb.append(i + 1).append(". ").append(v.get("name")).append(" - ").append(v.get("description")).append("\n");
         }
-        sb.append("\n回复 \"取消\" 取消操作，或发送其他内容继续对话");
+        sb.append("\n回复 \"取消\" 取消操作,或发送其他内容继续对话");
         return sb.toString();
     }
 
     /**
-     * 解析用户输入的音色选择。
-     * 支持：数字 1-5、音色名（龙小淳）、voice ID（longxiaochun）。
-     * 返回匹配的 voice ID，未匹配返回 null。
+     * 解析用户输入的音色选择.
+     * 支持:数字 1-5,音色名(龙小淳),voice ID(longxiaochun).
+     * 返回匹配的 voice ID,未匹配返回 null.
      */
     public String resolveVoice(String userInput) {
         if (userInput == null || userInput.isBlank()) return null;
@@ -281,7 +281,7 @@ public class TtsService {
 
         // 数字匹配
         try {
-            String numStr = trimmed.replaceAll("[号.。、\\s]", "").trim();
+            String numStr = trimmed.replaceAll("[号..,\\s]", "").trim();
             if (!numStr.isEmpty()) {
                 int idx = Integer.parseInt(numStr) - 1;
                 if (idx >= 0 && idx < voices.size()) {

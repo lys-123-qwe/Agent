@@ -3,12 +3,12 @@ package com.example.youkeda_project.protocol;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
- * 微信消息中的单项内容。
+ * 微信消息中的单项内容.
  * <p>
- * type: 1=文本, 2=图片, 3=语音；
- * 根据 type 不同，只有对应的 xxxItem 字段非空。
+ * type: 1=文本, 2=图片, 3=语音;
+ * 根据 type 不同,只有对应的 xxxItem 字段非空.
  * <p>
- * 静态工厂方法 text() / cdnImage() 用于快速构造发送消息。
+ * 静态工厂方法 text() / cdnImage() 用于快速构造发送消息.
  */
 public record MessageItem(
     int type,

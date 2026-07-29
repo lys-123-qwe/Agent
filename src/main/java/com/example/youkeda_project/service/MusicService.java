@@ -56,7 +56,7 @@ public class MusicService {
         sb.append("🎵 ").append(best.name).append(" - ").append(best.artist).append("\n");
         if (!best.duration.isBlank()) sb.append("   时长: ").append(best.duration).append("\n");
         if (!best.lyric.isBlank()) {
-            sb.append("   歌词：\n");
+            sb.append("   歌词:\n");
             for (String l : best.lyric.split("\n")) {
                 if (!l.isBlank()) sb.append("     ").append(l).append("\n");
             }
@@ -91,7 +91,7 @@ public class MusicService {
         }
 
         StringBuilder sb = new StringBuilder();
-        sb.append("🎵 为你推荐 ").append(description).append(" 相关歌曲：\n\n");
+        sb.append("🎵 为你推荐 ").append(description).append(" 相关歌曲:\n\n");
         int idx = 1;
         for (SongInfo s : merged.values()) {
             sb.append(idx).append(". ").append(s.name).append(" - ").append(s.artist).append("\n");
@@ -104,7 +104,7 @@ public class MusicService {
                 sb.append("   ▶ 网易云: https://music.163.com/song?id=").append(s.neteaseId).append("\n");
             }
             if (!s.lyric.isBlank()) {
-                sb.append("   歌词：\n");
+                sb.append("   歌词:\n");
                 for (String l : s.lyric.split("\n")) {
                     if (!l.isBlank()) sb.append("     ").append(l).append("\n");
                 }

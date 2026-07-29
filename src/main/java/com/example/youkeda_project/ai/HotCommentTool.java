@@ -9,10 +9,10 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * 网易云热评工具（Function Calling）。
+ * 网易云热评工具(Function Calling).
  * <p>
- * 定义 get_hot_comment 函数，委托 HotCommentService 获取热评。
- * 支持随机热评和按歌曲名搜索。
+ * 定义 get_hot_comment 函数,委托 HotCommentService 获取热评.
+ * 支持随机热评和按歌曲名搜索.
  */
 @Component
 public class HotCommentTool implements Tool {
@@ -32,8 +32,8 @@ public class HotCommentTool implements Tool {
 
     @Override
     public String getDescription() {
-        return "获取网易云音乐热门评论。当用户说想听热评、网易云热评、来条评论时调用。"
-            + "如果用户提到了具体歌曲名（如'晴天的热评'、'周杰伦稻香的热评'），必须传入 song 参数。";
+        return "获取网易云音乐热门评论.当用户说想听热评,网易云热评,来条评论时调用."
+            + "如果用户提到了具体歌曲名(如'晴天的热评','周杰伦稻香的热评'),必须传入 song 参数.";
     }
 
     @Override
@@ -44,8 +44,8 @@ public class HotCommentTool implements Tool {
         Map<String, Object> properties = new LinkedHashMap<>();
         Map<String, Object> song = new LinkedHashMap<>();
         song.put("type", "string");
-        song.put("description", "歌曲名或歌手+歌名，如'晴天'、'周杰伦 稻香'。"
-            + "用户没提具体歌名就不要传这个参数，会随机返回一条热评。");
+        song.put("description", "歌曲名或歌手+歌名,如'晴天','周杰伦 稻香'."
+            + "用户没提具体歌名就不要传这个参数,会随机返回一条热评.");
         properties.put("song", song);
 
         params.put("properties", properties);

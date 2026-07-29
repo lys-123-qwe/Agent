@@ -4,12 +4,12 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 /**
- * Claw 助手入口。
+ * Claw 助手入口.
  * <p>
- * 启动后进入 CLI 模式，自动弹出 QR 码等待扫码登录，
- * 登录成功后进入消息轮询模式，所有功能通过微信消息或 CLI 命令触发。
+ * 启动后进入 CLI 模式,自动弹出 QR 码等待扫码登录,
+ * 登录成功后进入消息轮询模式,所有功能通过微信消息或 CLI 命令触发.
  * <p>
- * 支持多 Bot 同时登录（wechat login <label>）。
+ * 支持多 Bot 同时登录(wechat login <label>).
  */
 @SpringBootApplication
 public class YoukedaProjectApplication {

@@ -3,7 +3,7 @@ package com.example.youkeda_project.ai;
 import java.util.List;
 
 /**
- * 解析后的工具调用信息，对应 OpenAI/DeepSeek 响应中的 tool_calls。
+ * 解析后的工具调用信息,对应 OpenAI/DeepSeek 响应中的 tool_calls.
  */
 public record ToolCall(
     String id,
@@ -11,7 +11,7 @@ public record ToolCall(
     String arguments
 ) {
     /**
-     * 将一条 tool_calls 条目解析为 ToolCall 对象。
+     * 将一条 tool_calls 条目解析为 ToolCall 对象.
      */
     @SuppressWarnings("unchecked")
     public static ToolCall fromMap(java.util.Map<String, Object> map) {
@@ -23,8 +23,8 @@ public record ToolCall(
     }
 
     /**
-     * 从 ChatChoice 中提取 tool_calls 列表。
-     * 优先取 choice 层级的 tool_calls，若为 null 则从 message 层级获取。
+     * 从 ChatChoice 中提取 tool_calls 列表.
+     * 优先取 choice 层级的 tool_calls,若为 null 则从 message 层级获取.
      */
     @SuppressWarnings("unchecked")
     public static List<ToolCall> fromChoice(ChatChoice choice) {

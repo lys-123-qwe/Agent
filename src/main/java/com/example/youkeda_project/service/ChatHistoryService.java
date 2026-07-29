@@ -21,13 +21,13 @@ import java.util.Map;
 public class ChatHistoryService {
 
     private static final Logger log = LoggerFactory.getLogger(ChatHistoryService.class);
-    // 固定到用户目录，IDEA / Maven / 命令行都不受工作目录影响
+    // 固定到用户目录,IDEA / Maven / 命令行都不受工作目录影响
     private static final String DB_PATH = System.getProperty("user.home") + "/.youkeda/chat.db";
 
     private final DataSource dataSource;
 
     public ChatHistoryService() {
-        // 确保数据库文件所在目录存在（SQLite JDBC 不会自动创建父目录）
+        // 确保数据库文件所在目录存在(SQLite JDBC 不会自动创建父目录)
         try {
             java.nio.file.Files.createDirectories(java.nio.file.Paths.get(
                     System.getProperty("user.home") + "/.youkeda"));

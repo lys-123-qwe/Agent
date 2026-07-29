@@ -2,6 +2,7 @@ package com.example.youkeda_project.cli;
 
 import com.example.youkeda_project.ai.*;
 import com.example.youkeda_project.service.*;
+import com.example.youkeda_project.skill.*;
 import com.example.youkeda_project.protocol.WeixinMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,10 +12,7 @@ import org.springframework.stereotype.Component;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Scanner;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeoutException;
 
@@ -24,11 +22,8 @@ public class CliRunner implements CommandLineRunner {
     private static final Logger log = LoggerFactory.getLogger(CliRunner.class);
 
     private static final String WELCOME_TEXT = """
-        嗨！我是 Claw 小助手 😊\n\
-        查天气、看股票、搜新闻、聊天、画图……有啥需要直接跟我说就行～""";
-
-    /** All tools available for LLM Function Calling. */
-    private final List<Tool> TOOLS;
+        嗨!我是 Claw 小助手 😊\n\
+        查天气,看股票,搜新闻,聊天,画图......有啥需要直接跟我说就行～""";
 
     private final IlinkService ilinkService;
     private final AIService aiService;
@@ -37,7 +32,7 @@ public class CliRunner implements CommandLineRunner {
     private final TtsService ttsService;
     private final FileService fileService;
 
-    // Tool instances
+    // Tool instances for direct CLI commands
     private final WeatherTool weatherTool;
     private final StockTool stockTool;
     private final LogisticsTool logisticsTool;
@@ -59,6 +54,13 @@ public class CliRunner implements CommandLineRunner {
     private final Map<String, String> lastGeneratedImageUrl = new ConcurrentHashMap<>();
     private final Map<String, Boolean> ownerWelcomed = new ConcurrentHashMap<>();
 
+    private final ToolRegistry toolRegistry;
+    private final SkillManager skillManager;
+    private final KnowledgeService knowledgeService;
+
+    /** All tools available for LLM Function Calling (loaded from ToolRegistry). */
+    private final List<Tool> TOOLS;
+
     public CliRunner(IlinkService ilinkService,
                      AIService aiService,
                      ImageService imageService,
@@ -79,7 +81,10 @@ public class CliRunner implements CommandLineRunner {
                      MusicTool musicTool,
                      RecommendMusicTool recommendMusicTool,
                      TranslationTool translationTool,
-                     MemoryTool memoryTool) {
+                     MemoryTool memoryTool,
+                     ToolRegistry toolRegistry,
+                     SkillManager skillManager,
+                     KnowledgeService knowledgeService) {
         this.ilinkService = ilinkService;
         this.aiService = aiService;
         this.imageService = imageService;
@@ -101,15 +106,19 @@ public class CliRunner implements CommandLineRunner {
         this.recommendMusicTool = recommendMusicTool;
         this.translationTool = translationTool;
         this.memoryTool = memoryTool;
+        this.toolRegistry = toolRegistry;
+        this.skillManager = skillManager;
+        this.knowledgeService = knowledgeService;
 
-        this.TOOLS = List.of(weatherTool, stockTool, logisticsTool, hotCommentTool,
-                imageTool, ttsTool, searchTool, exchangeRateTool, dateTimeTool,
-                constellationTool, phoneLocationTool, musicTool, recommendMusicTool,
-                translationTool, memoryTool);
+        TOOLS = toolRegistry.allTools();
     }
 
     @Override
     public void run(String... args) {
+        if (isRunningTests()) {
+            log.info("Test environment detected, skipping CLI interactive loop");
+            return;
+        }
         log.info("Application started");
         System.out.println("Welcome to Claw CLI!");
 
@@ -128,12 +137,14 @@ public class CliRunner implements CommandLineRunner {
             log.warn("Session restore failed: {}", e.getMessage());
         }
 
-        // Auto-login on startup
-        try {
-            handleWeChatLogin(null, true);
-        } catch (Exception e) {
-            log.error("Auto login failed: {}", e.getMessage());
-            System.out.println("Auto login failed, type 'wechat login' to retry.");
+        // Auto-login only when explicitly requested via --login flag
+        if (Arrays.asList(args).contains("--login")) {
+            try {
+                handleWeChatLogin(null, true);
+            } catch (Exception e) {
+                log.error("Auto login failed: {}", e.getMessage());
+                System.out.println("Auto login failed, type 'wechat login' to retry.");
+            }
         }
 
         Scanner scanner = new Scanner(System.in);
@@ -260,7 +271,7 @@ public class CliRunner implements CommandLineRunner {
             return;
         }
         System.out.print("Thinking... ");
-        ChatResult result = aiService.chat("CLI", message, TOOLS);
+        ChatResult result = aiService.chat("CLI", message, TOOLS, buildRagContext(message));
         System.out.println("\n" + result.getReplyText());
     }
 
@@ -306,7 +317,7 @@ public class CliRunner implements CommandLineRunner {
         if (ttsService.resolveVoice(parts[0]) != null) {
             voice = ttsService.resolveVoice(parts[0]);
             if (parts.length < 2) {
-                System.out.println("Usage: tts <N> <text> — text is required");
+                System.out.println("Usage: tts <N> <text> - text is required");
                 return;
             }
             text = parts[1];
@@ -471,7 +482,7 @@ public class CliRunner implements CommandLineRunner {
         if (matches.size() > 1) {
             System.out.println("Multiple matches:");
             for (var m : matches) {
-                System.out.println("  " + m.shortId() + " — " + m.label());
+                System.out.println("  " + m.shortId() + " - " + m.label());
             }
             throw new IllegalArgumentException("Ambiguous prefix '" + prefix + "'");
         }
@@ -506,12 +517,20 @@ public class CliRunner implements CommandLineRunner {
                     }
                 }
 
-                // Normal text → AI with Function Calling
-                List<Tool> allTools = List.of(weatherTool, imageTool, ttsTool, searchTool, stockTool,
-                    exchangeRateTool, dateTimeTool, constellationTool, phoneLocationTool,
-                    musicTool, recommendMusicTool, translationTool, hotCommentTool, logisticsTool, memoryTool);
+                // Route to Skill if matched, otherwise use all tools
+                Optional<Skill> routedSkill = skillManager.routeSkill(text);
+                List<Tool> selectedTools;
+                String ragContext = "";
+                if (routedSkill.isPresent()) {
+                    Skill skill = routedSkill.get();
+                    selectedTools = skill.getTools();
+                    ragContext = knowledgeService.buildContext(skill.getName(), text);
+                    log.info("Skill routed: {} tools: {}", skill.getName(), selectedTools.size());
+                } else {
+                    selectedTools = TOOLS;
+                }
 
-                ChatResult result = aiService.chat(userId, text, allTools);
+                ChatResult result = aiService.chat(userId, text, selectedTools, ragContext);
                 String reply = result.getReplyText();
 
                 // Handle media
@@ -533,11 +552,11 @@ public class CliRunner implements CommandLineRunner {
             // Image handler
             (userId, prompt, imageBytes, contextToken) -> {
                 pendingImages.put(userId, imageBytes);
-                return "看到啦～你想让我帮你看看这张图，还是按你的想法改一改？";
+                return "看到啦～你想让我帮你看看这张图,还是按你的想法改一改？";
             },
             // Voice handler
             (userId, audioBytes, contextToken) -> {
-                System.out.println("[微信] " + userId + " 发送了语音，正在识别...");
+                System.out.println("[微信] " + userId + " 发送了语音,正在识别...");
                 String transcribedText = voiceService.transcribe(audioBytes);
                 if (transcribedText.startsWith("错误:")) {
                     log.warn("语音识别失败: {}", transcribedText);
@@ -546,9 +565,7 @@ public class CliRunner implements CommandLineRunner {
                 log.info("语音转文字: {}", transcribedText);
                 System.out.println("[微信] " + userId + " (语音): " + transcribedText);
 
-                List<Tool> voiceTools = List.of(weatherTool, imageTool, ttsTool, searchTool,
-                    stockTool, musicTool, recommendMusicTool, hotCommentTool, logisticsTool, memoryTool);
-                ChatResult result = aiService.chat(userId, transcribedText, voiceTools);
+                ChatResult result = aiService.chat(userId, transcribedText, TOOLS, buildRagContext(transcribedText));
                 String reply = result.getReplyText();
 
                 reply = handleMediaResult(sessionId, userId, contextToken, result, reply);
@@ -560,12 +577,12 @@ public class CliRunner implements CommandLineRunner {
                         + " (" + fileBytes.length + " bytes)");
                 try {
                     if (fileBytes.length > fileService.getMaxFileSize()) {
-                        return "文件太大了，我只能处理 20MB 以内的文件";
+                        return "文件太大了,我只能处理 20MB 以内的文件";
                     }
                     String extractedText = fileService.extractText(fileBytes, fileName);
                     log.info("文件文本提取: {} {}chars", fileName, extractedText.length());
                     String reply = aiService.generateWithContext(userId,
-                        "请帮我总结这个文件的内容", "文件名：" + fileName + "\n\n文件内容：\n" + extractedText);
+                        "请帮我总结这个文件的内容", "文件名:" + fileName + "\n\n文件内容:\n" + extractedText);
                     return reply;
                 } catch (Exception e) {
                     log.error("文件处理失败: {}", fileName, e);
@@ -586,30 +603,52 @@ public class CliRunner implements CommandLineRunner {
         imgTools.add(recognizeTool);
         imgTools.add(editTool);
 
-        String contextMessage = "[系统提示：当前有一张待处理的图片。请根据用户的指令选择合适的工具。]\n"
-            + "[如果用户想识别图片内容（这是什么、描述图片、提取文字等），请调用 recognize_image 工具]\n"
-            + "[如果用户想编辑图片（修改物体、颜色、背景、风格等），请调用 edit_image 工具]\n"
-            + "用户指令：" + instruction;
+        String contextMessage = "[系统提示:当前有一张待处理的图片.请根据用户的指令选择合适的工具.]\n"
+            + "[如果用户想识别图片内容(这是什么,描述图片,提取文字等),请调用 recognize_image 工具]\n"
+            + "[如果用户想编辑图片(修改物体,颜色,背景,风格等),请调用 edit_image 工具]\n"
+            + "用户指令:" + instruction;
 
-        ChatResult result = aiService.chat(userId, contextMessage, imgTools);
+        ChatResult result = aiService.chat(userId, contextMessage, imgTools, buildRagContext(instruction));
         String reply = result.getReplyText();
 
         // Handle edited image
         if (result.hasPendingImage()) {
             String imageUrl = result.getFirstPendingImageUrl();
             lastGeneratedImageUrl.put(userId, imageUrl);
-            System.out.println("[系统] 图片编辑完成，正在上传...");
+            System.out.println("[系统] 图片编辑完成,正在上传...");
             try {
                 byte[] editedBytes = imageService.downloadImage(imageUrl);
                 ilinkService.sendImage(sessionId, userId, contextToken, editedBytes);
                 log.info("已发送编辑后的图片");
             } catch (Exception e) {
                 log.error("图片上传失败", e);
-                reply += "\n\n（图片上传失败: " + e.getMessage() + "）";
+                reply += "\n\n(图片上传失败: " + e.getMessage() + ")";
             }
         }
 
         return reply;
+    }
+
+    /**
+     * Build RAG context: route query to a Skill and retrieve knowledge snippets.
+     */
+    private String buildRagContext(String query) {
+        Optional<Skill> routed = skillManager.routeSkill(query);
+        if (routed.isPresent()) {
+            return knowledgeService.buildContext(routed.get().getName(), query);
+        }
+        return "";
+    }
+
+    /** Return true when the current call stack originates from a test runner. */
+    private boolean isRunningTests() {
+        return java.util.Arrays.stream(Thread.currentThread().getStackTrace())
+                .anyMatch(e -> {
+                    String className = e.getClassName();
+                    return className.startsWith("org.junit")
+                            || className.startsWith("org.springframework.test")
+                            || className.startsWith("org.apache.maven.surefire");
+                });
     }
 
     /** Handle media side-effects from AI tool results. Returns augmented reply text. */
@@ -618,20 +657,20 @@ public class CliRunner implements CommandLineRunner {
         if (result.hasPendingImage()) {
             String imageUrl = result.getFirstPendingImageUrl();
             lastGeneratedImageUrl.put(userId, imageUrl);
-            System.out.println("[系统] 图片已生成，正在上传...");
+            System.out.println("[系统] 图片已生成,正在上传...");
             try {
                 byte[] imageBytes = imageService.downloadImage(imageUrl);
                 ilinkService.sendImage(sessionId, userId, contextToken, imageBytes);
                 log.info("已发送图片到 {}", userId);
             } catch (Exception e) {
                 log.error("图片上传失败", e);
-                reply += "\n\n（图片上传失败: " + e.getMessage() + "）";
+                reply += "\n\n(图片上传失败: " + e.getMessage() + ")";
             }
         }
 
         if (result.hasPendingAudio()) {
             ToolResult audio = result.getFirstPendingAudio();
-            System.out.println("[系统] 语音合成完成，正在上传...");
+            System.out.println("[系统] 语音合成完成,正在上传...");
             try {
                 String fileName = audio.getAudioFileName() != null ? audio.getAudioFileName() : "audio.mp3";
                 ilinkService.sendFile(sessionId, userId, contextToken,
@@ -639,7 +678,7 @@ public class CliRunner implements CommandLineRunner {
                 log.info("已发送音频文件 ({}s): {}", audio.getAudioDurationSeconds(), fileName);
             } catch (Exception e) {
                 log.error("音频上传失败", e);
-                reply += "\n\n（音频上传失败: " + e.getMessage() + "）";
+                reply += "\n\n(音频上传失败: " + e.getMessage() + ")";
             }
         }
 
