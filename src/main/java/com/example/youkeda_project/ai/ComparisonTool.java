@@ -1,6 +1,7 @@
 package com.example.youkeda_project.ai;
 
 import com.example.youkeda_project.service.ChartService;
+import com.example.youkeda_project.service.FinancialDataService;
 import com.example.youkeda_project.service.KLineService;
 import com.example.youkeda_project.service.StockService;
 import com.example.youkeda_project.service.TechnicalService;
@@ -21,12 +22,16 @@ public class ComparisonTool implements Tool {
     private final KLineService kLineService;
     private final TechnicalService technicalService;
     private final ChartService chartService;
+    private final FinancialDataService financialDataService;
 
-    public ComparisonTool(StockService stockService, KLineService kLineService, TechnicalService technicalService, ChartService chartService) {
+    public ComparisonTool(StockService stockService, KLineService kLineService,
+                          TechnicalService technicalService, ChartService chartService,
+                          FinancialDataService financialDataService) {
         this.stockService = stockService;
         this.kLineService = kLineService;
         this.technicalService = technicalService;
         this.chartService = chartService;
+        this.financialDataService = financialDataService;
     }
 
     @Override
@@ -76,10 +81,11 @@ public class ComparisonTool implements Tool {
                 String quote = stockService.queryStock(item);
                 String code = extractCode(quote);
                 String name = extractName(quote);
+                String symbol = item;
 
                 List<KLineService.KLineData> history = kLineService.fetchDailyKLine(item, 60);
                 if (history == null || history.size() < 5) {
-                    results.add(new StockAnalysis(name, code, quote, null, null, null));
+                    results.add(new StockAnalysis(name, code, symbol, quote, null, null, null));
                     continue;
                 }
 
@@ -92,7 +98,7 @@ public class ComparisonTool implements Tool {
                 int score = calcScore(history, maList, rsiList, anomaly);
                 double percentile = calcPercentile(yearHistory);
 
-                results.add(new StockAnalysis(name, code, quote, maList, rsiList, anomaly, score, percentile));
+                results.add(new StockAnalysis(name, code, symbol, quote, maList, rsiList, anomaly, score, percentile));
             } catch (Exception e) {
                 log.warn("对比分析失败: {}", e.getMessage());
             }
@@ -125,7 +131,7 @@ public class ComparisonTool implements Tool {
         List<ChartService.OverlaySeries> series = new ArrayList<>();
         for (int i = 0; i < valid.size(); i++) {
             var r = valid.get(i);
-            List<KLineService.KLineData> history = kLineService.fetchDailyKLine(r.code, 60);
+            List<KLineService.KLineData> history = kLineService.fetchDailyKLine(r.symbol, 60);
             if (history == null || history.size() < 2) continue;
             List<ChartService.ChartPoint> pts = new ArrayList<>();
             for (var h : history) {
@@ -241,6 +247,15 @@ public class ComparisonTool implements Tool {
                 name, r.code, price, change, pe, maStr, anomalyStr, scoreStr));
         }
 
+        // 基本面对比
+        sb.append("\n**基本面对比**\n");
+        for (var r : results) {
+            var fd = financialDataService.fetch(r.code);
+            if (fd != null) {
+                sb.append(financialDataService.formatSummary(r.name, fd)).append("\n");
+            }
+        }
+
         // 评分规则说明
         sb.append("\n**评分规则（满分10分）**\n");
         sb.append("· MA多头排列（MA5>MA10>MA20）+2分，空头排列 -2分\n");
@@ -327,21 +342,21 @@ public class ComparisonTool implements Tool {
                                  double vol, double volMean,
                                  boolean priceAnomaly, boolean volAnomaly) {}
 
-    private record StockAnalysis(String name, String code, String quote,
-                                  List<TechnicalService.MaResult> maList,
-                                  List<TechnicalService.RsiResult> rsiList,
-                                  AnomalyResult anomaly, int score, double percentile) {
-        StockAnalysis(String name, String code, String quote,
+    private record StockAnalysis(String name, String code, String symbol, String quote,
+                                   List<TechnicalService.MaResult> maList,
+                                   List<TechnicalService.RsiResult> rsiList,
+                                   AnomalyResult anomaly, int score, double percentile) {
+        StockAnalysis(String name, String code, String symbol, String quote,
                       List<TechnicalService.MaResult> maList,
                       List<TechnicalService.RsiResult> rsiList,
                       AnomalyResult anomaly, int score) {
-            this(name, code, quote, maList, rsiList, anomaly, score, -1);
+            this(name, code, symbol, quote, maList, rsiList, anomaly, score, -1);
         }
-        StockAnalysis(String name, String code, String quote,
+        StockAnalysis(String name, String code, String symbol, String quote,
                       List<TechnicalService.MaResult> maList,
                       List<TechnicalService.RsiResult> rsiList,
                       AnomalyResult anomaly) {
-            this(name, code, quote, maList, rsiList, anomaly, -1, -1);
+            this(name, code, symbol, quote, maList, rsiList, anomaly, -1, -1);
         }
     }
 }

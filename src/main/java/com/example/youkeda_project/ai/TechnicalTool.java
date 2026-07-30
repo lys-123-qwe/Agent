@@ -1,5 +1,6 @@
 package com.example.youkeda_project.ai;
 
+import com.example.youkeda_project.service.FinancialDataService;
 import com.example.youkeda_project.service.KLineService;
 import com.example.youkeda_project.service.TechnicalService;
 import org.slf4j.Logger;
@@ -17,10 +18,13 @@ public class TechnicalTool implements Tool {
 
     private final KLineService kLineService;
     private final TechnicalService technicalService;
+    private final FinancialDataService financialDataService;
 
-    public TechnicalTool(KLineService kLineService, TechnicalService technicalService) {
+    public TechnicalTool(KLineService kLineService, TechnicalService technicalService,
+                         FinancialDataService financialDataService) {
         this.kLineService = kLineService;
         this.technicalService = technicalService;
+        this.financialDataService = financialDataService;
     }
 
     @Override
@@ -111,6 +115,13 @@ public class TechnicalTool implements Tool {
                 log.warn("技术分析失败: {}", e.getMessage());
                 sb.append("❌ ").append(item).append("：分析失败\n\n");
             }
+        }
+
+        // 补充第一个标的的基本面
+        String first = items[0];
+        var fd = financialDataService.fetch(first);
+        if (fd != null) {
+            sb.append("\n\n📋 基本面参考\n").append(financialDataService.formatOneLine(first, fd));
         }
 
         return ToolResult.text(sb.toString());

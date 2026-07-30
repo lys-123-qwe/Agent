@@ -15,7 +15,7 @@ public class SessionConfig {
     /** QR scan timeout in milliseconds (default 120s). */
     private long loginTimeoutMs = 120_000L;
 
-    /** IO core threads per session (default 1 — minimize thread count). */
+    /** IO core threads per session (default 1 - minimize thread count). */
     private int ioCoreThreads = 1;
 
     /** IO max threads per session (default 2). */

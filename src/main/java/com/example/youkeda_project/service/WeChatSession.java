@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Wraps a single WeChat bot session — independent IlinkProtocolClient, thread pool,
+ * Wraps a single WeChat bot session - independent IlinkProtocolClient, thread pool,
  * QR code, login state, and message listener.
  *
  * <p>Each session is fully isolated: its own HTTP client, its own polling thread,
@@ -101,7 +101,7 @@ public class WeChatSession implements AutoCloseable {
      * Create a new session with its own IlinkProtocolClient.
      */
     public static WeChatSession create(String label, SessionConfig config, ObjectMapper objectMapper) {
-        return create(UUID.randomUUID().toString(), label, config, objectMapper, null, null, null);
+        return create(UUID.randomUUID().toString(), label, config, objectMapper, null, null, null, null);
     }
 
     /**
@@ -110,6 +110,12 @@ public class WeChatSession implements AutoCloseable {
     public static WeChatSession create(String sessionId, String label,
                                         SessionConfig config, ObjectMapper objectMapper,
                                         String botToken, String baseUrl, String cursor) {
+        return create(sessionId, label, config, objectMapper, botToken, baseUrl, cursor, null);
+    }
+
+    public static WeChatSession create(String sessionId, String label,
+                                        SessionConfig config, ObjectMapper objectMapper,
+                                        String botToken, String baseUrl, String cursor, String botId) {
         IlinkProtocolClient client = new IlinkProtocolClient(objectMapper);
 
         // If restoring, set credentials immediately
@@ -133,13 +139,13 @@ public class WeChatSession implements AutoCloseable {
                 });
 
         return new WeChatSession(sessionId, label, client, listenerPool, dispatchPool,
-                config, botToken, baseUrl, cursor);
+                config, botToken, baseUrl, cursor, botId);
     }
 
     private WeChatSession(String sessionId, String label, IlinkProtocolClient client,
                           ExecutorService listenerPool, ExecutorService dispatchPool,
                           SessionConfig sessionConfig,
-                          String botToken, String baseUrl, String cursor) {
+                          String botToken, String baseUrl, String cursor, String botId) {
         this.sessionId = sessionId;
         this.label = label;
         this.client = client;
@@ -152,6 +158,7 @@ public class WeChatSession implements AutoCloseable {
         if (botToken != null && !botToken.isBlank()) {
             this.botToken = botToken;
             this.baseUrl = baseUrl;
+            this.botId = botId;
             this.status = Status.LOGGED_IN;
             this.cursor = cursor != null ? cursor : "";
             log.info("Session {} ({}) restored from persisted state", sessionId, label);
@@ -319,7 +326,7 @@ public class WeChatSession implements AutoCloseable {
                 } catch (Exception e) {
                     // Session expired on server
                     if (isSessionExpired(e)) {
-                        log.warn("Session {} ({}) expired on server — stopping listener",
+                        log.warn("Session {} ({}) expired on server - stopping listener",
                                 sessionId, label);
                         this.status = Status.EXPIRED;
                         this.errorMessage = "session expired on server";

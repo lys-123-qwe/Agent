@@ -26,7 +26,7 @@ public class MusicTool implements Tool {
 
     @Override
     public String getDescription() {
-        return "【找歌/听歌/查歌词】搜索歌曲，返回歌名、歌手、专辑、歌词片段和网易云/QQ音乐播放链接。用户提到任何歌名、歌手、想听歌时，必须用此工具，不要自己编造。";
+        return "[找歌/听歌/查歌词]搜索歌曲,返回歌名,歌手,专辑,歌词片段和网易云/QQ音乐播放链接.用户提到任何歌名,歌手,想听歌时,必须用此工具,不要自己编造.";
     }
 
     @Override
@@ -38,7 +38,7 @@ public class MusicTool implements Tool {
 
         Map<String, Object> keyword = new LinkedHashMap<>();
         keyword.put("type", "string");
-        keyword.put("description", "歌曲关键词，如'周杰伦 晴天'、'一路生花'等");
+        keyword.put("description", "歌曲关键词,如'周杰伦 晴天','一路生花'等");
         properties.put("keyword", keyword);
 
         params.put("properties", properties);

@@ -3,11 +3,11 @@ package com.example.youkeda_project.ai;
 import java.util.Map;
 
 /**
- * Function Calling 工具接口。
+ * Function Calling 工具接口.
  * <p>
- * 每个工具定义名称、描述、参数 JSON Schema，
- * 供 DeepSeek/OpenAI Function Calling 使用。
- * execute() 返回 ToolResult，可携带文本结果和/或媒体数据。
+ * 每个工具定义名称,描述,参数 JSON Schema,
+ * 供 DeepSeek/OpenAI Function Calling 使用.
+ * execute() 返回 ToolResult,可携带文本结果和/或媒体数据.
  */
 public interface Tool {
 
@@ -18,10 +18,10 @@ public interface Tool {
     Map<String, Object> getParameters();
 
     /**
-     * 执行工具并返回结果。
+     * 执行工具并返回结果.
      *
-     * @param arguments 模型生成的参数 JSON（已解析为 Map）
-     * @return 工具执行结果（文本 + 可选媒体）
+     * @param arguments 模型生成的参数 JSON(已解析为 Map)
+     * @return 工具执行结果(文本 + 可选媒体)
      */
     ToolResult execute(Map<String, Object> arguments);
 

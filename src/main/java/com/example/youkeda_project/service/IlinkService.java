@@ -1,767 +1,228 @@
 package com.example.youkeda_project.service;
 
-import com.example.youkeda_project.ai.AIService;
-import com.example.youkeda_project.ai.ChatResult;
-import com.example.youkeda_project.ai.DateTimeTool;
-import com.example.youkeda_project.ai.EditImageTool;
-import com.example.youkeda_project.ai.ExchangeRateTool;
-import com.example.youkeda_project.ai.ImageTool;
-import com.example.youkeda_project.ai.MusicTool;
-import com.example.youkeda_project.ai.PhoneLocationTool;
-import com.example.youkeda_project.ai.RecommendMusicTool;
-import com.example.youkeda_project.ai.RecognizeImageTool;
-import com.example.youkeda_project.ai.SearchTool;
-import com.example.youkeda_project.ai.StockTool;
-import com.example.youkeda_project.ai.Tool;
-import com.example.youkeda_project.ai.ToolResult;
-import com.example.youkeda_project.ai.TranslationTool;
-import com.example.youkeda_project.ai.TtsTool;
-import com.example.youkeda_project.ai.WeatherTool;
-import com.example.youkeda_project.ai.FortuneTool;
-import com.example.youkeda_project.ai.FundTool;
-import com.example.youkeda_project.ai.FuturesTool;
-import com.example.youkeda_project.ai.CopywritingTool;
-import com.example.youkeda_project.ai.FinancialAnalysisTool;
-import com.example.youkeda_project.client.IlinkProtocolClient;
-import com.example.youkeda_project.protocol.GetUpdatesResponse;
-import com.example.youkeda_project.protocol.LoginResult;
-import com.example.youkeda_project.protocol.MessageItem;
-import com.example.youkeda_project.protocol.QRCodeResponse;
-import com.example.youkeda_project.protocol.FileItem;
-import com.example.youkeda_project.protocol.VoiceItem;
 import com.example.youkeda_project.protocol.WeixinMessage;
-import com.example.youkeda_project.service.SessionPersistenceService;
-import com.example.youkeda_project.service.WeChatSession;
-import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.TimeoutException;
+import java.io.IOException;
+import java.util.List;
 
 /**
- * iLink 微信 Bot 核心服务。
- * <p>
- * 管理完整的 iLink 生命周期：扫码登录、消息轮询（长轮询 3s 间隔）、
- * 消息路由分发（天气/AI对话/图片生成/图片识别）、首条消息欢迎机制。
- * <p>
- * 由于 iLink 协议不支持主动推送，采用轮询方式拉取消息。
- * 欢迎消息通过登录时记录 ownerId，在其发送的首条消息时回复。
+ * WeChat iLink service - 统一委托给 {@link WeChatSessionManager},
+ * 支持多 session 登录,消息监听,发送.
+ *
+ * <p>启动时自动加载 {@link com.example.youkeda_project.skill.SkillManager}
+ * 动态扫描 src/skills/* 注册 Skill,不依赖 if-else 硬编码.</p>
  */
 @Service
 public class IlinkService {
 
     private static final Logger log = LoggerFactory.getLogger(IlinkService.class);
-    private static final long POLL_INTERVAL_MS = 3000;
 
-    private static final String WELCOME_TEXT = """
-        嗨！我是 Claw 小助手 😊\n\
-        查天气、看股票、搜新闻、聊天、画图……有啥需要直接跟我说就行～""";
+    private final WeChatSessionManager sessionManager;
 
-    private final IlinkProtocolClient client;
-    private final WeatherService weatherService;
-    private final AIService aiService;
-    private final ImageService imageService;
-    private final VoiceService voiceService;
-    private final TtsService ttsService;
-    private final FileService fileService;
-    private final List<Tool> allTools;
-    private final SessionPersistenceService sessionPersistenceService;
-
-    private final AtomicBoolean connected = new AtomicBoolean(false);
-    private final AtomicBoolean polling = new AtomicBoolean(false);
-    private final java.util.concurrent.ConcurrentHashMap<String, byte[]> pendingImages = new java.util.concurrent.ConcurrentHashMap<>();
-    private final java.util.concurrent.ConcurrentHashMap<String, String> lastGeneratedImageUrl = new java.util.concurrent.ConcurrentHashMap<>();
-    private String ownerId;
-    private boolean ownerWelcomed = false;
-    private Thread pollThread;
-
-    public IlinkService(IlinkProtocolClient client, WeatherService weatherService,
-                        AIService aiService, ImageService imageService, VoiceService voiceService,
-                        TtsService ttsService, FileService fileService,
-                        List<Tool> allTools,
-                        SessionPersistenceService sessionPersistenceService) {
-        this.client = client;
-        this.weatherService = weatherService;
-        this.aiService = aiService;
-        this.imageService = imageService;
-        this.voiceService = voiceService;
-        this.ttsService = ttsService;
-        this.fileService = fileService;
-        this.allTools = allTools;
-        this.sessionPersistenceService = sessionPersistenceService;
+    public IlinkService(WeChatSessionManager sessionManager) {
+        this.sessionManager = sessionManager;
     }
 
+    // ======================== Single-bot API (default session) ========================
+
     /**
-     * 启动 iLink 登录流程：
-     * 1. 先尝试从持久化存储恢复会话
-     * 2. 如果恢复失败，获取 QR 码展示给用户扫码登录
+     * Start login for the default session. Creates one if needed.
+     *
+     * @return QR code content
      */
-    public String start() {
-        if (connected.get()) {
-            return "iLink 已经连接";
+    public synchronized String login() {
+        WeChatSession existing = sessionManager.getDefaultSession();
+        if (existing != null && existing.isLoggedIn() && existing.isListening()) {
+            return "Already logged in as " + existing.getBotId()
+                    + ". Use 'wechat login <label>' to add another bot.";
+        }
+        if (existing != null && existing.isLoggedIn() && !existing.isListening()) {
+            log.info("Default session {} is logged in but not listening - replacing",
+                    existing.getSessionId().substring(0, 8));
+            sessionManager.closeSession(existing.getSessionId());
+        }
+        if (existing != null && existing.getStatus() == WeChatSession.Status.WAITING_QR) {
+            return "QR login already in progress. Scan the QR code, or wait for timeout.";
         }
 
-        // 先尝试恢复已保存的会话
-        if (tryRestoreSession()) {
-            log.info("已恢复会话，无需扫码登录");
-            System.out.println("\n[系统] 已恢复会话，无需扫码登录");
-            startPolling();
-            return "会话已恢复，无需扫码";
-        }
-
-        try {
-            QRCodeResponse qrCode = client.getQRCode();
-            String qrcodeId = qrCode.qrcode();
-            String qrCodeUrl = qrCode.qrcodeImgContent();
-
-            log.info("二维码ID={}, URL={}", qrcodeId, qrCodeUrl);
-            System.out.println("\n请用微信扫码登录:");
-            System.out.println(qrCodeUrl + "\n");
-
-            while (true) {
-                LoginResult result = client.pollQRStatus(qrcodeId);
-                String status = result.status();
-
-                if ("confirmed".equals(status)) {
-                    client.setCredentials(result.botToken(), result.baseurl());
-                    connected.set(true);
-                    ownerId = result.userId();
-                    ownerWelcomed = false;
-                    log.info("登录成功, botId={}, userId={}", result.botId(), ownerId);
-                    System.out.println("\n[系统] iLink 登录成功! BotID=" + result.botId());
-
-                    // 登录成功后自动保存会话到持久化存储
-                    sessionPersistenceService.saveSessionState(
-                        ownerId, "default",
-                        result.botToken(), result.baseurl(),
-                        result.botId(), result.userId(), "");
-                    log.info("会话已持久化: {}", ownerId);
-
-                    startPolling();
-                    return "登录成功";
-                } else if ("expired".equals(status)) {
-                    return "二维码已过期，请重新执行 ilink login";
-                }
-
-                Thread.sleep(2000);
-            }
-
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return "登录被中断";
-        } catch (Exception e) {
-            log.error("iLink登录失败", e);
-            return "登录失败: " + e.getMessage();
-        }
+        WeChatSessionManager.LoginResponse resp = sessionManager.startLogin("default");
+        sessionManager.setDefaultSessionId(resp.sessionId());
+        log.info("Default session {} created, QR ready", resp.sessionId());
+        return resp.qrContent();
     }
 
     /**
-     * 尝试从持久化存储恢复会话
+     * Start login with a custom label (for multi-bot).
      */
-    private boolean tryRestoreSession() {
-        try {
-            // 从持久化存储加载会话索引
-            List<SessionPersistenceService.SessionMeta> metas = sessionPersistenceService.loadIndex();
-            if (metas.isEmpty()) {
-                log.debug("没有找到持久化的会话");
-                return false;
-            }
-
-            // 尝试加载第一个可用的会话（最新的）
-for (SessionPersistenceService.SessionMeta meta : metas) {
-                var state = sessionPersistenceService.loadState(meta.sessionId());
-                if (state != null && state.botToken() != null && state.baseUrl() != null) {
-                    log.info("尝试恢复会话: {}", meta.sessionId());
-
-                    // 恢复凭据
-                    client.setCredentials(state.botToken(), state.baseUrl());
-
-                    // 验证会话是否有效
-                    try {
-                        GetUpdatesResponse resp = client.getUpdates(state.cursor() != null ? state.cursor() : "");
-                        if (resp != null) {
-                            connected.set(true);
-                            ownerId = state.userId();
-                            ownerWelcomed = false;
-                            log.info("会话恢复成功: sessionId={}, botId={}, userId={}",
-                                    meta.sessionId(), state.botId(), state.userId());
-                            System.out.println("\n[系统] 会话恢复成功！BotID=" + state.botId());
-                            return true;
-                        }
-                    } catch (Exception e) {
-                        log.warn("恢复会话 {} 失败: {}", meta.sessionId(), e.getMessage());
-                        // 继续尝试下一个会话
-                    }
-                }
-            }
-
-            log.debug("所有持久化会话均已失效或无法恢复");
-            return false;
-
-        } catch (Exception e) {
-            log.warn("恢复会话时发生错误: {}", e.getMessage());
-            return false;
-        }
+    public WeChatSessionManager.LoginResponse login(String label) {
+        return sessionManager.startLogin(label);
     }
 
     /**
-     * 启动消息轮询线程（daemon）。
-     * 使用 getUpdates 长轮询拉取消息，将 cursor 带回以实现增量拉取。
-     * 对每条消息提取文本/图片，检查有 contextToken 后交给 handleMessage 处理。
+     * Always create a fresh login session and make it the default.
      */
-    private void startPolling() {
-        polling.set(true);
-        pollThread = new Thread(() -> {
-            log.info("消息轮询已启动");
-            String cursor = "";
+    public WeChatSessionManager.LoginResponse loginNew() {
+        var resp = sessionManager.startLogin("default");
+        sessionManager.setDefaultSessionId(resp.sessionId());
+        return resp;
+    }
 
-            while (polling.get() && connected.get()) {
-                try {
-                    GetUpdatesResponse resp = client.getUpdates(cursor);
-                    if (resp.getUpdatesBuf() != null) {
-                        cursor = resp.getUpdatesBuf();
-                    }
-                    if (resp.msgs() != null && !resp.msgs().isEmpty()) {
-                        log.info("收到 {} 条消息", resp.msgs().size());
-                        for (WeixinMessage msg : resp.msgs()) {
-                            String fromUser = msg.fromUserId();
-                            String text = extractText(msg);
-                            boolean hasImage = extractFirstImage(msg) != null;
-                            boolean hasVoice = extractFirstVoice(msg) != null;
-                            boolean hasFile = extractFirstFile(msg) != null;
-                            // 只处理有 contextToken 的消息
-                            if (msg.contextToken() != null && (text != null || hasImage || hasVoice || hasFile)) {
-                                if (text != null) {
-                                    log.info("微信消息 from={}, text={}", fromUser, text);
-                                    System.out.println("\n[微信] " + fromUser + ": " + text);
-                                }
-                                if (hasImage) {
-                                    log.info("微信消息 from={}, [图片]", fromUser);
-                                    System.out.println("\n[微信] " + fromUser + ": [图片]");
-                                }
-                                if (hasVoice) {
-                                    log.info("微信消息 from={}, [语音]", fromUser);
-                                    System.out.println("\n[微信] " + fromUser + ": [语音]");
-                                }
-                                if (hasFile) {
-                                    log.info("微信消息 from={}, [文件]", fromUser);
-                                    System.out.println("\n[微信] " + fromUser + ": [文件]");
-                                }
-                                handleMessage(msg);
-                            }
-                        }
-                    }
-                } catch (Exception e) {
-                    if (polling.get()) {
-                        log.warn("轮询异常: {}", e.getMessage());
-                        try {
-                            Thread.sleep(POLL_INTERVAL_MS * 2);
-                        } catch (InterruptedException ie) {
-                            Thread.currentThread().interrupt();
-                            break;
-                        }
-                    }
-                }
-            }
-            log.info("消息轮询已停止");
-        }, "ilink-poll");
-        pollThread.setDaemon(true);
-        pollThread.start();
+    public com.example.youkeda_project.protocol.LoginResult waitForLogin(long timeoutMs) throws Exception {
+        String sid = sessionManager.getDefaultSessionId();
+        if (sid == null) throw new IllegalStateException("No login in progress. Call login() first.");
+        return sessionManager.waitForLogin(sid, timeoutMs);
+    }
+
+    public com.example.youkeda_project.protocol.LoginResult waitForLogin(String sessionId, long timeoutMs) throws Exception {
+        return sessionManager.waitForLogin(sessionId, timeoutMs);
+    }
+
+    // ---- messaging ----
+
+    public List<WeixinMessage> getUpdates() throws IOException {
+        String sid = requireDefaultSessionId();
+        return sessionManager.getUpdates(sid);
+    }
+
+    public List<WeixinMessage> getUpdates(String sessionId) throws IOException {
+        return sessionManager.getUpdates(sessionId);
     }
 
     /**
-     * 消息路由分发核心逻辑：
-     * 1. 含图片 -> 通义千问 VL 识别 / 编辑
-     * 2. 含语音 -> 下载语音→Paraformer 转文字→AI 回复
-     * 3. 含文件 -> 下载→提取文本→AI 总结
-     * 4. 文字 -> DeepSeek AI 对话（Function Calling）
-     * 5. 首条文字消息附带欢迎语（不消耗消息）
+     * Start message polling with auto-reply handlers for the default session.
      */
-    private void handleMessage(WeixinMessage msg) {
-        try {
-            String fromUser = msg.fromUserId();
-
-            // 图片处理：不再直接识别，交由 DeepSeek 判断（识图 or 编辑）
-            MessageItem imageItem = extractFirstImage(msg);
-            if (imageItem != null) {
-                byte[] imageBytes = client.downloadAndDecryptImage(imageItem);
-                String textPrompt = extractText(msg);
-
-                if (textPrompt != null && !textPrompt.isBlank()) {
-                    // 同一条消息中带了文字指令 → 直接处理
-                    System.out.println("[微信] " + fromUser + " 发送了图片+指令，正在处理...");
-                    processImageWithInstruction(fromUser, msg.contextToken(), imageBytes, textPrompt);
-                } else {
-                    // 纯图片 → 存储等待文字指令
-                    pendingImages.put(fromUser, imageBytes);
-                    client.sendMessage(fromUser, msg.contextToken(),
-                        List.of(MessageItem.text("图片已收到，请发送文字告诉我你想做什么？\n- 识别图片内容\n- 编辑图片（如：把猫换成狗、改变背景颜色）")));
-                    log.info("已存储 {} 的待处理图片，等待指令", fromUser);
-                    System.out.println("[微信] " + fromUser + ": [系统] 图片已收到，请发送文字告诉我你想做什么");
-                }
-                return;
-            }
-
-            // 语音识别：下载 → ASR 转文字 → AI 回复
-            MessageItem voiceMsgItem = extractFirstVoice(msg);
-            if (voiceMsgItem != null) {
-                VoiceItem voiceItem = voiceMsgItem.voiceItem();
-                System.out.println("[微信] " + fromUser + " 发送了语音，正在识别...");
-                byte[] audioBytes = client.downloadVoice(voiceItem);
-                String transcribedText = voiceService.transcribe(audioBytes);
-                if (transcribedText.startsWith("错误:")) {
-                    log.warn("语音识别失败: {}", transcribedText);
-                    System.out.println("[微信] " + fromUser + " 语音识别失败: " + transcribedText);
-                    // 发送友好的错误提示给用户
-                    String userMessage = IlinkService.getVoiceErrorMessage(transcribedText);
-                    client.sendMessage(fromUser, msg.contextToken(),
-                        List.of(MessageItem.text(userMessage)));
-                    return;
-                }
-                log.info("语音转文字结果: {}", transcribedText);
-                System.out.println("[微信] " + fromUser + " (语音转文字): " + transcribedText);
-
-                // 检查是否有待处理的图片（先发图，再发语音指令）
-                byte[] pendingImage = pendingImages.remove(fromUser);
-                if (pendingImage != null) {
-                    processImageWithInstruction(fromUser, msg.contextToken(), pendingImage, transcribedText);
-                    return;
-                }
-
-                // 检查是否有最近生成的图片可识别/编辑
-                String lastGenUrl = lastGeneratedImageUrl.get(fromUser);
-                if (lastGenUrl != null) {
-                    System.out.println("[系统] 找到最近生成的图片，下载中...");
-                    try {
-                        byte[] genImageBytes = imageService.downloadImage(lastGenUrl);
-                        processImageWithInstruction(fromUser, msg.contextToken(), genImageBytes, transcribedText);
-                        return;
-                    } catch (Exception e) {
-                        log.warn("下载最近生成的图片失败，回退到普通对话: {}", e.getMessage());
-                        lastGeneratedImageUrl.remove(fromUser);
-                    }
-                }
-
-                // 无图片上下文，走普通对话
-                List<Tool> voiceTools = allTools;
-                ChatResult result = aiService.chat(fromUser, transcribedText, voiceTools);
-                String reply = result.getReplyText();
-
-                for (byte[] imgBytes : result.getAllPendingImageBytes()) {
-                    System.out.println("[系统] 图片已生成，正在上传到微信CDN...");
-                    try {
-                        client.uploadAndSendImage(fromUser, msg.contextToken(), imgBytes);
-                        log.info("已发送图片 {}", fromUser);
-                        System.out.println("[系统] 图片已发送到微信");
-                    } catch (Exception e) {
-                        log.error("图片上传发送失败", e);
-                        reply += "\n\n（图片上传失败: " + e.getMessage() + "）";
-                    }
-                }
-
-                if (result.hasPendingAudio()) {
-                    ToolResult audio = result.getFirstPendingAudio();
-                    System.out.println("[系统] 语音合成完成，正在上传发送...");
-                    try {
-                        String fileName = audio.getAudioFileName() != null ? audio.getAudioFileName() : "audio.mp3";
-                        client.uploadAndSendFile(fromUser, msg.contextToken(),
-                            audio.getAudioBytes(), fileName, audio.getAudioBytes().length);
-                        log.info("已发送音频文件 {} ({}s): {}", fromUser, audio.getAudioDurationSeconds(), fileName);
-                        System.out.println("[微信] " + fromUser + ": [音频文件] " + fileName);
-                    } catch (Exception e) {
-                        log.error("音频文件上传发送失败", e);
-                        reply += "\n\n（音频文件上传失败: " + e.getMessage() + "）";
-                    }
-                }
-
-                client.sendMessage(fromUser, msg.contextToken(), List.of(MessageItem.text(reply)));
-                log.info("已回复语音 {}: {}", fromUser, reply);
-                System.out.println("[微信] " + fromUser + ": " + reply);
-                return;
-            }
-
-            // 文件识别：下载 → 提取文本 → AI 总结回复
-            MessageItem fileMsgItem = extractFirstFile(msg);
-            if (fileMsgItem != null) {
-                FileItem fileItem = fileMsgItem.fileItem();
-                String fileName = fileItem.fileName();
-                long fileSize = 0;
-                try { fileSize = Long.parseLong(fileItem.len()); } catch (NumberFormatException ignored) {}
-                System.out.println("[微信] " + fromUser + " 发送了文件: " + fileName + " (" + fileSize + " bytes)");
-                if (fileSize > FileService.MAX_FILE_SIZE) {
-                    client.sendMessage(fromUser, msg.contextToken(),
-                        List.of(MessageItem.text("文件太大了，我只能处理 20MB 以内的文件")));
-                    return;
-                }
-                try {
-                    byte[] fileBytes = client.downloadAndDecryptFile(fileItem);
-                    System.out.println("[系统] 文件下载完成: " + fileBytes.length + " bytes，正在解析...");
-                    String extractedText = fileService.extractText(fileBytes, fileName);
-                    log.info("文件文本提取完成: {}, {} 字符", fileName, extractedText.length());
-                    System.out.println("[系统] 文本提取完成: " + extractedText.length() + " 字符");
-                    String reply = aiService.generateWithContext(fromUser,
-                        "请帮我总结这个文件的内容", "文件名：" + fileName + "\n\n文件内容：\n" + extractedText);
-                    client.sendMessage(fromUser, msg.contextToken(), List.of(MessageItem.text(reply)));
-                    log.info("已回复文件识别 {}: {}", fromUser, reply);
-                    System.out.println("[微信] " + fromUser + ": " + reply);
-                } catch (Exception e) {
-                    log.error("文件处理失败: {}", fileName, e);
-                    client.sendMessage(fromUser, msg.contextToken(),
-                        List.of(MessageItem.text("文件处理失败: " + e.getMessage())));
-                }
-                return;
-            }
-
-            String text = extractText(msg);
-
-            // 检查是否有待处理的图片（用户先发图，再发文字指令）
-            byte[] pendingImage = pendingImages.remove(fromUser);
-            if (pendingImage != null) {
-                processImageWithInstruction(fromUser, msg.contextToken(), pendingImage, text);
-                return;
-            }
-
-            // Function Calling：将所有工具传递给 DeepSeek，由模型自主决定调用哪些
-            System.out.println("[系统] " + fromUser + " 正在等待 AI 回复...");
-            ChatResult result = aiService.chat(fromUser, text, allTools);
-            String reply = result.getReplyText();
-
-            // 处理工具产生的媒体侧效应（图片 CDN 上传、音频文件发送）
-            List<byte[]> allImages = result.getAllPendingImageBytes();
-            for (byte[] imgBytes : allImages) {
-                System.out.println("[系统] 图片已生成，正在上传到微信CDN...");
-                try {
-                    client.uploadAndSendImage(fromUser, msg.contextToken(), imgBytes);
-                    log.info("已发送图片 {}", fromUser);
-                    System.out.println("[系统] 图片已发送到微信");
-                } catch (Exception e) {
-                    log.error("图片上传发送失败", e);
-                    reply += "\n\n（图片上传失败: " + e.getMessage() + "）";
-                }
-            }
-
-            if (result.hasPendingAudio()) {
-                ToolResult audio = result.getFirstPendingAudio();
-                System.out.println("[系统] 语音合成完成，正在上传发送...");
-                try {
-                    String fileName = audio.getAudioFileName() != null ? audio.getAudioFileName() : "audio.mp3";
-                    client.uploadAndSendFile(fromUser, msg.contextToken(),
-                        audio.getAudioBytes(), fileName, audio.getAudioBytes().length);
-                    log.info("已发送音频文件 {} ({}s): {}", fromUser, audio.getAudioDurationSeconds(), fileName);
-                    System.out.println("[微信] " + fromUser + ": [音频文件] " + fileName);
-                } catch (Exception e) {
-                    log.error("音频文件上传发送失败", e);
-                    reply += "\n\n（音频文件上传失败: " + e.getMessage() + "）";
-                }
-            }
-
-            // 首条消息附带欢迎语
-            if (!ownerWelcomed && ownerId != null && ownerId.equals(fromUser)) {
-                reply = WELCOME_TEXT + "\n\n" + reply;
-                ownerWelcomed = true;
-                log.info("已向 {} 发送欢迎语", fromUser);
-            }
-
-            // 发送文本回复
-            client.sendMessage(fromUser, msg.contextToken(), List.of(MessageItem.text(reply)));
-            log.info("已回复 {}: {}", fromUser, reply);
-            System.out.println("[微信] " + fromUser + ": " + reply);
-
-        } catch (Exception e) {
-            log.error("处理消息失败", e);
-        }
+    public void startListening(WeChatSession.MessageHandler textHandler,
+                               WeChatSession.ImageMessageHandler imageHandler,
+                               WeChatSession.VoiceMessageHandler voiceHandler,
+                               WeChatSession.FileMessageHandler fileHandler) {
+        String sid = requireDefaultSessionId();
+        sessionManager.startListening(sid, textHandler, imageHandler, voiceHandler, fileHandler);
     }
 
-    /**
-     * 断开 iLink 连接，停止轮询线程，清除凭据。
-     */
-    public String stop() {
-        polling.set(false);
-        connected.set(false);
-        if (pollThread != null) {
-            pollThread.interrupt();
-            pollThread = null;
-        }
-        client.setCredentials(null, null);
-        log.info("iLink 已断开");
-        return "iLink 已断开";
-    }
-
-    /**
-     * 处理带图片的指令：由 DeepSeek 通过 Function Calling 判断是识图还是编辑，
-     * 调用对应的工具（RecognizeImageTool / EditImageTool），处理媒体结果。
-     */
-    private void processImageWithInstruction(String fromUser, String contextToken, byte[] imageBytes, String instruction) {
-        System.out.println("[系统] " + fromUser + " 正在处理图片指令...");
-
-        RecognizeImageTool recognizeTool = new RecognizeImageTool(aiService, fromUser, imageBytes);
-        EditImageTool editTool = new EditImageTool(imageService, imageBytes);
-        List<Tool> allTools = new java.util.ArrayList<>(this.allTools);
-        allTools.add(recognizeTool);
-        allTools.add(editTool);
-
-        String contextMessage = "[系统提示：当前有一张待处理的图片。请根据用户的指令选择合适的工具。]\n"
-            + "[如果用户想识别图片内容（这是什么、描述图片、提取文字等），请调用 recognize_image 工具]\n"
-            + "[如果用户想编辑图片（修改物体、颜色、背景、风格等），请调用 edit_image 工具]\n"
-            + "用户指令：" + instruction;
-
-        ChatResult result = aiService.chat(fromUser, contextMessage, allTools);
-        String reply = result.getReplyText();
-
-        // 处理编辑后的图片（CDN 上传 → 发送到微信）
-        if (result.hasPendingImage()) {
-            byte[] toolImageBytes = result.getFirstPendingImageBytes();
-            String imageUrl = toolImageBytes == null ? result.getFirstPendingImageUrl() : null;
-            if (imageUrl != null) lastGeneratedImageUrl.put(fromUser, imageUrl);
-            System.out.println("[系统] 图片编辑完成，正在上传到微信CDN...");
-            try {
-                byte[] uploadBytes = toolImageBytes != null ? toolImageBytes : imageService.downloadImage(imageUrl);
-                client.uploadAndSendImage(fromUser, contextToken, uploadBytes);
-                log.info("已发送编辑后的图片 {}", fromUser);
-                System.out.println("[系统] 图片已发送到微信");
-            } catch (Exception e) {
-                log.error("编辑图片上传发送失败", e);
-                reply += "\n\n（编辑图片上传失败: " + e.getMessage() + "）";
-            }
-        }
-
-        // 发送文本回复
-        client.sendMessage(fromUser, contextToken, List.of(MessageItem.text(reply)));
-        log.info("已回复图片指令 {}: {}", fromUser, reply);
-        System.out.println("[微信] " + fromUser + ": " + reply);
-    }
-
-    public boolean isConnected() {
-        return connected.get();
-    }
-
-    /**
-     * 从消息的 itemList 中提取第一段文本内容。
-     */
-    private String extractText(WeixinMessage msg) {
-        if (msg.itemList() == null) return null;
-        return msg.itemList().stream()
-                .filter(item -> item.textItem() != null)
-                .findFirst()
-                .map(item -> item.textItem().text())
-                .orElse(null);
-    }
-
-    /**
-     * 从消息的 itemList 中提取第一张图片项。
-     * 纯图片消息不会附带文本，在 polling 中通过 hasImage 单独判断避免漏掉。
-     */
-    private MessageItem extractFirstImage(WeixinMessage msg) {
-        if (msg.itemList() == null) return null;
-        return msg.itemList().stream()
-                .filter(item -> item.imageItem() != null)
-                .findFirst()
-                .orElse(null);
-    }
-
-    /**
-     * 从消息的 itemList 中提取第一条语音项。
-     */
-    private MessageItem extractFirstVoice(WeixinMessage msg) {
-        if (msg.itemList() == null) return null;
-        return msg.itemList().stream()
-                .filter(item -> item.voiceItem() != null)
-                .findFirst()
-                .orElse(null);
-    }
-
-    /**
-     * 从消息的 itemList 中提取第一个文件项。
-     */
-    private MessageItem extractFirstFile(WeixinMessage msg) {
-        if (msg.itemList() == null) return null;
-        return msg.itemList().stream()
-                .filter(item -> item.fileItem() != null)
-                .findFirst()
-                .orElse(null);
-    }
-
-    // getVoiceErrorMessage 已迁移至 static 兼容桩方法
-
-    // ==================== CliRunner 兼容桩方法 ====================
-
-    public record SessionInfo(String sessionId, String shortId, String label, String status, String botId, boolean listening, String userId) {}
-    public record CliLoginResult(String sessionId, String qrContent, String label, String botId) {}
-
-    /** SessionManager.getSession() 返回的对象，需支持 getUserId() 调用 */
-    public static class SessionSnapshot {
-        private final String userId;
-        public SessionSnapshot(String userId) { this.userId = userId; }
-        public String getUserId() { return userId; }
-    }
-
-    public class SessionManager {
-        public String getDefaultSessionId() { return ownerId; }
-        public SessionSnapshot getSession(String sessionId) {
-            if (ownerId != null && connected.get()) {
-                return new SessionSnapshot(ownerId);
-            }
-            return null;
-        }
-    }
-
-    private final SessionManager sessionManager = new SessionManager();
-
-    // ==================== CliRunner 兼容方法 ====================
-
-    public List<SessionInfo> listSessions() {
-        if (ownerId != null && connected.get()) {
-            return java.util.List.of(new SessionInfo(ownerId, ownerId.substring(0, Math.min(8, ownerId.length())),
-                "default", "LOGGED_IN", ownerId, polling.get(), ownerId));
-        }
-        return java.util.List.of();
-    }
-
-    public int getSessionCount() {
-        return connected.get() ? 1 : 0;
-    }
-
-    public SessionManager getSessionManager() {
-        return sessionManager;
-    }
-
-    public void stopListening(String sessionId) {
-        polling.set(false);
+    public void startListening(String sessionId,
+                               WeChatSession.MessageHandler textHandler,
+                               WeChatSession.ImageMessageHandler imageHandler,
+                               WeChatSession.VoiceMessageHandler voiceHandler,
+                               WeChatSession.FileMessageHandler fileHandler) {
+        sessionManager.startListening(sessionId, textHandler, imageHandler, voiceHandler, fileHandler);
     }
 
     public void stopListening() {
-        polling.set(false);
+        String sid = requireDefaultSessionId();
+        sessionManager.stopListening(sid);
+    }
+
+    public void stopListening(String sessionId) {
+        sessionManager.stopListening(sessionId);
+    }
+
+    // ---- send ----
+
+    public void sendText(String userId, String contextToken, String text) throws IOException {
+        String sid = requireDefaultSessionId();
+        sessionManager.sendText(sid, userId, contextToken, text);
+    }
+
+    public void sendText(String sessionId, String userId, String contextToken, String text) throws IOException {
+        sessionManager.sendText(sessionId, userId, contextToken, text);
+    }
+
+    public void sendImage(String userId, String contextToken, byte[] imageBytes) {
+        String sid = requireDefaultSessionId();
+        sessionManager.sendImage(sid, userId, contextToken, imageBytes);
+    }
+
+    public void sendImage(String sessionId, String userId, String contextToken, byte[] imageBytes) {
+        sessionManager.sendImage(sessionId, userId, contextToken, imageBytes);
+    }
+
+    public void sendVoice(String userId, String contextToken, byte[] audioBytes, int durationSeconds) {
+        String sid = requireDefaultSessionId();
+        sessionManager.sendVoice(sid, userId, contextToken, audioBytes, durationSeconds);
+    }
+
+    public void sendVoice(String sessionId, String userId, String contextToken, byte[] audioBytes, int durationSeconds) {
+        sessionManager.sendVoice(sessionId, userId, contextToken, audioBytes, durationSeconds);
+    }
+
+    public void sendFile(String userId, String contextToken, byte[] fileBytes, String fileName, long fileSize) {
+        String sid = requireDefaultSessionId();
+        sessionManager.sendFile(sid, userId, contextToken, fileBytes, fileName, fileSize);
+    }
+
+    public void sendFile(String sessionId, String userId, String contextToken, byte[] fileBytes, String fileName, long fileSize) {
+        sessionManager.sendFile(sessionId, userId, contextToken, fileBytes, fileName, fileSize);
+    }
+
+    // ---- session management ----
+
+    public WeChatSessionManager getSessionManager() {
+        return sessionManager;
+    }
+
+    public WeChatSession getSession(String sessionId) {
+        return sessionManager.getSession(sessionId);
+    }
+
+    public void switchDefaultSession(String sessionId) {
+        sessionManager.setDefaultSessionId(sessionId);
+    }
+
+    public void deleteSession(String sessionId) {
+        sessionManager.closeSession(sessionId);
     }
 
     public void logout() {
-        stop();
+        String sid = sessionManager.getDefaultSessionId();
+        if (sid != null) {
+            sessionManager.closeSession(sid);
+        }
     }
 
     public void logoutAll() {
-        stop();
-    }
-
-    public void saveAll() {
-        // 当前单会话模式下，会话状态已在登录成功时自动持久化
-        // WeChatSessionManager 是多会话管理的正确方式，这里仅作兼容处理
-        log.info("保存会话状态 (单会话模式，实际由 WeChatSessionManager 管理持久化)");
+        sessionManager.closeAll();
     }
 
     public int restoreAll() {
-        try {
-            // 从持久化存储加载会话索引
-            List<SessionPersistenceService.SessionMeta> metas = sessionPersistenceService.loadIndex();
-            if (metas.isEmpty()) {
-                return 0;
-            }
+        return sessionManager.restoreSessions();
+    }
 
-            int restored = 0;
-            for (SessionPersistenceService.SessionMeta meta : metas) {
-                var state = sessionPersistenceService.loadState(meta.sessionId());
-                if (state != null && state.botToken() != null && state.baseUrl() != null) {
-                    // 恢复凭据
-                    client.setCredentials(state.botToken(), state.baseUrl());
+    public void saveAll() {
+        sessionManager.saveAllSessions();
+    }
 
-                    // 验证会话是否有效
-                    try {
-                        GetUpdatesResponse resp = client.getUpdates(state.cursor() != null ? state.cursor() : "");
-                        if (resp != null) {
-                            connected.set(true);
-                            ownerId = state.userId();
-                            ownerWelcomed = false;
-                            log.info("自动恢复会话成功: sessionId={}, botId={}, userId={}",
-                                    meta.sessionId(), state.botId(), state.userId());
-                            restored++;
-                        }
-                    } catch (Exception e) {
-                        log.warn("恢复会话 {} 失败: {}", meta.sessionId(), e.getMessage());
-                    }
-                }
-            }
+    public int getSessionCount() {
+        return sessionManager.getSessionCount();
+    }
 
-            // 恢复成功且有连接，启动消息轮询
-            if (restored > 0 && connected.get()) {
-                startPolling();
-            }
+    public List<WeChatSessionManager.SessionInfo> listSessions() {
+        return sessionManager.listSessionInfos();
+    }
 
-            return restored;
-        } catch (Exception e) {
-            log.warn("恢复会话时发生错误: {}", e.getMessage());
-            return 0;
+    // ---- helpers ----
+
+    private String requireDefaultSessionId() {
+        String sid = sessionManager.getDefaultSessionId();
+        if (sid == null) {
+            throw new IllegalStateException("No default session. Call login() first.");
         }
+        return sid;
     }
 
-    // ==================== CliRunner 兼容方法 ====================
-
-    public CliLoginResult login(String label) {
-        String qr = start();
-        String sid = ownerId != null ? ownerId : "pending";
-        return new CliLoginResult(sid, qr, label != null ? label : "default", null);
-    }
-
-    public CliLoginResult loginNew() {
-        String qr = start();
-        String sid = ownerId != null ? ownerId : "pending";
-        return new CliLoginResult(sid, qr, "default", null);
-    }
-
-    public String login() {
-        return start();
-    }
-
-    public CliLoginResult waitForLogin(String sessionId, int timeoutMs) throws TimeoutException {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < deadline) {
-            if (connected.get() && ownerId != null) {
-                return new CliLoginResult(ownerId, null, "default", ownerId);
-            }
-            try { Thread.sleep(1000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
+    /**
+     * 语音转文字失败时,返回给用户的友好提示.
+     */
+    public static String getVoiceErrorMessage(String error) {
+        if (error == null) return "语音识别暂时不可用,请稍后再试或发送文字消息.";
+        if (error.contains("Vosk") || error.contains("model") || error.contains("模型")) {
+            return "语音识别模型还没准备好,请稍后再试.";
         }
-        throw new TimeoutException("Login timeout");
-    }
-
-    public void switchDefaultSession(String sessionId) { /* single-session: no-op */ }
-    public void deleteSession(String sessionId) { stop(); }
-
-    @FunctionalInterface
-    public interface TextHandler { String handle(String userId, String text, String contextToken); }
-    @FunctionalInterface
-    public interface ImageHandler { String handle(String userId, String prompt, byte[] imageBytes, String contextToken); }
-    @FunctionalInterface
-    public interface VoiceHandler { String handle(String userId, byte[] audioBytes, String contextToken); }
-    @FunctionalInterface
-    public interface FileHandler { String handle(String userId, String fileName, byte[] fileBytes, String prompt, String contextToken); }
-
-    public void startListening(String sessionId, TextHandler textHandler,
-                               ImageHandler imageHandler, VoiceHandler voiceHandler,
-                               FileHandler fileHandler) {
-        /* single-session: listening is managed by the existing poll loop */
-    }
-
-    public void sendImage(String sessionId, String userId, String contextToken, byte[] imageBytes) throws Exception {
-        client.uploadAndSendImage(userId, contextToken, imageBytes);
-    }
-
-    public void sendFile(String sessionId, String userId, String contextToken,
-                         byte[] fileBytes, String fileName, long fileSize) throws Exception {
-        client.uploadAndSendFile(userId, contextToken, fileBytes, fileName, (int) fileSize);
-    }
-
-    public static String getVoiceErrorMessage(String technicalError) {
-        if (technicalError.contains("音频数据为空") || technicalError.contains("The audio is empty")) {
-            return "抱歉，我没有听清您说的话，请再试一次（语音不要太短）";
+        if (error.contains("FFmpeg") || error.contains("ffmpeg")) {
+            return "语音格式转换失败,请检查 FFmpeg 是否配置正确.";
         }
-        if (technicalError.contains("未能从响应中提取识别文本")) {
-            return "抱歉，语音识别没有返回结果，请再试一次";
-        }
-        if (technicalError.contains("未配置阿里云 API Key")) {
-            return "语音识别服务暂时不可用，请稍后再试";
-        }
-        if (technicalError.contains("语音识别失败")) {
-            return "语音识别失败，请再试一次";
-        }
-        return "抱歉，语音识别出现问题，请再试一次";
+        return "语音识别失败,请尝试发送文字消息.";
     }
 }

@@ -28,10 +28,10 @@ public class TtsTool implements Tool {
 
     @Override
     public String getDescription() {
-        return "把文字朗读出来（语音合成）。用户说朗读/读一下/念出来/语音时直接用此工具。"
-            + "如果用户提到音色名（龙安洋/龙安欢/龙呼呼/龙书/Bella），一并传入 voice 参数；"
-            + "如果用户没指定音色，不传 voice 参数，工具会自动用默认音色。"
-            + "不要自己伪造语音链接！";
+        return "把文字朗读出来(语音合成).用户说朗读/读一下/念出来/语音时直接用此工具."
+            + "如果用户提到音色名(龙安洋/龙安欢/龙呼呼/龙书/Bella),一并传入 voice 参数;"
+            + "如果用户没指定音色,不传 voice 参数,工具会自动用默认音色."
+            + "不要自己伪造语音链接!";
     }
 
     @Override
@@ -48,7 +48,7 @@ public class TtsTool implements Tool {
 
         Map<String, Object> voice = new LinkedHashMap<>();
         voice.put("type", "string");
-        voice.put("description", "音色（可选，不传则用默认音色）。可用值：龙安洋(阳光男声)、龙安欢(元气女声)、龙呼呼(可爱童声)、龙书(沉稳青年男)、Bella(干练女声)");
+        voice.put("description", "音色(可选,不传则用默认音色).可用值:龙安洋(阳光男声),龙安欢(元气女声),龙呼呼(可爱童声),龙书(沉稳青年男),Bella(干练女声)");
         voice.put("enum", List.of("龙安洋", "龙安欢", "龙呼呼", "龙书", "Bella"));
         properties.put("voice", voice);
 
@@ -80,7 +80,7 @@ public class TtsTool implements Tool {
             TtsService.TtsResult ttsResult = ttsService.synthesizeMp3(text, voiceId);
             log.info("语音合成成功: {} bytes, {}s", ttsResult.audioBytes().length, ttsResult.durationSeconds());
             return ToolResult.audio(
-                "语音已合成，音色：" + voice,
+                "语音已合成,音色:" + voice,
                 ttsResult.audioBytes(),
                 "tts.mp3",
                 ttsResult.durationSeconds()

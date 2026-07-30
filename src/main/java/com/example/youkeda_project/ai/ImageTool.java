@@ -9,10 +9,10 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * 图片生成工具（Function Calling）。
+ * 图片生成工具(Function Calling).
  * <p>
- * 定义 generate_image 函数，供 DeepSeek 通过 Function Calling 调用。
- * 委托 ImageService 调用通义万相生图，返回 OSS 图片 URL。
+ * 定义 generate_image 函数,供 DeepSeek 通过 Function Calling 调用.
+ * 委托 ImageService 调用通义万相生图,返回 OSS 图片 URL.
  */
 @Component
 public class ImageTool implements Tool {
@@ -32,7 +32,7 @@ public class ImageTool implements Tool {
 
     @Override
     public String getDescription() {
-        return "根据文字描述生成图片，返回图片下载地址";
+        return "根据文字描述生成图片,返回图片下载地址";
     }
 
     @Override
@@ -43,7 +43,7 @@ public class ImageTool implements Tool {
         Map<String, Object> properties = new LinkedHashMap<>();
         Map<String, Object> prompt = new LinkedHashMap<>();
         prompt.put("type", "string");
-        prompt.put("description", "图片的文字描述，越详细越好，如：一只橘猫坐在窗台上晒太阳");
+        prompt.put("description", "图片的文字描述,越详细越好,如:一只橘猫坐在窗台上晒太阳");
         properties.put("prompt", prompt);
 
         params.put("properties", properties);
@@ -62,7 +62,7 @@ public class ImageTool implements Tool {
         String result = imageService.generateImage(prompt);
         if (result.startsWith("http://") || result.startsWith("https://")) {
             log.info("图片生成成功: {}", result);
-            return ToolResult.image("图片已生成，地址: " + result, result);
+            return ToolResult.image("图片已生成,地址: " + result, result);
         }
         log.warn("图片生成失败: {}", result);
         return ToolResult.text("图片生成失败: " + result);

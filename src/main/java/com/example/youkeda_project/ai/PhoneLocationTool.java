@@ -23,7 +23,7 @@ public class PhoneLocationTool implements Tool {
 
     @Override
     public String getDescription() {
-        return "查询手机号码的归属地信息，包括所属省份、城市、运营商（移动/联通/电信）等";
+        return "查询手机号码的归属地信息,包括所属省份,城市,运营商(移动/联通/电信)等";
     }
 
     @Override
@@ -35,7 +35,7 @@ public class PhoneLocationTool implements Tool {
 
         Map<String, Object> phone = new LinkedHashMap<>();
         phone.put("type", "string");
-        phone.put("description", "手机号码（11位）或手机号前7位");
+        phone.put("description", "手机号码(11位)或手机号前7位");
         properties.put("phone", phone);
 
         params.put("properties", properties);
@@ -51,7 +51,7 @@ public class PhoneLocationTool implements Tool {
 
         String phone = ((String) arguments.get("phone")).trim();
         if (phone.length() < 7) {
-            return ToolResult.text("手机号码格式不正确，请输入11位手机号或前7位");
+            return ToolResult.text("手机号码格式不正确,请输入11位手机号或前7位");
         }
 
         String result = phoneLocationService.lookup(phone);

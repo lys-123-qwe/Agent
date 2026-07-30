@@ -123,7 +123,7 @@ public class FinancialAgent {
         return result.getReplyText();
     }
 
-    public String getSystemPrompt() {
+    public static String getSystemPrompt() {
         return """
             你是一位资深金融分析师，拥有15年A股、港股、美股及期货市场分析经验。
 

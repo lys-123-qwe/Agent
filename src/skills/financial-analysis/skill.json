@@ -1,0 +1,20 @@
+{
+  "name": "financial-analysis",
+  "description": "金融分析智能体：基于 MA/RSI/MACD/布林带 等技术指标预测股票/指数走势，提供方向判断、置信度、预测有效期和底部/顶部区域估算。",
+  "skillClass": "com.example.youkeda_project.skill.financial.FinancialAnalysisSkill",
+  "triggerExamples": [
+    "分析一下股票走势",
+    "贵州茅台未来怎么看",
+    "特斯拉会涨吗",
+    "上证指数什么时候触底",
+    "比特币趋势分析",
+    "这只股票什么时候见顶",
+    "怎么看美股",
+    "港股走势预测",
+    "技术面分析"
+  ],
+  "knowledgeDocuments": [
+    "knowledge/technical-analysis.md",
+    "knowledge/lean-patterns.md"
+  ]
+}

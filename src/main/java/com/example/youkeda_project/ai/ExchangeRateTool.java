@@ -23,8 +23,8 @@ public class ExchangeRateTool implements Tool {
 
     @Override
     public String getDescription() {
-        return "查询实时汇率并进行货币转换，支持任意币种之间的换算。"
-            + "例如：100美元等于多少人民币、EUR to CNY、日元兑人民币";
+        return "查询实时汇率并进行货币转换,支持任意币种之间的换算."
+            + "例如:100美元等于多少人民币,EUR to CNY,日元兑人民币";
     }
 
     @Override
@@ -36,18 +36,18 @@ public class ExchangeRateTool implements Tool {
 
         Map<String, Object> from = new LinkedHashMap<>();
         from.put("type", "string");
-        from.put("description", "源货币代码（ISO 4217 三字母代码），如 USD、CNY、EUR、JPY、GBP 等。"
-            + "常见：CNY（人民币） USD（美元） EUR（欧元） GBP（英镑） JPY（日元） HKD（港币）");
+        from.put("description", "源货币代码(ISO 4217 三字母代码),如 USD,CNY,EUR,JPY,GBP 等."
+            + "常见:CNY(人民币) USD(美元) EUR(欧元) GBP(英镑) JPY(日元) HKD(港币)");
         properties.put("from", from);
 
         Map<String, Object> to = new LinkedHashMap<>();
         to.put("type", "string");
-        to.put("description", "目标货币代码（ISO 4217 三字母代码），如 CNY、USD、EUR 等");
+        to.put("description", "目标货币代码(ISO 4217 三字母代码),如 CNY,USD,EUR 等");
         properties.put("to", to);
 
         Map<String, Object> amount = new LinkedHashMap<>();
         amount.put("type", "number");
-        amount.put("description", "需要转换的金额（可选，默认为 1）");
+        amount.put("description", "需要转换的金额(可选,默认为 1)");
         properties.put("amount", amount);
 
         params.put("properties", properties);
@@ -60,7 +60,7 @@ public class ExchangeRateTool implements Tool {
         String from = arguments != null ? (String) arguments.get("from") : null;
         String to = arguments != null ? (String) arguments.get("to") : null;
         if (from == null || to == null) {
-            return ToolResult.text("错误: 请指定源货币和目标货币，例如: 100 USD 转 CNY");
+            return ToolResult.text("错误: 请指定源货币和目标货币,例如: 100 USD 转 CNY");
         }
 
         double amount = 1.0;

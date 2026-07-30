@@ -15,10 +15,10 @@ import java.util.Base64;
 import java.util.Map;
 
 /**
- * 通义万相图片生成服务。
+ * 通义万相图片生成服务.
  * <p>
- * 调用阿里云通义万相 wan2.6-t2i 模型生图，返回图片下载 URL，
- * 并提供下载图片字节流的能力（供后续 CDN 上传发送到微信）。
+ * 调用阿里云通义万相 wan2.6-t2i 模型生图,返回图片下载 URL,
+ * 并提供下载图片字节流的能力(供后续 CDN 上传发送到微信).
  */
 @Service
 public class ImageService {
@@ -36,20 +36,20 @@ public class ImageService {
     }
 
     /**
-     * 调用通义万相生图 API，返回图片 URL 或错误信息。
-     * 请求使用 byte[] + UTF-8 编解码避免乱码。
-     * 使用阿里云 dashscope 的多模态生成接口。
+     * 调用通义万相生图 API,返回图片 URL 或错误信息.
+     * 请求使用 byte[] + UTF-8 编解码避免乱码.
+     * 使用阿里云 dashscope 的多模态生成接口.
      */
     public String generateImage(String prompt) {
         if (apiConfig.getImageApiKey() == null || apiConfig.getImageApiKey().isBlank()) {
-            return "错误: 未配置通义万相 API Key，请在 application.properties 中设置 image.api.key";
+            return "错误: 未配置通义万相 API Key,请在 application.properties 中设置 image.api.key";
         }
         if (prompt == null || prompt.trim().isEmpty()) {
-            return "错误: 请提供图片描述，例如: 图片生成 一只猫";
+            return "错误: 请提供图片描述,例如: 图片生成 一只猫";
         }
 
         try {
-            // 通义万相请求体：model + input.messages[{role, content[{text}]}] + parameters
+            // 通义万相请求体:model + input.messages[{role, content[{text}]}] + parameters
             Map<String, Object> requestBody = Map.of(
                 "model", apiConfig.getImageModel(),
                 "input", Map.of("messages", java.util.List.of(
@@ -78,6 +78,9 @@ public class ImageService {
                     .retrieve()
                     .body(byte[].class);
 
+            if (responseBytes == null) {
+                return "错误: AI 服务返回空响应";
+            }
             String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
             log.info("通义万相响应: {}", responseJson);
 
@@ -90,8 +93,8 @@ public class ImageService {
     }
 
     /**
-     * 通义万相图生图编辑（wan2.6-image）。
-     * 传入参考图片字节 + 文字描述，返回编辑后的图片 URL。
+     * 通义万相图生图编辑(wan2.6-image).
+     * 传入参考图片字节 + 文字描述,返回编辑后的图片 URL.
      */
     public String editImage(byte[] refImage, String prompt) {
         if (apiConfig.getImageApiKey() == null || apiConfig.getImageApiKey().isBlank()) {
@@ -136,6 +139,9 @@ public class ImageService {
                     .retrieve()
                     .body(byte[].class);
 
+            if (responseBytes == null) {
+                return "错误: AI 服务返回空响应";
+            }
             String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
             log.info("通义万相图编辑响应: {}", responseJson);
 
@@ -156,7 +162,7 @@ public class ImageService {
     }
 
     /**
-     * 从图片 URL 下载原始字节流，用于后续 AES 加密上传到微信 CDN。
+     * 从图片 URL 下载原始字节流,用于后续 AES 加密上传到微信 CDN.
      */
     public byte[] downloadImage(String url) {
         log.info("下载图片: {}", url);
@@ -170,8 +176,8 @@ public class ImageService {
     }
 
     /**
-     * 解析通义万相响应 JSON，提取图片 URL。
-     * 兼容两种响应格式：
+     * 解析通义万相响应 JSON,提取图片 URL.
+     * 兼容两种响应格式:
      * - 新版: output.choices[0].message.content[{image: "..."}]
      * - 旧版: output.results[0].image
      */
@@ -214,7 +220,7 @@ public class ImageService {
             }
 
             log.warn("无法从响应中解析图片URL: {}", json);
-            return "错误: 无法解析图片URL，原始响应: " + json;
+            return "错误: 无法解析图片URL,原始响应: " + json;
 
         } catch (Exception e) {
             log.error("解析通义万相响应失败", e);

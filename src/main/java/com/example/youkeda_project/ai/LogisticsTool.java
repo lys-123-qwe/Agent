@@ -9,9 +9,9 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * 物流查询 Function Calling 工具。
+ * 物流查询 Function Calling 工具.
  * <p>
- * 封装 {@link LogisticsService}，供 DeepSeek/OpenAI 模型在对话中自动调用。
+ * 封装 {@link LogisticsService},供 DeepSeek/OpenAI 模型在对话中自动调用.
  */
 @Component
 public class LogisticsTool implements Tool {
@@ -31,7 +31,7 @@ public class LogisticsTool implements Tool {
 
     @Override
     public String getDescription() {
-        return "查询快递物流信息。支持顺丰、中通、圆通、韵达、申通、极兔、京东、邮政、EMS等主流快递，自动识别快递公司";
+        return "查询快递物流信息.支持顺丰,中通,圆通,韵达,申通,极兔,京东,邮政,EMS等主流快递,自动识别快递公司";
     }
 
     @Override
@@ -41,11 +41,11 @@ public class LogisticsTool implements Tool {
 
         Map<String, Object> number = new LinkedHashMap<>();
         number.put("type", "string");
-        number.put("description", "快递单号，如：SF1234567890、YT1234567890");
+        number.put("description", "快递单号,如:SF1234567890,YT1234567890");
 
         Map<String, Object> courier = new LinkedHashMap<>();
         courier.put("type", "string");
-        courier.put("description", "快递公司名称（可选），如：顺丰、中通、圆通、韵达、申通、极兔、京东、邮政。不填则自动识别");
+        courier.put("description", "快递公司名称(可选),如:顺丰,中通,圆通,韵达,申通,极兔,京东,邮政.不填则自动识别");
 
         Map<String, Object> properties = new LinkedHashMap<>();
         properties.put("number", number);
@@ -61,7 +61,7 @@ public class LogisticsTool implements Tool {
         String number = arguments != null ? (String) arguments.get("number") : null;
         String courier = arguments != null ? (String) arguments.get("courier") : null;
         if (number == null || number.isBlank()) {
-            return ToolResult.text("错误：请提供快递单号");
+            return ToolResult.text("错误:请提供快递单号");
         }
         log.info("LogisticsTool 执行: number={}, courier={}", number, courier);
         try {

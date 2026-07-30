@@ -30,10 +30,10 @@ public class TranslationTool implements Tool {
 
     @Override
     public String getDescription() {
-        return "【方言转换专用】用户想转换方言、讲方言、方言版等时，必须用此工具(传dialect参数)，禁止用你自已的知识做方言转换！\n"
-            + "还支持：通用翻译(传targetLang)、文言文互译(mode=classical)、计算机术语精准翻译(mode=tech)。"
-            + "所有翻译模式均自动朗读翻译结果。"
-            + "用法：text=要翻译的文本 targetLang=目标语种(en/ja/ko/fr/zh) mode=general/classical/dialect/tech dialect=方言名称";
+        return "[方言转换专用]用户想转换方言,讲方言,方言版等时,必须用此工具(传dialect参数),禁止用你自已的知识做方言转换!\n"
+            + "还支持:通用翻译(传targetLang),文言文互译(mode=classical),计算机术语精准翻译(mode=tech)."
+            + "所有翻译模式均自动朗读翻译结果."
+            + "用法:text=要翻译的文本 targetLang=目标语种(en/ja/ko/fr/zh) mode=general/classical/dialect/tech dialect=方言名称";
     }
 
     @Override
@@ -50,17 +50,17 @@ public class TranslationTool implements Tool {
 
         Map<String, Object> targetLang = new LinkedHashMap<>();
         targetLang.put("type", "string");
-        targetLang.put("description", "目标语种代码：en=英语, ja=日语, ko=韩语, fr=法语, zh=中文。通用翻译模式（general）必填，其他模式无需此参数。");
+        targetLang.put("description", "目标语种代码:en=英语, ja=日语, ko=韩语, fr=法语, zh=中文.通用翻译模式(general)必填,其他模式无需此参数.");
         properties.put("targetLang", targetLang);
 
         Map<String, Object> mode = new LinkedHashMap<>();
         mode.put("type", "string");
-        mode.put("description", "翻译模式：general=通用翻译（默认）, classical=文言文<->白话文, dialect=方言转换, tech=计算机专业术语精准翻译");
+        mode.put("description", "翻译模式:general=通用翻译(默认), classical=文言文<->白话文, dialect=方言转换, tech=计算机专业术语精准翻译");
         properties.put("mode", mode);
 
         Map<String, Object> dialect = new LinkedHashMap<>();
         dialect.put("type", "string");
-        dialect.put("description", "方言名称，仅 mode=dialect 时使用。支持：四川话、东北话、粤语、上海话、河南话、陕西话、湖南话、闽南语、客家话、天津话、山东话、武汉话、重庆话、云南话、贵州话等。不指定则自动判断。");
+        dialect.put("description", "方言名称,仅 mode=dialect 时使用.支持:四川话,东北话,粤语,上海话,河南话,陕西话,湖南话,闽南语,客家话,天津话,山东话,武汉话,重庆话,云南话,贵州话等.不指定则自动判断.");
         properties.put("dialect", dialect);
 
         params.put("properties", properties);
@@ -84,13 +84,13 @@ public class TranslationTool implements Tool {
 
         String result = translationService.translate(text, targetLang, mode, dialect);
 
-        // 翻译后自动生成语音，让用户听到翻译结果
+        // 翻译后自动生成语音,让用户听到翻译结果
         try {
             TtsService.TtsResult ttsResult = ttsService.synthesizeMp3(result, ttsService.getDefaultVoice());
             log.info("翻译语音合成成功: {} bytes, {}s", ttsResult.audioBytes().length, ttsResult.durationSeconds());
             return ToolResult.audio(result, ttsResult.audioBytes(), "translation.mp3", ttsResult.durationSeconds());
         } catch (Exception e) {
-            log.error("翻译语音合成失败，仅返回文字", e);
+            log.error("翻译语音合成失败,仅返回文字", e);
         }
 
         return ToolResult.text(result);

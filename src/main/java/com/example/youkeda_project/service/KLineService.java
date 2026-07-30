@@ -33,6 +33,7 @@ public class KLineService {
         map.put("茅台", "sh600519");
         map.put("宁德时代", "sz300750");
         map.put("比亚迪", "sz002594");
+        map.put("中国银行", "sh601988");
         map.put("中国平安", "sh601318");
         map.put("招商银行", "sh600036");
         map.put("五粮液", "sz000858");
@@ -90,7 +91,9 @@ public class KLineService {
     private final ObjectMapper objectMapper;
 
     public KLineService() {
-        this.restClient = RestClient.create();
+        this.restClient = RestClient.builder()
+            .requestFactory(new org.springframework.http.client.SimpleClientHttpRequestFactory())
+            .build();
         this.objectMapper = new ObjectMapper();
     }
 
@@ -119,9 +122,14 @@ public class KLineService {
         String symbol = resolveSymbol(input);
         if (symbol == null) return null;
 
+        int len = Math.max(20, Math.min(datalen, 500));
+
+        return fetchSinaKLine(symbol, len);
+    }
+
+    private List<KLineData> fetchSinaKLine(String symbol, int datalen) {
         try {
-            int len = Math.max(20, Math.min(datalen, 500));
-            String url = SINA_KLINE_API + "?symbol=" + symbol + "&scale=240&ma=no&datalen=" + len;
+            String url = SINA_KLINE_API + "?symbol=" + symbol + "&scale=240&ma=no&datalen=" + datalen;
             log.info("新浪K线请求: {}", url);
 
             byte[] respBytes = restClient.get()
@@ -129,6 +137,7 @@ public class KLineService {
                 .retrieve()
                 .body(byte[].class);
 
+            if (respBytes == null) return null;
             String text = new String(respBytes, java.nio.charset.StandardCharsets.UTF_8);
             log.info("新浪K线响应: {}", text);
 

@@ -1,8 +1,9 @@
 package com.example.youkeda_project.ai;
 
+import com.example.youkeda_project.ai.agent.FinancialAgent;
 import com.example.youkeda_project.config.ApiConfig;
-import com.example.youkeda_project.service.ChatHistoryService;
 import com.example.youkeda_project.rag.RagService;
+import com.example.youkeda_project.service.ChatHistoryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -19,10 +20,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * AI 对话服务，支持 DeepSeek 纯文本对话、通义千问 VL 图片识别、Function Calling 工具调用。
+ * AI 对话服务,支持 DeepSeek 纯文本对话,通义千问 VL 图片识别,Function Calling 工具调用.
  * <p>
- * 每个用户维护独立 session（最多 10 轮历史），
- * 请求/响应全部使用 byte[] + UTF-8 编解码，避免 Windows 控制台 GBK 编码导致乱码。
+ * 每个用户维护独立 session(最多 10 轮历史),
+ * 请求/响应全部使用 byte[] + UTF-8 编解码,避免 Windows 控制台 GBK 编码导致乱码.
  */
 @Service
 public class AIService {
@@ -32,10 +33,10 @@ public class AIService {
     private static final String QWEN_VL_MODEL = "qwen-vl-plus";
     private static final int MAX_HISTORY = 10;
 
-    /** ThreadLocal 传递当前 userId，供 MemoryTool 等需要用户上下文的地方使用。 */
+    /** ThreadLocal 传递当前 userId,供 MemoryTool 等需要用户上下文的地方使用. */
     private static final ThreadLocal<String> currentUserId = new ThreadLocal<>();
 
-    /** 获取当前线程正在处理的 userId（供 Tool 调用）。 */
+    /** 获取当前线程正在处理的 userId(供 Tool 调用). */
     public static String getCurrentUserId() {
         return currentUserId.get();
     }
@@ -67,14 +68,14 @@ public class AIService {
     }
 
     /**
-     * 发送消息给 DeepSeek，支持 Function Calling 工具调用。
+     * 发送消息给 DeepSeek,支持 Function Calling 工具调用.
      * <p>
-     * 自动管理 session 历史，处理多轮工具调用循环。
-     * 返回 ChatResult，包含文本回复和工具产生的媒体数据。
+     * 自动管理 session 历史,处理多轮工具调用循环.
+     * 返回 ChatResult,包含文本回复和工具产生的媒体数据.
      *
-     * @param tools 可用的工具列表，可为 null 或空（不使用 Function Calling）
+     * @param tools 可用的工具列表,可为 null 或空(不使用 Function Calling)
      */
-    public ChatResult chat(String userId, String userMessage, List<Tool> tools) {
+    public ChatResult chat(String userId, String userMessage, List<Tool> tools, String ragContext) {
         if (apiConfig.getAiApiKey() == null || apiConfig.getAiApiKey().isBlank()) {
             return new ChatResult("错误: 未配置 DeepSeek API Key");
         }
@@ -95,31 +96,13 @@ public class AIService {
                 + "【重要】工具返回内容中的链接（[详情](url) 或 [来源: XXX](url)）必须原样保留在最终回答中，每条新闻/结果后面必须附带其链接，不得删除或修改。如果工具有返回图片（hasImage=true），说明用户侧已经收到了图片，回复时可以提及上面这张图。"
                 + "【市场概况回复格式】调用 market_overview 后：热点板块和汇率直接列数据无需分析，新闻逐条列出发链接（不要忽略工具返回的新闻，也不要自行概括说\u201C无相关新闻\u201D），最后用一两句话总结整体盘面。"
                 + "【对比分析回复格式】调用 compare_stocks 后：必须保留评分规则说明原文，不能省略或自行概括。";
+            // Skill 路由时使用对应智能体提示词替代通用 prompt
+            String enrichedBase = ragContext != null && !ragContext.isBlank()
+                ? FinancialAgent.getSystemPrompt() + "\n\n" + basePrompt + "\n\n" + ragContext
+                : basePrompt;
             // RAG: 根据用户问题检索相关知识并拼入 system prompt
-            String enrichedPrompt = ragService.augment(userMessage, basePrompt);
+            String enrichedPrompt = ragService.augment(userMessage, enrichedBase);
             list.add(new ChatMessage("system", enrichedPrompt));
-            // 从数据库加载最近 20 条历史消息恢复会话上下文
-            try {
-                List<Map<String, Object>> recentHistory = chatHistoryService.getHistory(userId, 30);
-                if (recentHistory != null && !recentHistory.isEmpty()) {
-                    // 数据库查询是倒序的，反转为正序
-                    java.util.Collections.reverse(recentHistory);
-                    for (Map<String, Object> row : recentHistory) {
-                        String role = (String) row.get("role");
-                        String content = (String) row.get("content");
-                        // 跳过空内容、工具调用占位符、工具返回结果
-                        if (role == null || content == null || content.isBlank()) continue;
-                        if (content.startsWith("[工具调用]") || content.startsWith("[get_")) continue;
-                        // 只恢复 user 和 assistant 的文本消息
-                        if ("user".equals(role) || "assistant".equals(role)) {
-                            list.add(new ChatMessage(role, content));
-                        }
-                    }
-                    log.info("从数据库恢复 {} 条历史消息: user={}", list.size() - 1, userId.substring(0, Math.min(20, userId.length())));
-                }
-            } catch (Exception e) {
-                log.warn("加载历史消息失败: {}", e.getMessage());
-            }
             return list;
         });
 
@@ -129,9 +112,9 @@ public class AIService {
 
         currentUserId.set(userId);
         try {
-            // 收集本轮所有工具执行产生的媒体结果（图片URL、音频等）
+            // 收集本轮所有工具执行产生的媒体结果(图片URL,音频等)
             List<ToolResult> allPendingMedia = new ArrayList<>();
-            // 工具失败追踪：同一工具连续失败≥2次后，跳过调用并通知模型放弃重试
+            // 工具失败追踪:同一工具连续失败≥2次后,跳过调用并通知模型放弃重试
             Map<String, Integer> toolFailureCount = new HashMap<>();
             int maxRounds = apiConfig.getAiToolMaxRounds();
 
@@ -143,7 +126,7 @@ public class AIService {
                     : new ChatRequest(MODEL, filteredHistory);
 
                 String body = objectMapper.writeValueAsString(request);
-                log.info("DeepSeek请求(round={}): {}", round, body);
+                log.debug("DeepSeek请求(round={}): {}", round, body);
 
                 byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
                 byte[] responseBytes = restClient.post()
@@ -153,8 +136,11 @@ public class AIService {
                         .retrieve()
                         .body(byte[].class);
 
+                if (responseBytes == null) {
+                    return new ChatResult("错误: AI 服务返回空响应");
+                }
                 String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
-                log.info("DeepSeek响应(round={}): {}", round, responseJson);
+                log.debug("DeepSeek响应(round={}): {}", round, responseJson);
 
                 ChatResponse response = objectMapper.readValue(responseJson, ChatResponse.class);
                 if (response.getChoices() == null || response.getChoices().isEmpty()) {
@@ -162,10 +148,13 @@ public class AIService {
                 }
 
                 ChatChoice choice = response.getChoices().get(0);
+                if (choice == null || choice.getMessage() == null) {
+                    return new ChatResult("错误: AI 返回异常");
+                }
 
                 if (choice.isToolCall()) {
                     List<ToolCall> calls = ToolCall.fromChoice(choice);
-                    log.info("DeepSeek 请求工具调用: {}", calls);
+                    log.debug("DeepSeek 请求工具调用: {}", calls);
 
                     // 构建 tool_calls 结构加入历史
                     List<Map<String, Object>> rawToolCalls = new ArrayList<>();
@@ -181,7 +170,7 @@ public class AIService {
                     }
                     history.add(ChatMessage.assistantWithToolCalls(rawToolCalls));
                     persistMessage(userId, "assistant", "[工具调用]");
-                    // 执行每个工具调用，收集结果和媒体
+                    // 执行每个工具调用,收集结果和媒体
                     for (ToolCall tc : calls) {
                         Tool matched = findTool(tc.functionName(), tools);
                         if (matched == null) {
@@ -190,23 +179,23 @@ public class AIService {
                             continue;
                         }
 
-                        // 如果该工具已连续失败≥2次，跳过执行并通知模型放弃重试
+                        // 如果该工具已连续失败≥2次,跳过执行并通知模型放弃重试
                         int fails = toolFailureCount.getOrDefault(tc.functionName(), 0);
                         if (fails >= 2) {
-                            log.warn("工具 {} 已连续失败 {} 次，跳过执行", tc.functionName(), fails);
+                            log.warn("工具 {} 已连续失败 {} 次,跳过执行", tc.functionName(), fails);
                             history.add(ChatMessage.tool(tc.id(), tc.functionName(),
-                                "系统提示：工具[" + tc.functionName() + "]之前已调用两次均失败，请不要再尝试使用此工具，直接用文本回复用户。"));
+                                "系统提示:工具[" + tc.functionName() + "]之前已调用两次均失败,请不要再尝试使用此工具,直接用文本回复用户."));
                             continue;
                         }
 
                         Map<String, Object> args = parseArguments(tc.arguments(), userId);
-                        log.info("执行工具: {}({})", tc.functionName(), args);
+                        log.debug("执行工具: {}({})", tc.functionName(), args);
 
                         ToolResult toolResult = matched.execute(args);
-                        log.info("工具结果: {} -> {}, hasImage={}, hasAudio={}",
+                        log.debug("工具结果: {} -> {}, hasImage={}, hasAudio={}",
                             tc.functionName(), toolResult.getText(), toolResult.hasImage(), toolResult.hasAudio());
 
-                        // 检测工具执行结果是否表示失败，失败则递增追踪计数
+                        // 检测工具执行结果是否表示失败,失败则递增追踪计数
                         String resultText = toolResult.getText();
                         if (resultText != null && (resultText.startsWith("错误:") || resultText.contains("失败"))) {
                             toolFailureCount.merge(tc.functionName(), 1, Integer::sum);
@@ -232,42 +221,43 @@ public class AIService {
                 }
 
                 // 正常文本回复
-                String reply = (String) choice.getMessage().content();
+                Object content = choice.getMessage().content();
+                String reply = content instanceof String ? (String) content : "";
                 history.add(new ChatMessage("assistant", reply));
                 persistMessage(userId, "assistant", reply);
 
-                // 收集本轮所有工具产生的媒体，返回给调用方处理
+                // 收集本轮所有工具产生的媒体,返回给调用方处理
                 return allPendingMedia.isEmpty()
                     ? new ChatResult(reply)
                     : new ChatResult(reply, allPendingMedia);
             }
 
             log.warn("Function Calling 超过最大轮数({})", maxRounds);
-            return new ChatResult("抱歉，工具调用次数过多，请重新提问");
+            return new ChatResult("抱歉,工具调用次数过多,请重新提问");
 
         } catch (Exception e) {
             log.error("DeepSeek调用失败", e);
             if (e.getMessage() != null && e.getMessage().contains("image_url")) {
-                return new ChatResult("抱歉，对话历史中包含不支持的内容类型，请发送 /clear 清除对话历史后重试");
+                return new ChatResult("抱歉,对话历史中包含不支持的内容类型,请发送 /clear 清除对话历史后重试");
             }
             if (e.getMessage() != null && e.getMessage().contains("400")) {
-                return new ChatResult("抱歉，AI 服务请求失败，请稍后再试");
+                return new ChatResult("抱歉,AI 服务请求失败,请稍后再试");
             }
-            return new ChatResult("抱歉，AI 服务暂时不可用，请稍后再试");
+            return new ChatResult("抱歉,AI 服务暂时不可用,请稍后再试");
         } finally {
             currentUserId.remove();
         }
     }
 
     /**
-     * 纯文本对话，不使用工具（向后兼容）。
+     * 不带 RAG 上下文的兼容接口.
      */
-    public String chat(String userId, String userMessage) {
-        return chat(userId, userMessage, null).getReplyText();
+    public ChatResult chat(String userId, String userMessage, List<Tool> tools) {
+        return chat(userId, userMessage, tools, null);
     }
 
     /**
-     * 发送图片给通义千问 VL 进行识别。
+     * 发送图片给通义千问 VL 进行识别.
      */
     public String chatWithImage(String userId, String textPrompt, byte[] imageBytes) {
         if (apiConfig.getVisionApiKey() == null || apiConfig.getVisionApiKey().isBlank()) {
@@ -288,7 +278,7 @@ public class AIService {
 
         List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
             List<ChatMessage> list = new ArrayList<>();
-            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，能够识别图片内容。回答简洁。"));
+            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手,能够识别图片内容.回答简洁."));
             return list;
         });
 
@@ -309,6 +299,9 @@ public class AIService {
                     .retrieve()
                     .body(byte[].class);
 
+            if (responseBytes == null) {
+                return "错误: AI 服务返回空响应";
+            }
             String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
             log.info("通义千问VL响应: {}", responseJson);
 
@@ -325,9 +318,9 @@ public class AIService {
         } catch (Exception e) {
             log.error("通义千问VL调用失败", e);
             if (e.getMessage() != null && e.getMessage().contains("400")) {
-                return "抱歉，图片识别请求失败，请稍后再试";
+                return "抱歉,图片识别请求失败,请稍后再试";
             }
-            return "抱歉，图片识别服务暂时不可用，请稍后再试";
+            return "抱歉,图片识别服务暂时不可用,请稍后再试";
         }
     }
 
@@ -370,7 +363,7 @@ public class AIService {
             int total = history.size();
             int start = total - MAX_HISTORY;
 
-            // 如果保留段第一条是 tool 消息，说明它的 assistant(TC) 被裁剪掉了，
+            // 如果保留段第一条是 tool 消息,说明它的 assistant(TC) 被裁剪掉了,
             // 往前回溯直到找到对应的 tool_calls 上下文消息
             while (start > 1 && "tool".equals(history.get(start).role())) {
                 start--;
@@ -421,12 +414,12 @@ public class AIService {
 
         List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
             List<ChatMessage> list = new ArrayList<>();
-            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，回答简洁。"));
+            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手,回答简洁."));
             return list;
         });
 
-        String combinedMessage = "用户的问题：" + userMessage + "\n查询结果：" + context
-            + "\n请根据查询结果用自然语言回复用户。";
+        String combinedMessage = "用户的问题:" + userMessage + "\n查询结果:" + context
+            + "\n请根据查询结果用自然语言回复用户.";
         history.add(new ChatMessage("user", combinedMessage));
         persistMessage(userId, "user", combinedMessage);
         trimHistory(history);
@@ -460,14 +453,14 @@ public class AIService {
 
         } catch (Exception e) {
             log.error("上下文回复生成失败", e);
-            return "抱歉，AI 回复生成失败，请稍后再试";
+            return "抱歉,AI 回复生成失败,请稍后再试";
         }
     }
 
     public void addExchange(String userId, String userMessage, String assistantReply) {
         List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
             List<ChatMessage> list = new ArrayList<>();
-            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手，回答简洁。"));
+            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手,回答简洁."));
             return list;
         });
         history.add(new ChatMessage("user", userMessage));
@@ -492,12 +485,12 @@ public class AIService {
         });
     }
 
-    /** 从数据库加载用户记忆，构建上下文块。 */
+    /** 从数据库加载用户记忆,构建上下文块. */
     private String buildMemoryContext(String userId) {
         Map<String, List<String>> mem = chatHistoryService.getAllMemory(userId);
         if (mem.isEmpty()) return "";
 
-        StringBuilder sb = new StringBuilder("【以下是关于用户的重要信息，请在对���时自然地引用】\n");
+        StringBuilder sb = new StringBuilder("[以下是关于用户的重要信息,请在对话时自然地引用]\n");
         for (var entry : mem.entrySet()) {
             String key = entry.getKey();
             // 取最新的一条值
@@ -523,7 +516,7 @@ public class AIService {
 
     // ==================== DB persistence ====================
 
-    /** 异步保存消息到 SQLite。 */
+    /** 异步保存消息到 SQLite. */
     private void persistMessage(String userId, String role, Object content) {
         dbExecutor.submit(() -> {
             try {
