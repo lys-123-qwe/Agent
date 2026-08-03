@@ -351,7 +351,9 @@ public class ApiConfig {
     public String getExpressApiAppCode() { return expressApiAppCode; }
     public String getExpressApiUrl() { return expressApiUrl; }
 
-    // 兼容旧接口
-    public String getNewsApiKey() { return ""; }
-    public String getNewsSdkApiKey() { return ""; }
+    // ==================== 新闻 (天聚数行 tianapi.com) ====================
+    @Value("${news.sdk.api.key:}")
+    private String newsSdkApiKey;
+
+    public String getNewsSdkApiKey() { return newsSdkApiKey; }
 }

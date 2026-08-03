@@ -150,7 +150,18 @@ public class CliRunner implements CommandLineRunner {
         Scanner scanner = new Scanner(System.in);
         while (true) {
             System.out.print("> ");
-            String input = scanner.nextLine().trim();
+            String input;
+            try {
+                if (!scanner.hasNextLine()) {
+                    // 非交互环境 (如 docker run -d, stdin 关闭): 退出 CLI 循环进入守护模式
+                    log.info("stdin closed - no interactive console, entering daemon mode");
+                    break;
+                }
+                input = scanner.nextLine().trim();
+            } catch (NoSuchElementException e) {
+                log.info("stdin unavailable - no interactive console, entering daemon mode");
+                break;
+            }
 
             try {
                 if (input.isEmpty()) continue;
@@ -181,6 +192,18 @@ public class CliRunner implements CommandLineRunner {
             } catch (Exception e) {
                 log.error("Command error: {}", e.getMessage());
                 System.out.println("Error: " + e.getMessage());
+            }
+        }
+
+        // 守护模式保活: 无终端输入时主线程不退出, 消息监听线程持续工作,
+        // 二维码/登录状态通过 docker logs 查看
+        log.info("Daemon mode active - bot is running in background. QR code and status are printed to logs.");
+        while (true) {
+            try {
+                Thread.sleep(86_400_000L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
             }
         }
     }

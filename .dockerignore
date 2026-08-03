@@ -1,0 +1,40 @@
+# Git / 版本管理
+.git
+.gitignore
+.gitattributes
+
+# 构建产物
+target/
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# 数据与密钥 (不进镜像)
+data/
+.env
+.env.*
+!.env.example
+chat.db
+tasks.db
+*.db
+# 真实密钥配置不进构建上下文 (镜像内置脱敏版 docker/application.properties)
+src/main/resources/application.properties
+
+# 文档与脚本
+HELP.md
+README.md
+report-架构说明.md
+report-架构流程图.html
+ilink-flowchart.md
+ilink-flowchart.html
+run_and_login.ps1
+run_bot.ps1
+*.log
+*.err

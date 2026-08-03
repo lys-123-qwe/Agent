@@ -1,0 +1,32 @@
+# Claw 助手 — Docker Compose 一键部署
+# 用法:
+#   1. 复制 .env.example 为 .env, 填入自己的 API Key (不填也能启动, 但 AI 等功能不可用)
+#   2. docker compose up -d
+#   3. docker compose logs -f    # 看到 "QR Code URL" 后用浏览器打开该地址, 微信扫码
+services:
+  claw:
+    build: .
+    image: claw-assistant:latest
+    container_name: claw-assistant
+    environment:
+      # 容器时区 (定时任务/日期显示依赖)
+      TZ: Asia/Shanghai
+      # ===== API 密钥 (全部通过环境变量注入, 不进镜像) =====
+      AI_API_KEY: ${AI_API_KEY:-}                    # DeepSeek (AI 对话)
+      WEATHER_API_KEY: ${WEATHER_API_KEY:-}          # 和风天气
+      IMAGE_API_KEY: ${IMAGE_API_KEY:-}              # 阿里云 DashScope (生图/识图/语音/TTS)
+      BOCHA_API_KEY: ${BOCHA_API_KEY:-}              # 博查搜索
+      PHONE_API_KEY: ${PHONE_API_KEY:-}              # 聚合数据-手机归属地
+      EXCHANGE_API_KEY: ${EXCHANGE_API_KEY:-}        # 汇率
+      CONSTELLATION_QUERY_API_KEY: ${CONSTELLATION_QUERY_API_KEY:-}      # 聚合数据-星座查询
+      CONSTELLATION_HOROSCOPE_API_KEY: ${CONSTELLATION_HOROSCOPE_API_KEY:-}  # 聚合数据-星座运势
+      NEWS_SDK_API_KEY: ${NEWS_SDK_API_KEY:-}        # 天聚数行-新闻
+      EXPRESS_API_APPCODE: ${EXPRESS_API_APPCODE:-}  # 阿里云-快递查询 (可选)
+    volumes:
+      # 持久化: 聊天记录 / 登录会话 / 定时任务, 容器重建不丢数据, 重启免重新扫码
+      - ./data:/app/data
+      - ./data/home:/app/home
+    restart: unless-stopped
+    # 非交互运行: 无终端输入, 靠日志输出二维码
+    stdin_open: false
+    tty: false
