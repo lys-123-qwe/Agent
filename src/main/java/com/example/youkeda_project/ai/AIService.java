@@ -1,9 +1,8 @@
 package com.example.youkeda_project.ai;
 
-import com.example.youkeda_project.ai.agent.FinancialAgent;
 import com.example.youkeda_project.config.ApiConfig;
 import com.example.youkeda_project.rag.RagService;
-import com.example.youkeda_project.service.ChatHistoryService;
+import com.example.youkeda_project.service.wechat.ChatHistoryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -13,7 +12,6 @@ import tools.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.HashMap;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -32,6 +30,46 @@ public class AIService {
     private static final String MODEL = "deepseek-v4-pro";
     private static final String QWEN_VL_MODEL = "qwen-vl-plus";
     private static final int MAX_HISTORY = 10;
+
+    private static String financialSystemPrompt() {
+        return """
+            你是一位资深金融分析师，拥有15年A股、港股、美股及期货市场分析经验。
+
+            ## 你的职责
+            根据用户提供的数据，进行专业分析并给出投资建议。
+
+            ## 分析框架（严格按此顺序输出）
+
+            ### 一、标的概况
+            标的名称、代码、当前价格、涨跌幅、成交量
+
+            ### 二、技术面分析
+            - 趋势方向（上涨/下跌/震荡）
+            - 关键支撑位和阻力位
+            - MA均线状态
+            - 成交量配合度
+
+            ### 三、基本面分析（如适用）
+            - PE/PB估值水平
+            - 行业地位和竞争力
+            - 营收和利润趋势
+
+            ### 四、风险评估
+            - 主要风险点
+            - 风险等级（低/中/高）
+
+            ### 五、投资建议
+            - 操作建议：买入/持有/卖出/观望
+            - 理由（1-2句话）
+            - 止损位建议
+            - 目标持有周期
+
+            ## 输出格式要求
+            1. 用 Markdown 表格和分隔线结构化输出
+            2. 每个分析模块不超过3句话
+            3. 用数据说话，避免主观臆测
+            4. 如数据不足，诚实说明并建议补充查询""";
+    }
 
     /** ThreadLocal 传递当前 userId,供 MemoryTool 等需要用户上下文的地方使用. */
     private static final ThreadLocal<String> currentUserId = new ThreadLocal<>();
@@ -95,10 +133,17 @@ public class AIService {
                 + "【重要】如果用户在对话中提到了关于自己的信息（昵称、喜好、职业、所在地等），必须调用 save_user_info 工具保存。"
                 + "【重要】工具返回内容中的链接（[详情](url) 或 [来源: XXX](url)）必须原样保留在最终回答中，每条新闻/结果后面必须附带其链接，不得删除或修改。如果工具有返回图片（hasImage=true），说明用户侧已经收到了图片，回复时可以提及上面这张图。"
                 + "【市场概况回复格式】调用 market_overview 后：热点板块和汇率直接列数据无需分析，新闻逐条列出发链接（不要忽略工具返回的新闻，也不要自行概括说\u201C无相关新闻\u201D），最后用一两句话总结整体盘面。"
-                + "【对比分析回复格式】调用 compare_stocks 后：必须保留评分规则说明原文，不能省略或自行概括。";
+                + "【对比分析回复格式】调用 compare_stocks 后：必须保留评分规则说明原文，不能省略或自行概括。"
+                + "用户问对比时优先调用 compare_stocks 工具。"
+                + "【自选股】用户说'加自选''关注''收藏''添加到自选'等调用 add_to_watchlist；"
+                + "说'删自选''取消关注''移除'等调用 remove_from_watchlist；"
+                + "说'自选股''我的自选''关注的股票'等调用 list_watchlist。"
+                + "【持仓】用户说'买入''建仓''加仓'等调用 add_position（传股票、数量、价格）；"
+                + "说'卖出''减仓''清仓'等调用 remove_position；"
+                + "说'持仓''我的持仓''盈亏'等调用 list_positions。";
             // Skill 路由时使用对应智能体提示词替代通用 prompt
             String enrichedBase = ragContext != null && !ragContext.isBlank()
-                ? FinancialAgent.getSystemPrompt() + "\n\n" + basePrompt + "\n\n" + ragContext
+                ? financialSystemPrompt() + "\n\n" + basePrompt + "\n\n" + ragContext
                 : basePrompt;
             // RAG: 根据用户问题检索相关知识并拼入 system prompt
             String enrichedPrompt = ragService.augment(userMessage, enrichedBase);
@@ -126,7 +171,8 @@ public class AIService {
                     : new ChatRequest(MODEL, filteredHistory);
 
                 String body = objectMapper.writeValueAsString(request);
-                log.debug("DeepSeek请求(round={}): {}", round, body);
+                log.debug("DeepSeek请求(round={}): {} chars, tools={}", round, body.length(),
+                    tools != null ? tools.size() : 0);
 
                 byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
                 byte[] responseBytes = restClient.post()
@@ -140,7 +186,7 @@ public class AIService {
                     return new ChatResult("错误: AI 服务返回空响应");
                 }
                 String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
-                log.debug("DeepSeek响应(round={}): {}", round, responseJson);
+                log.debug("DeepSeek响应(round={}): {} chars", round, responseJson.length());
 
                 ChatResponse response = objectMapper.readValue(responseJson, ChatResponse.class);
                 if (response.getChoices() == null || response.getChoices().isEmpty()) {
@@ -289,7 +335,7 @@ public class AIService {
         try {
             ChatRequest request = new ChatRequest(QWEN_VL_MODEL, new ArrayList<>(history));
             String body = objectMapper.writeValueAsString(request);
-            log.info("通义千问VL请求: {}", body);
+            log.info("通义千问VL请求: {} chars", body.length());
 
             byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
             byte[] responseBytes = visionRestClient.post()
@@ -303,7 +349,7 @@ public class AIService {
                 return "错误: AI 服务返回空响应";
             }
             String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
-            log.info("通义千问VL响应: {}", responseJson);
+            log.info("通义千问VL响应: {} chars", responseJson.length());
 
             ChatResponse response = objectMapper.readValue(responseJson, ChatResponse.class);
             if (response.getChoices() == null || response.getChoices().isEmpty()) {
@@ -322,6 +368,88 @@ public class AIService {
             }
             return "抱歉,图片识别服务暂时不可用,请稍后再试";
         }
+    }
+
+    /**
+     * 带上下文的纯文本回复(不执行工具调用).
+     */
+    public String generateWithContext(String userId, String userMessage, String context) {
+        if (apiConfig.getAiApiKey() == null || apiConfig.getAiApiKey().isBlank()) {
+            return "错误: 未配置 DeepSeek API Key";
+        }
+
+        List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
+            List<ChatMessage> list = new ArrayList<>();
+            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手,回答简洁."));
+            return list;
+        });
+
+        String combinedMessage = "用户的问题:" + userMessage + "\n查询结果:" + context
+            + "\n请根据查询结果用自然语言回复用户.";
+        history.add(new ChatMessage("user", combinedMessage));
+        persistMessage(userId, "user", combinedMessage);
+        trimHistory(history);
+
+        try {
+            List<ChatMessage> filteredHistory = filterForTextOnly(history);
+            ChatRequest request = new ChatRequest(MODEL, filteredHistory);
+            String body = objectMapper.writeValueAsString(request);
+            log.info("上下文回复请求: {} chars", body.length());
+
+            byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
+            byte[] responseBytes = restClient.post()
+                    .header("Content-Type", "application/json; charset=UTF-8")
+                    .header("Authorization", "Bearer " + apiConfig.getAiApiKey())
+                    .body(bodyBytes)
+                    .retrieve()
+                    .body(byte[].class);
+
+            String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
+            log.info("上下文回复响应: {} chars", responseJson.length());
+
+            ChatResponse response = objectMapper.readValue(responseJson, ChatResponse.class);
+            if (response.getChoices() == null || response.getChoices().isEmpty()) {
+                return "错误: AI 未返回内容";
+            }
+
+            String reply = (String) response.getChoices().get(0).getMessage().content();
+            history.add(new ChatMessage("assistant", reply));
+            persistMessage(userId, "assistant", reply);
+            return reply;
+
+        } catch (Exception e) {
+            log.error("上下文回复生成失败", e);
+            return "抱歉,AI 回复生成失败,请稍后再试";
+        }
+    }
+
+    /** 从数据库加载用户记忆,构建上下文块. */
+    private String buildMemoryContext(String userId) {
+        Map<String, List<String>> mem = chatHistoryService.getAllMemory(userId);
+        if (mem.isEmpty()) return "";
+
+        StringBuilder sb = new StringBuilder("[以下是关于用户的重要信息,请在对话时自然地引用]\n");
+        for (var entry : mem.entrySet()) {
+            String key = entry.getKey();
+            // 取最新的一条值
+            String value = entry.getValue().getLast();
+            sb.append("- ").append(translateKey(key)).append(": ").append(value).append("\n");
+        }
+        return sb.toString();
+    }
+
+    private static String translateKey(String key) {
+        return switch (key) {
+            case "nickname" -> "昵称";
+            case "food_preference" -> "食物偏好";
+            case "location" -> "所在地";
+            case "occupation" -> "职业";
+            case "hobby" -> "爱好";
+            case "pet" -> "宠物";
+            case "birthday" -> "生日";
+            case "name" -> "姓名";
+            default -> key;
+        };
     }
 
     @SuppressWarnings("unchecked")
@@ -405,113 +533,6 @@ public class AIService {
             }
         }
         return filtered;
-    }
-
-    public String generateWithContext(String userId, String userMessage, String context) {
-        if (apiConfig.getAiApiKey() == null || apiConfig.getAiApiKey().isBlank()) {
-            return "错误: 未配置 DeepSeek API Key";
-        }
-
-        List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
-            List<ChatMessage> list = new ArrayList<>();
-            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手,回答简洁."));
-            return list;
-        });
-
-        String combinedMessage = "用户的问题:" + userMessage + "\n查询结果:" + context
-            + "\n请根据查询结果用自然语言回复用户.";
-        history.add(new ChatMessage("user", combinedMessage));
-        persistMessage(userId, "user", combinedMessage);
-        trimHistory(history);
-
-        try {
-            List<ChatMessage> filteredHistory = filterForTextOnly(history);
-            ChatRequest request = new ChatRequest(MODEL, filteredHistory);
-            String body = objectMapper.writeValueAsString(request);
-            log.info("上下文回复请求: {}", body);
-
-            byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
-            byte[] responseBytes = restClient.post()
-                    .header("Content-Type", "application/json; charset=UTF-8")
-                    .header("Authorization", "Bearer " + apiConfig.getAiApiKey())
-                    .body(bodyBytes)
-                    .retrieve()
-                    .body(byte[].class);
-
-            String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
-            log.info("上下文回复响应: {}", responseJson);
-
-            ChatResponse response = objectMapper.readValue(responseJson, ChatResponse.class);
-            if (response.getChoices() == null || response.getChoices().isEmpty()) {
-                return "错误: AI 未返回内容";
-            }
-
-            String reply = (String) response.getChoices().get(0).getMessage().content();
-            history.add(new ChatMessage("assistant", reply));
-            persistMessage(userId, "assistant", reply);
-            return reply;
-
-        } catch (Exception e) {
-            log.error("上下文回复生成失败", e);
-            return "抱歉,AI 回复生成失败,请稍后再试";
-        }
-    }
-
-    public void addExchange(String userId, String userMessage, String assistantReply) {
-        List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
-            List<ChatMessage> list = new ArrayList<>();
-            list.add(new ChatMessage("system", "你是一个 helpful 的 AI 助手,回答简洁."));
-            return list;
-        });
-        history.add(new ChatMessage("user", userMessage));
-        persistMessage(userId, "user", userMessage);
-        history.add(new ChatMessage("assistant", assistantReply));
-        persistMessage(userId, "assistant", assistantReply);
-        trimHistory(history);
-    }
-
-    public boolean hasSession(String userId) {
-        return sessions.containsKey(userId);
-    }
-
-    public void clearSession(String userId) {
-        sessions.remove(userId);
-        dbExecutor.submit(() -> {
-            try {
-                chatHistoryService.deleteHistory(userId);
-            } catch (Exception e) {
-                log.error("清除数据库对话记录失败: {}", e.getMessage());
-            }
-        });
-    }
-
-    /** 从数据库加载用户记忆,构建上下文块. */
-    private String buildMemoryContext(String userId) {
-        Map<String, List<String>> mem = chatHistoryService.getAllMemory(userId);
-        if (mem.isEmpty()) return "";
-
-        StringBuilder sb = new StringBuilder("[以下是关于用户的重要信息,请在对话时自然地引用]\n");
-        for (var entry : mem.entrySet()) {
-            String key = entry.getKey();
-            // 取最新的一条值
-            String value = entry.getValue().getLast();
-            sb.append("- ").append(translateKey(key)).append(": ").append(value).append("\n");
-        }
-        return sb.toString();
-    }
-
-    private static String translateKey(String key) {
-        return switch (key) {
-            case "nickname" -> "昵称";
-            case "food_preference" -> "食物偏好";
-            case "location" -> "所在地";
-            case "occupation" -> "职业";
-            case "hobby" -> "爱好";
-            case "pet" -> "宠物";
-            case "birthday" -> "生日";
-            case "name" -> "姓名";
-            default -> key;
-        };
     }
 
     // ==================== DB persistence ====================

@@ -160,7 +160,7 @@ public class SkillManager {
         String lowerQuery = query.toLowerCase();
 
         Skill best = null;
-        double bestScore = 0.3; //     
+        double bestScore = 1.5; // 需要至少一个完整触发词命中或强部分匹配
 
         for (Skill skill : toolRegistry.getSkills()) {
             double score = matchScore(skill, lowerQuery);
@@ -179,13 +179,17 @@ public class SkillManager {
 
         for (String trigger : triggers) {
             String lower = trigger.toLowerCase();
+            // 完整触发词命中:强匹配
             if (query.contains(lower)) {
-                score += 1.0;
-            } else {
-                Set<String> a = tokenize(trigger);
-                Set<String> b = tokenize(query);
-                a.retainAll(b);
-                score += a.size() * 0.2;
+                score += 2.0;
+                continue;
+            }
+            // 部分匹配:仅当触发词较长(>=4字)才给分,避免单字高频字误匹配
+            Set<String> a = tokenize(trigger);
+            Set<String> b = tokenize(query);
+            a.retainAll(b);
+            if (a.size() >= 2 && a.size() >= trigger.length() / 2) {
+                score += a.size() * 0.3;
             }
         }
         return score;

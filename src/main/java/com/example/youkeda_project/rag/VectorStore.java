@@ -33,7 +33,15 @@ public class VectorStore {
         "黄金", "原油", "沪金", "螺纹钢",
         "cpi", "ppi", "gdp", "lpr", "利率",
         "美元", "汇率", "人民币",
-        "国债", "逆回购", "收益率"
+        "国债", "逆回购", "收益率",
+        "t0", "t1", "做空", "融资融券", "融券", "熔断", "t+0", "t+1",
+        "营收", "净利润", "现金流", "资产负债表", "资产负债", "审计",
+        "大盘", "牛市", "熊市", "板块", "题材", "龙头", "妖股",
+        "腾讯", "阿里巴巴", "阿里", "中国平安", "工商银行", "招商银行", "中国银行",
+        "建设银行", "农业银行", "中国石油", "中国移动", "平安银行",
+        "半导体", "芯片", "光伏", "医药", "银行股", "券商", "白酒股",
+        "分时", "均价", "委比", "外盘", "内盘", "振幅",
+        "定投", "止盈", "止损", "仓位", "建仓", "加仓", "减仓", "清仓"
     );
 
     private final EmbeddingService embeddingService;
@@ -61,14 +69,21 @@ public class VectorStore {
             log.error("加载 knowledge.json 失败", e);
         }
 
-        // 2) 从 SQLite 加载全部知识到内存
+        // 2) 从 SQLite 加载全部知识到内存（优先加载已有向量的条目）
+        java.util.Map<String, float[]> vectorMap = new java.util.HashMap<>();
+        for (var entry : knowledgeRepo.findAllWithVector()) {
+            vectorMap.put(entry.text(), entry.vector());
+        }
         List<String> all = knowledgeRepo.findAll();
         for (String text : all) {
-            entries.add(new Entry(text));
+            Entry e = new Entry(text);
+            e.vector = vectorMap.get(text);
+            entries.add(e);
         }
         // 3) 构建关键词索引
         buildKeywordIndex();
-        log.info("知识库初始化完成: {} 条知识 (来自 SQLite)", entries.size());
+        int cached = (int) entries.stream().filter(e -> e.vector != null).count();
+        log.info("知识库初始化完成: {} 条知识, {} 条已有向量缓存", entries.size(), cached);
 
         // 保底知识
         if (entries.isEmpty()) {
@@ -77,22 +92,26 @@ public class VectorStore {
             knowledgeRepo.save(fallback, "fallback");
         }
 
-        // 后台预计算所有 embedding，避免首次查询时逐个热加载
-        java.util.concurrent.CompletableFuture.runAsync(() -> {
-            log.info("开始后台预计算 {} 条知识的 embedding...", entries.size());
-            int done = 0;
-            for (Entry e : entries) {
-                if (e.vector == null) {
-                    try {
-                        e.vector = embeddingService.embed(e.text);
-                        done++;
-                    } catch (Exception ex) {
-                        log.warn("embedding 预计算失败: {}", ex.getMessage());
+        // 后台预计算缺失的 embedding，并持久化到 SQLite
+        if (cached < entries.size()) {
+            java.util.concurrent.CompletableFuture.runAsync(() -> {
+                int total = entries.size() - cached;
+                log.info("开始后台预计算 {} 条知识的 embedding...", total);
+                int done = 0;
+                for (Entry e : entries) {
+                    if (e.vector == null) {
+                        try {
+                            e.vector = embeddingService.embed(e.text);
+                            knowledgeRepo.updateVector(e.text, e.vector);
+                            done++;
+                        } catch (Exception ex) {
+                            log.warn("embedding 预计算失败: {}", ex.getMessage());
+                        }
                     }
                 }
-            }
-            log.info("后台预计算完成: {}/{} 条", done, entries.size());
-        });
+                log.info("后台预计算完成: {}/{} 条", done, total);
+            });
+        }
     }
 
     public void add(String text) {

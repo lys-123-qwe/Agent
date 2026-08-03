@@ -1,6 +1,5 @@
 package com.example.youkeda_project.ai;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -13,27 +12,18 @@ public class ChatResult {
 
     private final String replyText;
     private final List<ToolResult> pendingMedia;
-    private final String rawToolResult;
 
     public ChatResult(String replyText, List<ToolResult> pendingMedia) {
         this.replyText = replyText;
         this.pendingMedia = pendingMedia != null ? pendingMedia : List.of();
-        this.rawToolResult = null;
     }
 
     public ChatResult(String replyText) {
         this(replyText, List.of());
     }
 
-    public ChatResult(String replyText, List<ToolResult> pendingMedia, String rawToolResult) {
-        this.replyText = replyText;
-        this.pendingMedia = pendingMedia != null ? pendingMedia : List.of();
-        this.rawToolResult = rawToolResult;
-    }
-
     public String getReplyText() { return replyText; }
     public List<ToolResult> getPendingMedia() { return pendingMedia; }
-    public String getRawToolResult() { return rawToolResult; }
 
     /** 是否有图片需要 CDN 上传 */
     public boolean hasPendingImage() {
@@ -78,26 +68,5 @@ public class ChatResult {
                 .filter(ToolResult::hasAudio)
                 .findFirst().orElse(null);
     }
-
-    public static Builder builder(String replyText) {
-        return new Builder(replyText);
-    }
-
-    public static class Builder {
-        private final String replyText;
-        private final List<ToolResult> pendingMedia = new ArrayList<>();
-
-        Builder(String replyText) { this.replyText = replyText; }
-
-        public Builder addMedia(ToolResult result) {
-            if (result != null && (result.hasImage() || result.hasAudio())) {
-                pendingMedia.add(result);
-            }
-            return this;
-        }
-
-        public ChatResult build() {
-            return new ChatResult(replyText, pendingMedia);
-        }
-    }
 }
+

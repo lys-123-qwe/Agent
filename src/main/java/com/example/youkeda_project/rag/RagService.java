@@ -11,7 +11,7 @@ import java.util.List;
 public class RagService {
 
     private static final Logger log = LoggerFactory.getLogger(RagService.class);
-    private static final int TOP_K = 1;
+    private static final int TOP_K = 3;
 
     private final EmbeddingService embeddingService;
     private final VectorStore vectorStore;
@@ -59,7 +59,6 @@ public class RagService {
     }
 
     private static boolean isTrivial(String query) {
-        if (query.length() <= 4) return true;
         String q = query.trim();
         return q.matches("^(你好|嗨|hi|hello|在吗|在不在|谢谢|感谢|好的|嗯|哦|哈喽|hey|早上好|晚上好|下午好|晚安|拜拜|再见|bye).*");
     }

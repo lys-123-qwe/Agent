@@ -1,8 +1,20 @@
 package com.example.youkeda_project.skill.financial;
 
-import com.example.youkeda_project.ai.*;
+import com.example.youkeda_project.ai.tool.AddPositionTool;
+import com.example.youkeda_project.ai.tool.AddToWatchlistTool;
+import com.example.youkeda_project.ai.tool.ComparisonTool;
+import com.example.youkeda_project.ai.tool.ExchangeRateTool;
+import com.example.youkeda_project.ai.tool.FinancialAnalysisTool;
+import com.example.youkeda_project.ai.tool.FundTool;
+import com.example.youkeda_project.ai.tool.FuturesTool;
+import com.example.youkeda_project.ai.tool.ListPositionsTool;
+import com.example.youkeda_project.ai.tool.ListWatchlistTool;
+import com.example.youkeda_project.ai.tool.MarketOverviewTool;
+import com.example.youkeda_project.ai.tool.RemoveFromWatchlistTool;
+import com.example.youkeda_project.ai.tool.RemovePositionTool;
+import com.example.youkeda_project.ai.tool.StockTool;
+import com.example.youkeda_project.ai.tool.TechnicalTool;
 import com.example.youkeda_project.skill.AbstractSkill;
-import com.example.youkeda_project.ai.Tool;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -18,7 +30,13 @@ public class FinancialAnalysisSkill extends AbstractSkill {
             MarketOverviewTool marketOverviewTool,
             FuturesTool futuresTool,
             FundTool fundTool,
-            ExchangeRateTool exchangeRateTool) {
+            ExchangeRateTool exchangeRateTool,
+            AddToWatchlistTool addToWatchlistTool,
+            RemoveFromWatchlistTool removeFromWatchlistTool,
+            ListWatchlistTool listWatchlistTool,
+            AddPositionTool addPositionTool,
+            RemovePositionTool removePositionTool,
+            ListPositionsTool listPositionsTool) {
         super(
             "financial-analysis",
             "金融分析:提供股票/基金/期货/外汇的实时行情查询,技术面分析(MA/RSI/MACD/布林带),多标的对比,走势预测,大盘概况.涵盖A股,港股,美股,国内国际期货,开放式基金和ETF.",
@@ -38,7 +56,9 @@ public class FinancialAnalysisSkill extends AbstractSkill {
                 "港股走势预测"
             ),
             List.of(analysisTool, stockTool, comparisonTool, technicalTool,
-                     marketOverviewTool, futuresTool, fundTool, exchangeRateTool),
+                     marketOverviewTool, futuresTool, fundTool, exchangeRateTool,
+                     addToWatchlistTool, removeFromWatchlistTool, listWatchlistTool,
+                     addPositionTool, removePositionTool, listPositionsTool),
             List.of("knowledge/technical-analysis.md", "knowledge/lean-patterns.md")
         );
     }

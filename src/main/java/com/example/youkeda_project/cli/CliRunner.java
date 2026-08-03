@@ -1,7 +1,13 @@
 package com.example.youkeda_project.cli;
 
 import com.example.youkeda_project.ai.*;
-import com.example.youkeda_project.service.*;
+import com.example.youkeda_project.ai.tool.EditImageTool;
+import com.example.youkeda_project.ai.tool.RecognizeImageTool;
+import com.example.youkeda_project.service.wechat.FileService;
+import com.example.youkeda_project.service.wechat.IlinkService;
+import com.example.youkeda_project.service.wechat.ImageService;
+import com.example.youkeda_project.service.wechat.TtsService;
+import com.example.youkeda_project.service.wechat.VoiceService;
 import com.example.youkeda_project.skill.*;
 import com.example.youkeda_project.protocol.WeixinMessage;
 import org.slf4j.Logger;
@@ -36,21 +42,6 @@ public class CliRunner implements CommandLineRunner {
     private final FileService fileService;
 
     // Tool instances for direct CLI commands
-    private final WeatherTool weatherTool;
-    private final StockTool stockTool;
-    private final LogisticsTool logisticsTool;
-    private final HotCommentTool hotCommentTool;
-    private final ImageTool imageTool;
-    private final TtsTool ttsTool;
-    private final SearchTool searchTool;
-    private final ExchangeRateTool exchangeRateTool;
-    private final DateTimeTool dateTimeTool;
-    private final ConstellationTool constellationTool;
-    private final PhoneLocationTool phoneLocationTool;
-    private final MusicTool musicTool;
-    private final RecommendMusicTool recommendMusicTool;
-    private final TranslationTool translationTool;
-    private final MemoryTool memoryTool;
 
     // Per-user state
     private final Map<String, byte[]> pendingImages = new ConcurrentHashMap<>();
@@ -71,21 +62,6 @@ public class CliRunner implements CommandLineRunner {
                      TtsService ttsService,
                      FileService fileService,
                      List<Tool> allTools,
-                     WeatherTool weatherTool,
-                     StockTool stockTool,
-                     LogisticsTool logisticsTool,
-                     HotCommentTool hotCommentTool,
-                     ImageTool imageTool,
-                     TtsTool ttsTool,
-                     SearchTool searchTool,
-                     ExchangeRateTool exchangeRateTool,
-                     DateTimeTool dateTimeTool,
-                     ConstellationTool constellationTool,
-                     PhoneLocationTool phoneLocationTool,
-                     MusicTool musicTool,
-                     RecommendMusicTool recommendMusicTool,
-                     TranslationTool translationTool,
-                     MemoryTool memoryTool,
                      ToolRegistry toolRegistry,
                      SkillManager skillManager,
                      KnowledgeService knowledgeService) {
@@ -96,21 +72,6 @@ public class CliRunner implements CommandLineRunner {
         this.ttsService = ttsService;
         this.fileService = fileService;
         this.allTools = allTools;
-        this.weatherTool = weatherTool;
-        this.stockTool = stockTool;
-        this.logisticsTool = logisticsTool;
-        this.hotCommentTool = hotCommentTool;
-        this.imageTool = imageTool;
-        this.ttsTool = ttsTool;
-        this.searchTool = searchTool;
-        this.exchangeRateTool = exchangeRateTool;
-        this.dateTimeTool = dateTimeTool;
-        this.constellationTool = constellationTool;
-        this.phoneLocationTool = phoneLocationTool;
-        this.musicTool = musicTool;
-        this.recommendMusicTool = recommendMusicTool;
-        this.translationTool = translationTool;
-        this.memoryTool = memoryTool;
         this.toolRegistry = toolRegistry;
         this.skillManager = skillManager;
         this.knowledgeService = knowledgeService;
@@ -127,15 +88,13 @@ public class CliRunner implements CommandLineRunner {
         log.info("Application started");
         System.out.println("Welcome to Claw CLI!");
 
-        // Restore persisted sessions
+        // Restore persisted sessions (幂等,onStartup 已恢复则跳过)
         try {
-            int restored = ilinkService.restoreAll();
-            if (restored > 0) {
-                System.out.println("Restored " + restored + " session(s), starting listeners...");
-                for (var info : ilinkService.listSessions()) {
-                    if ("LOGGED_IN".equals(info.status())) {
-                        startMessageListener(info.sessionId());
-                    }
+            ilinkService.restoreAll();
+            // 为所有已登录会话启动消息监听
+            for (var info : ilinkService.listSessions()) {
+                if ("LOGGED_IN".equals(info.status())) {
+                    startMessageListener(info.sessionId());
                 }
             }
         } catch (Exception e) {
@@ -155,7 +114,14 @@ public class CliRunner implements CommandLineRunner {
         Scanner scanner = new Scanner(System.in);
         while (true) {
             System.out.print("> ");
-            String input = scanner.nextLine().trim();
+            String input;
+            try {
+                input = scanner.nextLine().trim();
+            } catch (Exception e) {
+                // 输入流已关闭/无输入(如后台运行),正常退出
+                log.info("CLI 输入流已结束,退出");
+                break;
+            }
 
             try {
                 if (input.isEmpty()) continue;
@@ -242,6 +208,18 @@ public class CliRunner implements CommandLineRunner {
             if (t.getName().equals(name)) return t;
         }
         return null;
+    }
+
+    /** 合并 Skill 工具与通用工具(去重),保证通用能力不被 skill 路由排除. */
+    private List<Tool> mergeTools(List<Tool> skillTools) {
+        Map<String, Tool> merged = new LinkedHashMap<>();
+        for (Tool t : TOOLS) {
+            merged.put(t.getName(), t);
+        }
+        for (Tool t : skillTools) {
+            merged.putIfAbsent(t.getName(), t);
+        }
+        return new ArrayList<>(merged.values());
     }
 
     // ==================== Direct tool commands ====================
@@ -540,7 +518,8 @@ public class CliRunner implements CommandLineRunner {
                 String ragContext = "";
                 if (routedSkill.isPresent()) {
                     Skill skill = routedSkill.get();
-                    selectedTools = skill.getTools();
+                    // Skill 工具 + 通用工具合并,保证生图/搜索/翻译等通用能力不被 skill 路由排除
+                    selectedTools = mergeTools(skill.getTools());
                     ragContext = knowledgeService.buildContext(skill.getName(), text);
                     log.info("Skill routed: {} tools: {}", skill.getName(), selectedTools.size());
                 } else {
@@ -671,6 +650,7 @@ public class CliRunner implements CommandLineRunner {
     /** Handle media side-effects from AI tool results. Returns augmented reply text. */
     private String handleMediaResult(String sessionId, String userId, String contextToken,
                                      ChatResult result, String reply) {
+        // 优先发送字节形式的图片
         for (byte[] imgBytes : result.getAllPendingImageBytes()) {
             System.out.println("[系统] 图片已生成，正在上传...(" + imgBytes.length + " bytes)");
             try {
@@ -679,6 +659,21 @@ public class CliRunner implements CommandLineRunner {
             } catch (Exception e) {
                 log.error("图片上传失败", e);
                 reply += "\n\n(图片上传失败: " + e.getMessage() + ")";
+            }
+        }
+        // URL 形式的图片(如生图结果):下载后上传
+        if (result.hasPendingImage() && result.getAllPendingImageBytes().isEmpty()) {
+            String imageUrl = result.getFirstPendingImageUrl();
+            if (imageUrl != null && !imageUrl.isBlank()) {
+                System.out.println("[系统] 图片已生成，正在下载并上传...");
+                try {
+                    byte[] imgBytes = imageService.downloadImage(imageUrl);
+                    ilinkService.sendImage(sessionId, userId, contextToken, imgBytes);
+                    log.info("已发送图片到 {}", userId);
+                } catch (Exception e) {
+                    log.error("图片上传失败", e);
+                    reply += "\n\n(图片上传失败: " + e.getMessage() + ")";
+                }
             }
         }
 

@@ -161,7 +161,6 @@ public class IlinkProtocolClient {
             .uri(URI.create(url))
             .retrieve()
             .body(byte[].class);
-        log.info("CDN下载完成: {} bytes", encryptedBytes != null ? encryptedBytes.length : 0);
 
         if (aesKeyStr == null) {
             log.warn("图片无AES key,返回原始密文");
@@ -209,7 +208,6 @@ public class IlinkProtocolClient {
             .uri(URI.create(url))
             .retrieve()
             .body(byte[].class);
-        log.info("文件CDN下载完成: {} bytes", encryptedBytes != null ? encryptedBytes.length : 0);
 
         if (aesKeyStr == null) {
             log.warn("文件无AES key,返回原始密文");
@@ -351,6 +349,7 @@ public class IlinkProtocolClient {
      * 将 AES 加密后的图片字节 POST 到微信 CDN.
      * 支持两种上传方式:upload_full_url(直连)或 CDN_BASE + upload_param.
      * 上传成功后从响应 header 中获取 x-encrypted-param.
+     * <p>URL 构造与官方 weixin-sdk 一致:upload?encrypted_query_param=<param>&filekey=<key>.
      */
     private String uploadToCdn(byte[] encryptedBytes, String uploadFullUrl, String uploadParam, String fileKey) {
         String cdnUrl;
@@ -358,31 +357,42 @@ public class IlinkProtocolClient {
             cdnUrl = uploadFullUrl;
         } else if (uploadParam != null && !uploadParam.isBlank()) {
             String encodedParam = URLEncoder.encode(uploadParam, StandardCharsets.UTF_8);
-            cdnUrl = CDN_BASE + "/upload?encrypted_param=" + encodedParam + "&filekey=" + fileKey;
+            String encodedKey = URLEncoder.encode(fileKey, StandardCharsets.UTF_8);
+            cdnUrl = CDN_BASE + "/upload?encrypted_query_param=" + encodedParam + "&filekey=" + encodedKey;
         } else {
             throw new RuntimeException("getUploadUrl未返回upload_full_url或upload_param");
         }
 
         log.info("上传到CDN: {}", cdnUrl);
-        ResponseEntity<byte[]> resp = buildTimeoutRestClient().post()
-            .uri(cdnUrl)
-            .header("Content-Type", "application/octet-stream")
-            .body(encryptedBytes)
-            .retrieve()
-            .onStatus(HttpStatusCode::isError, (request, response) -> {
-                byte[] errorBody = response.getBody().readAllBytes();
-                String errorText = new String(errorBody, StandardCharsets.UTF_8);
-                log.error("CDN上传失败: status={}, body='{}', headers={}",
-                    response.getStatusCode(), errorText, response.getHeaders());
-                throw new RuntimeException("CDN上传失败 (" + response.getStatusCode() + "): " + errorText);
-            })
-            .toEntity(byte[].class);
+        try {
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) URI.create(cdnUrl).toURL().openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/octet-stream");
+            conn.setDoOutput(true);
+            conn.setConnectTimeout(10000);
+            conn.setReadTimeout(10000);
+            conn.getOutputStream().write(encryptedBytes);
+            conn.getOutputStream().flush();
+            conn.getOutputStream().close();
 
-        String encryptQueryParam = resp.getHeaders().getFirst("x-encrypted-param");
-        if (encryptQueryParam == null || encryptQueryParam.isBlank()) {
-            throw new RuntimeException("CDN上传未返回x-encrypted-param header");
+            int responseCode = conn.getResponseCode();
+            if (responseCode != 200) {
+                String errorBody = new String(
+                    (responseCode >= 400 ? conn.getErrorStream() : conn.getInputStream()).readAllBytes(),
+                    StandardCharsets.UTF_8);
+                log.error("CDN上传失败: status={}, body={}", responseCode, errorBody);
+                throw new RuntimeException("CDN上传失败: " + errorBody);
+            }
+
+            String encryptQueryParam = conn.getHeaderField("x-encrypted-param");
+            if (encryptQueryParam == null || encryptQueryParam.isBlank()) {
+                throw new RuntimeException("CDN上传未返回x-encrypted-param header");
+            }
+            conn.disconnect();
+            return encryptQueryParam;
+        } catch (java.io.IOException e) {
+            throw new RuntimeException("CDN上传失败: " + e.getMessage(), e);
         }
-        return encryptQueryParam;
     }
 
     /**
@@ -483,7 +493,6 @@ public class IlinkProtocolClient {
             .uri(URI.create(url))
             .retrieve()
             .body(byte[].class);
-        log.info("语音下载完成: {} bytes", encryptedBytes != null ? encryptedBytes.length : 0);
 
         // 如果有 AES key 则解密,否则直接返回原始字节
         CDNMedia media = voiceItem.media();
@@ -500,19 +509,6 @@ public class IlinkProtocolClient {
             if (pad > 0 && pad <= 16) {
                 decrypted = Arrays.copyOf(decrypted, decrypted.length - pad);
             }
-
-            // 记录原始和已解密前 16 字节以便比较 AES 是否必要
-            StringBuilder rawHex = new StringBuilder();
-            for (int i = 0; i < Math.min(16, encryptedBytes.length); i++) {
-                rawHex.append(String.format("%02X ", encryptedBytes[i]));
-            }
-            StringBuilder decHex = new StringBuilder();
-            for (int i = 0; i < Math.min(16, decrypted.length); i++) {
-                decHex.append(String.format("%02X ", decrypted[i]));
-            }
-            log.info("语音原始字节(hex): {} | 解密后(hex): {}", rawHex, decHex);
-            log.info("语音解密后前32字符: {}", new String(decrypted, 0, Math.min(32, decrypted.length), StandardCharsets.ISO_8859_1));
-
             return decrypted;
         } catch (Exception e) {
             throw new RuntimeException("语音 AES 解密失败", e);
@@ -645,7 +641,8 @@ public class IlinkProtocolClient {
                 cdnUrl = uploadFullUrl;
             } else if (uploadParam != null && !uploadParam.isBlank()) {
                 String encodedParam = URLEncoder.encode(uploadParam, StandardCharsets.UTF_8);
-            cdnUrl = CDN_BASE + "/upload?encrypted_param=" + encodedParam + "&filekey=" + fileKey;
+                String encodedKey = URLEncoder.encode(fileKey, StandardCharsets.UTF_8);
+                cdnUrl = CDN_BASE + "/upload?encrypted_query_param=" + encodedParam + "&filekey=" + encodedKey;
             } else {
                 throw new RuntimeException("getUploadUrl未返回upload_full_url或upload_param");
             }
@@ -662,7 +659,6 @@ public class IlinkProtocolClient {
             conn.getOutputStream().close();
 
             int responseCode = conn.getResponseCode();
-            log.info("CDN上传响应码: {}", responseCode);
             if (responseCode != 200) {
                 String errorBody = new String(
                     (responseCode >= 400 ? conn.getErrorStream() : conn.getInputStream()).readAllBytes(),
@@ -757,7 +753,8 @@ public class IlinkProtocolClient {
                 cdnUrl = uploadFullUrl;
             } else if (uploadParam != null && !uploadParam.isBlank()) {
                 String encodedParam = URLEncoder.encode(uploadParam, StandardCharsets.UTF_8);
-            cdnUrl = CDN_BASE + "/upload?encrypted_param=" + encodedParam + "&filekey=" + fileKey;
+                String encodedKey = URLEncoder.encode(fileKey, StandardCharsets.UTF_8);
+                cdnUrl = CDN_BASE + "/upload?encrypted_query_param=" + encodedParam + "&filekey=" + encodedKey;
             } else {
                 throw new RuntimeException("getUploadUrl未返回upload_full_url或upload_param");
             }
@@ -774,7 +771,6 @@ public class IlinkProtocolClient {
             conn.getOutputStream().close();
 
             int responseCode = conn.getResponseCode();
-            log.info("CDN文件上传响应码: {}", responseCode);
             if (responseCode != 200) {
                 String errorBody = new String(
                     (responseCode >= 400 ? conn.getErrorStream() : conn.getInputStream()).readAllBytes(),

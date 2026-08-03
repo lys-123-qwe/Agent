@@ -1,6 +1,6 @@
 package com.example.youkeda_project.rag;
 
-import com.example.youkeda_project.service.NewsService;
+import com.example.youkeda_project.service.stock.NewsService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
