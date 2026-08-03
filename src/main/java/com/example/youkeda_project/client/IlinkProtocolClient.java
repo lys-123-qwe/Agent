@@ -362,25 +362,44 @@ public class IlinkProtocolClient {
             throw new RuntimeException("getUploadUrl未返回upload_full_url或upload_param");
         }
 
-        log.info("上传到CDN: {}", cdnUrl);
-        ResponseEntity<byte[]> resp = buildTimeoutRestClient().post()
-            .uri(cdnUrl)
-            .header("Content-Type", "application/octet-stream")
-            .body(encryptedBytes)
-            .retrieve()
-            .onStatus(HttpStatusCode::isError, (request, response) -> {
-                byte[] errorBody = response.getBody().readAllBytes();
-                String errorText = new String(errorBody, StandardCharsets.UTF_8);
-                log.error("CDN上传失败: status={}, body={}", response.getStatusCode(), errorText);
-                throw new RuntimeException("CDN上传失败 (" + response.getStatusCode() + "): " + errorText);
-            })
-            .toEntity(byte[].class);
+        log.info("上传到CDN: {} (encrypted size: {} bytes)", cdnUrl, encryptedBytes.length);
 
-        String encryptQueryParam = resp.getHeaders().getFirst("x-encrypted-param");
-        if (encryptQueryParam == null || encryptQueryParam.isBlank()) {
-            throw new RuntimeException("CDN上传未返回x-encrypted-param header");
+        // 使用原生 HttpURLConnection + setFixedLengthStreamingMode，
+        // 避免 Spring RestClient 对 byte[] body 可能使用的 chunked 传输编码导致 CDN 400
+        java.net.HttpURLConnection conn = null;
+        try {
+            java.net.URL url = new java.net.URL(cdnUrl);
+            conn = (java.net.HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setConnectTimeout(10_000);
+            conn.setReadTimeout(30_000);
+            conn.setRequestProperty("Content-Type", "application/octet-stream");
+            conn.setFixedLengthStreamingMode(encryptedBytes.length);
+
+            conn.getOutputStream().write(encryptedBytes);
+            conn.getOutputStream().flush();
+
+            int status = conn.getResponseCode();
+            if (status >= 400) {
+                byte[] errBytes = conn.getErrorStream() != null
+                        ? conn.getErrorStream().readAllBytes() : new byte[0];
+                String errText = new String(errBytes, StandardCharsets.UTF_8);
+                log.error("CDN上传失败: status={}, body={}", status, errText);
+                throw new RuntimeException("CDN上传失败 (" + status + "): " + errText);
+            }
+
+            String encryptQueryParam = conn.getHeaderField("x-encrypted-param");
+            if (encryptQueryParam == null || encryptQueryParam.isBlank()) {
+                throw new RuntimeException("CDN上传未返回x-encrypted-param header");
+            }
+            return encryptQueryParam;
+        } catch (java.io.IOException e) {
+            log.error("CDN上传网络错误: {}", e.getMessage());
+            throw new RuntimeException("CDN上传网络错误: " + e.getMessage(), e);
+        } finally {
+            if (conn != null) conn.disconnect();
         }
-        return encryptQueryParam;
     }
 
     /**

@@ -96,11 +96,16 @@ public class ToolRegistry {
      *          (   + Skill  ).
      */
     public List<Tool> allTools() {
-        List<Tool> list = new ArrayList<>(standaloneTools.values());
-        for (Skill skill : skills.values()) {
-            list.addAll(skill.getTools());
+        Map<String, Tool> seen = new LinkedHashMap<>();
+        for (Tool t : standaloneTools.values()) {
+            seen.putIfAbsent(t.getName(), t);
         }
-        return list;
+        for (Skill skill : skills.values()) {
+            for (Tool t : skill.getTools()) {
+                seen.putIfAbsent(t.getName(), t);
+            }
+        }
+        return new ArrayList<>(seen.values());
     }
 
     /**

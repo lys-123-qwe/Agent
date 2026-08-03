@@ -32,7 +32,16 @@ public class FinancialAnalysisSkill extends AbstractSkill {
                 "技术面分析"
             ),
             List.of(analysisTool),
-            List.of("knowledge/technical-analysis.md", "knowledge/lean-patterns.md")
+            List.of(
+                "knowledge/technical-analysis.md",
+                "knowledge/lean-patterns.md",
+                "knowledge/candlestick-patterns.md",
+                "knowledge/volume-analysis.md",
+                "knowledge/sector-rotation.md",
+                "knowledge/risk-management.md",
+                "knowledge/macro-indicators.md",
+                "knowledge/fund-selection.md"
+            )
         );
     }
 }

@@ -43,6 +43,7 @@ public class ScheduledTaskService {
     @PostConstruct
     public void init() {
         createTableIfNotExists();
+        expireOverdueTasks();
         startScheduler();
     }
 
@@ -68,6 +69,25 @@ public class ScheduledTaskService {
             log.info("定时任务表初始化完成: tasks.db");
         } catch (Exception e) {
             log.error("初始化定时任务表失败", e);
+        }
+    }
+
+    /**
+     * 启动时把已过期的 pending 任务标记为 expired。
+     * 重启后 contextToken 丢失，这些任务无法触发，与其空转不如作废。
+     */
+    private void expireOverdueTasks() {
+        String now = LocalDateTime.now().format(DTF);
+        String sql = "UPDATE scheduled_tasks SET status = 'expired' WHERE status = 'pending' AND trigger_at <= ?";
+        try (Connection conn = getConn();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, now);
+            int count = ps.executeUpdate();
+            if (count > 0) {
+                log.info("已将 {} 个已过期任务标记为 expired（重启后 contextToken 丢失）", count);
+            }
+        } catch (Exception e) {
+            log.warn("清理过期任务失败", e);
         }
     }
 
@@ -200,7 +220,8 @@ public class ScheduledTaskService {
 
                     String token = contextStore.getToken(userId);
                     if (token == null) {
-                        log.warn("用户 {} 无 contextToken,无法发送提醒", userId);
+                        // 重启后 contextToken 丢失（内存级），等用户发消息后 token 会刷新
+                        // 仅 debug 级别记录，不刷屏
                         continue;
                     }
 

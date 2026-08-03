@@ -1,5 +1,7 @@
 package com.example.youkeda_project.skill;
 
+import com.example.youkeda_project.service.EmbeddingService;
+import com.example.youkeda_project.service.VectorStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -8,16 +10,19 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * RAG knowledge service.
+ * RAG knowledge service — BM25 + 向量语义检索。
  *
- * Loads text documents from src/skills/{skillName}/ knowledge directory,
- * splits them into chunks, builds a simple inverted index, and retrieves
- * the top-K most relevant chunks for a query.
+ * 加载 src/skills/{skillName}/knowledge/ 下的 markdown 文档，
+ * 分块后同时建立 BM25 关键词索引和向量语义索引（Dashscope text-embedding-v3）。
+ * 查询时优先向量检索，向量不可用时自动回退 BM25。
  */
 @Service
 public class KnowledgeService {
@@ -26,13 +31,25 @@ public class KnowledgeService {
 
     private final Path knowledgeRoot;
     private final Map<String, List<DocumentChunk>> skillDocuments = new ConcurrentHashMap<>();
+    private final EmbeddingService embeddingService;
+    private final VectorStore vectorStore;
+    private final ExecutorService indexingExecutor;
 
     private static final int DEFAULT_TOP_K = 5;
     private static final int CHUNK_SIZE = 400;
     private static final int CHUNK_OVERLAP = 50;
 
-    public KnowledgeService() {
+    private static final double VECTOR_FALLBACK_THRESHOLD = 0.3;
+
+    public KnowledgeService(EmbeddingService embeddingService, VectorStore vectorStore) {
         this.knowledgeRoot = Paths.get("src", "skills").toAbsolutePath().normalize();
+        this.embeddingService = embeddingService;
+        this.vectorStore = vectorStore;
+        this.indexingExecutor = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "knowledge-indexer");
+            t.setDaemon(true);
+            return t;
+        });
     }
 
     /**
@@ -64,6 +81,39 @@ public class KnowledgeService {
 
         skillDocuments.put(skillName, chunks);
         log.info("Skill[{}] loaded {} knowledge chunks", skillName, chunks.size());
+
+        // 异步生成向量索引（不阻塞启动）
+        scheduleVectorIndexing(skillName, chunks);
+    }
+
+    /**
+     * 异步构建向量索引。
+     */
+    private void scheduleVectorIndexing(String skillName, List<DocumentChunk> chunks) {
+        // 检查是否已有向量缓存
+        int existing = vectorStore.count(skillName);
+        if (existing >= chunks.size()) {
+            log.info("Skill[{}] 向量索引已存在 ({} 条)，跳过重建", skillName, existing);
+            return;
+        }
+
+        indexingExecutor.submit(() -> {
+            try {
+                // 转换为 VectorStore.DocumentChunk
+                List<VectorStore.DocumentChunk> vChunks = new ArrayList<>();
+                for (DocumentChunk c : chunks) {
+                    vChunks.add(new VectorStore.DocumentChunk(c.docPath, c.chunkIdx, c.content));
+                }
+                vectorStore.store(skillName, vChunks, embeddingService);
+            } catch (Exception e) {
+                log.warn("Skill[{}] 向量索引构建失败（将回退 BM25）: {}", skillName, e.getMessage());
+            }
+        });
+    }
+
+    /** 清除指定 skill 的知识（支持热更新重载） */
+    public void clearSkillDocuments(String skillName) {
+        skillDocuments.remove(skillName);
     }
 
     /**
@@ -100,17 +150,50 @@ public class KnowledgeService {
 
     /**
      * Build an augmented context string from retrieved knowledge.
+     * 优先向量语义检索，向量不可用时自动回退 BM25。
      */
     public String buildContext(String skillName, String query) {
-        List<String> chunks = retrieve(skillName, query);
+        // 1. 尝试向量检索
+        List<String> chunks = retrieveVector(skillName, query, DEFAULT_TOP_K);
+
+        // 2. 向量检索为空或质量不足 → 回退 BM25
+        if (chunks.isEmpty()) {
+            log.debug("Skill[{}] 向量检索为空，回退 BM25", skillName);
+            chunks = retrieve(skillName, query);
+        }
+
         if (chunks.isEmpty()) return "";
-        StringBuilder sb = new StringBuilder("Relevant knowledge snippets:\n");
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("Relevant knowledge snippets:\n");
         for (int i = 0; i < chunks.size(); i++) {
             sb.append("--- snippet ").append(i + 1).append(" ---\n");
             sb.append(chunks.get(i)).append("\n");
         }
         sb.append("--- end of knowledge snippets ---\n");
         return sb.toString();
+    }
+
+    /**
+     * 向量语义检索。
+     * 将查询文本转为 embedding，在 SQLite 中按余弦相似度搜索。
+     *
+     * @return topK 最相关的 chunk 内容列表，向量不可用时返回空列表
+     */
+    public List<String> retrieveVector(String skillName, String query, int topK) {
+        if (query == null || query.isBlank()) return List.of();
+
+        try {
+            float[] queryVec = embeddingService.embed(query);
+            if (queryVec.length == 0) {
+                log.debug("Embedding 生成失败（API Key 未配或网络异常），回退 BM25");
+                return List.of();
+            }
+            return vectorStore.search(skillName, queryVec, topK);
+        } catch (Exception e) {
+            log.warn("向量检索异常，回退 BM25: {}", e.getMessage());
+            return List.of();
+        }
     }
 
     /**
@@ -189,24 +272,23 @@ public class KnowledgeService {
     private List<DocumentChunk> splitIntoChunks(String skillName, String docPath, String text) {
         List<DocumentChunk> chunks = new ArrayList<>();
         StringBuilder buffer = new StringBuilder();
-        int paraIdx = 0;
+        int chunkIdx = 0;
 
         for (String paragraph : text.split("\n\s*\n")) {
             String trimmed = paragraph.trim();
             if (trimmed.isEmpty()) continue;
 
             if (buffer.length() + trimmed.length() + 2 > CHUNK_SIZE && buffer.length() > 0) {
-                chunks.add(new DocumentChunk(skillName, docPath, buffer.toString().trim()));
+                chunks.add(new DocumentChunk(skillName, docPath, chunkIdx++, buffer.toString().trim()));
                 String tail = getOverlapTail(buffer.toString());
                 buffer.setLength(0);
                 buffer.append(tail);
             }
             buffer.append(trimmed).append("\n\n");
-            paraIdx++;
         }
 
         if (buffer.length() > 0) {
-            chunks.add(new DocumentChunk(skillName, docPath, buffer.toString().trim()));
+            chunks.add(new DocumentChunk(skillName, docPath, chunkIdx++, buffer.toString().trim()));
         }
 
         return chunks;
@@ -218,7 +300,19 @@ public class KnowledgeService {
         return text.substring(start);
     }
 
-    private record DocumentChunk(String skillName, String docPath, String content) {
+    private static class DocumentChunk {
+        final String skillName;
+        final String docPath;
+        final int chunkIdx;
+        final String content;
+
+        DocumentChunk(String skillName, String docPath, int chunkIdx, String content) {
+            this.skillName = skillName;
+            this.docPath = docPath;
+            this.chunkIdx = chunkIdx;
+            this.content = content;
+        }
+
         int wordCount() {
             return content.isBlank() ? 0 : content.split("\s+").length;
         }

@@ -190,17 +190,27 @@ public class ScheduledTaskTool implements Tool {
         }
 
         StringBuilder sb = new StringBuilder("你的定时任务:\n");
+        int expiredCount = 0;
         for (Map<String, Object> t : tasks) {
+            String status = (String) t.get("status");
             sb.append("- [ID=").append(t.get("id")).append("] ");
             sb.append(t.get("message")).append(" → ");
             sb.append(t.get("trigger_at"));
             String type = "once".equals(t.get("task_type")) ? "一次性" : "周期性";
-            sb.append(" (").append(type).append(", ").append(t.get("status")).append(")");
+            sb.append(" (").append(type);
+            if (!"pending".equals(status)) {
+                sb.append(", ").append(status);
+            }
+            sb.append(")");
             String config = (String) t.get("period_config");
             if (config != null) {
                 sb.append(" [").append(config).append("]");
             }
             sb.append("\n");
+            if ("expired".equals(status)) expiredCount++;
+        }
+        if (expiredCount > 0) {
+            sb.append("\n⚠️ ").append(expiredCount).append(" 个已过期任务（重启后需重新创建），需要我帮你重建吗？");
         }
         return ToolResult.text(sb.toString());
     }

@@ -517,17 +517,14 @@ public class CliRunner implements CommandLineRunner {
                     }
                 }
 
-                // Route to Skill if matched, otherwise use all tools
+                // Route to Skill for RAG context, but always give AI all tools
                 Optional<Skill> routedSkill = skillManager.routeSkill(text);
-                List<Tool> selectedTools;
+                List<Tool> selectedTools = TOOLS;
                 String ragContext = "";
                 if (routedSkill.isPresent()) {
                     Skill skill = routedSkill.get();
-                    selectedTools = skill.getTools();
                     ragContext = knowledgeService.buildContext(skill.getName(), text);
-                    log.info("Skill routed: {} tools: {}", skill.getName(), selectedTools.size());
-                } else {
-                    selectedTools = TOOLS;
+                    log.info("Skill routed: {}, RAG context added, all {} tools available", skill.getName(), TOOLS.size());
                 }
 
                 ChatResult result = aiService.chat(userId, text, selectedTools, ragContext);
@@ -655,22 +652,25 @@ public class CliRunner implements CommandLineRunner {
     private String handleMediaResult(String sessionId, String userId, String contextToken,
                                      ChatResult result, String reply) {
         if (result.hasPendingImage()) {
-            String imageUrl = result.getFirstPendingImageUrl();
-            lastGeneratedImageUrl.put(userId, imageUrl);
-            System.out.println("[系统] 图片已生成,正在上传...");
+            byte[] imageBytes = result.getFirstPendingImageBytes();
+            String imageUrl = imageBytes == null ? result.getFirstPendingImageUrl() : null;
+            if (imageUrl != null) lastGeneratedImageUrl.put(userId, imageUrl);
+            System.out.println("[系统] 图片已生成，正在上传...");
             try {
-                byte[] imageBytes = imageService.downloadImage(imageUrl);
+                if (imageBytes == null) {
+                    imageBytes = imageService.downloadImage(imageUrl);
+                }
                 ilinkService.sendImage(sessionId, userId, contextToken, imageBytes);
                 log.info("已发送图片到 {}", userId);
             } catch (Exception e) {
                 log.error("图片上传失败", e);
-                reply += "\n\n(图片上传失败: " + e.getMessage() + ")";
+                reply += "\n\n（图片上传失败: " + e.getMessage() + "）";
             }
         }
 
         if (result.hasPendingAudio()) {
             ToolResult audio = result.getFirstPendingAudio();
-            System.out.println("[系统] 语音合成完成,正在上传...");
+            System.out.println("[系统] 语音合成完成，正在上传...");
             try {
                 String fileName = audio.getAudioFileName() != null ? audio.getAudioFileName() : "audio.mp3";
                 ilinkService.sendFile(sessionId, userId, contextToken,
@@ -678,7 +678,7 @@ public class CliRunner implements CommandLineRunner {
                 log.info("已发送音频文件 ({}s): {}", audio.getAudioDurationSeconds(), fileName);
             } catch (Exception e) {
                 log.error("音频上传失败", e);
-                reply += "\n\n(音频上传失败: " + e.getMessage() + ")";
+                reply += "\n\n（音频上传失败: " + e.getMessage() + "）";
             }
         }
 

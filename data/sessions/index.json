@@ -1,0 +1,21 @@
+[ {
+  "sessionId" : "86e8584f-e8ac-47a4-bbed-bc4018fa1adc",
+  "label" : "bot",
+  "botId" : null,
+  "savedAt" : "2026-08-01T16:49:18.503749200"
+}, {
+  "sessionId" : "eb09e960-99a5-4df1-93bc-86a12048119d",
+  "label" : "default",
+  "botId" : null,
+  "savedAt" : "2026-08-01T16:49:18.518350900"
+}, {
+  "sessionId" : "2efb121a-734d-4db0-9277-9b91c3767222",
+  "label" : "<label>",
+  "botId" : null,
+  "savedAt" : "2026-08-01T16:49:18.523312900"
+}, {
+  "sessionId" : "6c41c35e-e169-4a4b-a99e-65a67e675515",
+  "label" : "[label]",
+  "botId" : null,
+  "savedAt" : "2026-08-01T16:49:18.534372300"
+} ]
