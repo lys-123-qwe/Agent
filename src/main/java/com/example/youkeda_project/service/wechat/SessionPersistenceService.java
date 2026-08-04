@@ -116,32 +116,6 @@ public class SessionPersistenceService {
         return Files.exists(sessionFile(sessionId));
     }
 
-    /**
-     * 直接保存会话状态（不需要 WeChatSession 对象），用于单会话模式。
-     */
-    public void saveSessionState(String sessionId, String label, String botToken, String baseUrl,
-                                  String botId, String userId, String cursor) {
-        ensureDir();
-        SessionPersistData data = new SessionPersistData();
-        data.sessionId = sessionId;
-        data.label = label;
-        data.savedAt = java.time.LocalDateTime.now().toString();
-        data.botToken = botToken;
-        data.baseUrl = baseUrl;
-        data.botId = botId;
-        data.userId = userId;
-        data.cursor = cursor;
-
-        Path file = sessionFile(sessionId);
-        try {
-            objectMapper.writerWithDefaultPrettyPrinter().writeValue(file.toFile(), data);
-            log.info("Saved session state {} to {}", sessionId, file);
-            updateIndex(sessionId, label, botId);
-        } catch (Exception e) {
-            log.error("Failed to save session state {}: {}", sessionId, e.getMessage());
-        }
-    }
-
     private void updateIndex(String sessionId, String label, String botId) {
         List<SessionMeta> metas = new ArrayList<>(loadIndex());
         metas.removeIf(m -> m.sessionId.equals(sessionId));

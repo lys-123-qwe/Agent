@@ -1,6 +1,6 @@
 package com.example.youkeda_project.skill;
 
-import com.example.youkeda_project.ai.Tool;
+import com.example.youkeda_project.tool.Tool;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -89,7 +89,9 @@ public class ToolRegistry {
      */
     public List<Tool> allTools() {
         Map<String, Tool> unique = new LinkedHashMap<>();
-        standaloneTools.forEach((name, tool) -> unique.put(name, tool));
+        for (Tool t : standaloneTools.values()) {
+            unique.putIfAbsent(t.getName(), t);
+        }
         for (Skill skill : skills.values()) {
             for (Tool t : skill.getTools()) {
                 unique.putIfAbsent(t.getName(), t);

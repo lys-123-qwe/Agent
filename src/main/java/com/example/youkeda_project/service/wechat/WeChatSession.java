@@ -56,6 +56,8 @@ public class WeChatSession implements AutoCloseable {
     private final SessionConfig sessionConfig;
     private final AtomicBoolean listening = new AtomicBoolean(false);
     private final LocalDateTime createdAt;
+    /** 用户id → 最近一次 contextToken,供定时任务主动发消息使用 */
+    private final java.util.concurrent.ConcurrentHashMap<String, String> userTokens = new java.util.concurrent.ConcurrentHashMap<>();
 
     private volatile Status status = Status.WAITING_QR;
     private volatile String qrContent;
@@ -68,6 +70,11 @@ public class WeChatSession implements AutoCloseable {
     private volatile String errorMessage;
     private volatile LocalDateTime lastActiveAt;
     private volatile String cursor = "";
+
+    /** 获取用户最近一次消息的 contextToken(定时任务主动发消息用),无则 null */
+    public String getUserToken(String userId) {
+        return userId == null ? null : userTokens.get(userId);
+    }
 
     // ---- handler interfaces ----
 
@@ -356,6 +363,10 @@ public class WeChatSession implements AutoCloseable {
             dispatchPool.submit(() -> {
                 String fromUser = msg.fromUserId();
                 String contextToken = msg.contextToken();
+                // 缓存用户 contextToken,供定时任务主动发送消息使用
+                if (fromUser != null && contextToken != null && !contextToken.isBlank()) {
+                    userTokens.put(fromUser, contextToken);
+                }
                 if (msg.itemList() == null) return;
 
                 String textPrompt = null;
@@ -446,15 +457,6 @@ public class WeChatSession implements AutoCloseable {
     public void sendFile(String toUserId, String contextToken, byte[] fileBytes, String fileName, long fileSize) {
         touch();
         client.uploadAndSendFile(toUserId, contextToken, fileBytes, fileName, fileSize);
-    }
-
-    public List<WeixinMessage> getUpdates() throws IOException {
-        touch();
-        GetUpdatesResponse resp = client.getUpdates(cursor);
-        if (resp.getUpdatesBuf() != null && !resp.getUpdatesBuf().isBlank()) {
-            this.cursor = resp.getUpdatesBuf();
-        }
-        return resp.msgs();
     }
 
     // ---- persistence ----

@@ -7,6 +7,8 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
+import com.example.youkeda_project.rag.EmbeddingService;
+
 @Service
 public class RagService {
 
@@ -61,6 +63,38 @@ public class RagService {
     private static boolean isTrivial(String query) {
         String q = query.trim();
         return q.matches("^(你好|嗨|hi|hello|在吗|在不在|谢谢|感谢|好的|嗯|哦|哈喽|hey|早上好|晚上好|下午好|晚安|拜拜|再见|bye).*");
+    }
+
+    // ==================== skill 知识检索（路由命中 skill 时用） ====================
+
+    /**
+     * 检索指定 skill 下的知识（关键词优先，未命中走向量），返回拼好的上下文文本。
+     * 替代原 skill.KnowledgeService.buildContext 的职责。
+     */
+    public String buildSkillContext(String skillName, String query) {
+        if (skillName == null || query == null || query.isBlank()) return "";
+        List<String> chunks = retrieveForSkill(skillName, query);
+        if (chunks.isEmpty()) return "";
+
+        StringBuilder sb = new StringBuilder("Relevant knowledge snippets:\n");
+        for (int i = 0; i < chunks.size(); i++) {
+            sb.append("--- snippet ").append(i + 1).append(" ---\n");
+            sb.append(chunks.get(i)).append("\n");
+        }
+        sb.append("--- end of knowledge snippets ---\n");
+        return sb.toString();
+    }
+
+    public List<String> retrieveForSkill(String skillName, String query) {
+        try {
+            List<String> fastResults = vectorStore.fastSearchForSkill(skillName, query);
+            if (!fastResults.isEmpty()) return fastResults;
+            float[] queryVec = embeddingService.embed(query);
+            return vectorStore.searchForSkill(skillName, queryVec, TOP_K);
+        } catch (Exception e) {
+            log.warn("Skill[{}] 知识检索失败: {}", skillName, e.getMessage());
+            return List.of();
+        }
     }
 
     public String augment(String query, String systemPrompt) {

@@ -6,18 +6,23 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
+import com.example.youkeda_project.util.SparklineUtil;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 股票查询服务,接入新浪/腾讯公开接口.
+ * 股票查询服务，接入新浪/腾讯公开接口。
  * <p>
- * 支持 A 股(上证/深证/北交所),港股,美股的实时行情查询.
- * 优先使用新浪接口,失败时自动回退到腾讯接口.
+ * 支持 A 股（上证/深证/北交所）、港股、美股的实时行情查询。
+ * 优先使用新浪接口，失败时自动回退到腾讯接口。
  * <p>
- * 内部代码格式统一为新浪格式:
+ * 内部代码格式统一为新浪格式：
  *   A 股: sh600519, sz000001, bj830799
  *   港股: hk00700, hk09988
  *   美股: gb_aapl, gb_tsla
@@ -29,8 +34,14 @@ public class StockService {
 
     private static final String SINA_API = "http://hq.sinajs.cn/list=";
     private static final String TENCENT_API = "http://qt.gtimg.cn/q=";
+    private static final long KLINE_CACHE_TTL_MS = 300_000; // 5分钟K线缓存
 
     private final RestClient restClient;
+
+    // K线数据缓存: code+days -> [timestamp, result]
+    private final ConcurrentHashMap<String, long[]> klineCacheTs = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, List<KlineData>> klineCacheData = new ConcurrentHashMap<>();
+
     private final KLineService kLineService;
 
     public StockService(KLineService kLineService) {
@@ -39,9 +50,9 @@ public class StockService {
     }
 
     /**
-     * 查询股票实时行情.支持股票名称,纯数字代码,字母代码,带前缀代码.
+     * 查询股票实时行情。支持股票名称、纯数字代码、字母代码、带前缀代码。
      *
-     * @param input 股票名称或代码,如 "贵州茅台","600519","sh600519","腾讯","AAPL","gb_aapl"
+     * @param input 股票名称或代码，如 "贵州茅台"、"600519"、"sh600519"、"腾讯"、"AAPL"、"gb_aapl"
      * @return 格式化的行情字符串
      */
     public String queryStock(String input) {
@@ -58,42 +69,42 @@ public class StockService {
             return fetchStockData(fullCode, trimmed);
         }
 
-        // 2. 已带新浪前缀(sh/sz/bj/hk/gb_)
+        // 2. 已带新浪前缀（sh/sz/bj/hk/gb_）
         if (trimmed.matches("(?i)^(?:sh|sz|bj|hk|gb_)[a-z0-9.]+$")) {
             return fetchStockData(trimmed.toLowerCase(), trimmed);
         }
 
-        // 3. 纯数字代码,自动识别交易所
+        // 3. 纯数字代码，自动识别交易所
         if (trimmed.matches("^\\d{5,6}$")) {
             String prefix = detectNumericMarket(trimmed);
             if (prefix == null) {
                 return "错误: 无法识别股票代码 '" + trimmed + "' 的交易所\n"
-                    + "A 股 6 位代码(如 600519),港股 5 位代码(如 00700)";
+                    + "A 股 6 位代码（如 600519），港股 5 位代码（如 00700）";
             }
             return fetchStockData(prefix + trimmed, trimmed);
         }
 
-        // 4. 纯字母 → 美股(自动补 gb_ 前缀)
+        // 4. 纯字母 → 美股（自动补 gb_ 前缀）
         if (trimmed.matches("(?i)^[a-z]+$")) {
             String usCode = "gb_" + trimmed.toLowerCase();
             return fetchStockData(usCode, trimmed);
         }
 
-        // 5. 带 . 的(如 BRK.B)→ 美股
+        // 5. 带 . 的（如 BRK.B）→ 美股
         if (trimmed.matches("(?i)^[a-z]+(\\.[a-z]+)?$")) {
             String usCode = "gb_" + trimmed.toLowerCase();
             return fetchStockData(usCode, trimmed);
         }
 
         return "错误: 不支持的股票 '" + trimmed + "'\n"
-            + "支持的格式: 股票名称(贵州茅台/腾讯/苹果),代码(600519/00700/AAPL),"
-            + "带前缀(sh600519/hk00700/gb_aapl)";
+            + "支持的格式: 股票名称（贵州茅台/腾讯/苹果）、代码（600519/00700/AAPL）、"
+            + "带前缀（sh600519/hk00700/gb_aapl）";
     }
 
     /**
-     * 根据纯数字代码判断所属交易所.
+     * 根据纯数字代码判断所属交易所。
      * A 股 6 位: 6xxxxx→上证, 0xxxxx/3xxxxx→深证, 4xxxxx/8xxxxx→北交所
-     * 港股 5 位: 0xxxx→港股(如 00700)
+     * 港股 5 位: 0xxxx→港股（如 00700）
      */
     private String detectNumericMarket(String code) {
         if (code.length() == 5) {
@@ -110,7 +121,7 @@ public class StockService {
     }
 
     /**
-     * 解析内部代码,提取市场类型.
+     * 解析内部代码，提取市场类型。
      */
     private String getMarketType(String fullCode) {
         if (fullCode.startsWith("gb_")) return "us";
@@ -121,28 +132,108 @@ public class StockService {
     // ==================== 拉取数据 ====================
 
     /**
-     * 先尝试新浪,失败回退腾讯.
+     * 先尝试新浪，失败回退腾讯。成功时附加近期走势火花图。
      */
     private String fetchStockData(String fullCode, String displayName) {
         log.info("查询股票: code={}, display={}", fullCode, displayName);
 
+        String result;
         try {
-            return fetchFromSina(fullCode);
+            result = fetchFromSina(fullCode);
         } catch (Exception e) {
             log.warn("新浪接口查询失败: {}, 回退到腾讯接口", e.getMessage());
             try {
-                return fetchFromTencent(fullCode);
+                result = fetchFromTencent(fullCode);
             } catch (Exception e2) {
                 log.error("腾讯接口也查询失败: {}", e2.getMessage());
-                return "错误: 股票查询失败,两个接口均不可用 - " + e2.getMessage();
+                return "错误: 股票查询失败，两个接口均不可用 - " + e2.getMessage();
             }
+        }
+        return appendSparkline(fullCode, result);
+    }
+
+    /**
+     * 尝试拉取近期收盘价并生成火花图，附加到查询结果前。
+     * 失败不影响主流程。
+     */
+    private String appendSparkline(String fullCode, String existingResult) {
+        try {
+            List<BigDecimal> closes = fetchRecentCloses(fullCode);
+            if (closes.size() >= 3) {
+                String sparkline = SparklineUtil.generate(closes);
+                String label = "近" + closes.size() + "日走势";
+                // 提取当前涨跌方向
+                String direction = existingResult.contains("📈") ? "📈"
+                        : existingResult.contains("📉") ? "📉" : "";
+                StringBuilder sb = new StringBuilder();
+                sb.append("  ").append(sparkline).append(" ").append(label).append(" ").append(direction).append("\n\n");
+                sb.append(existingResult);
+                return sb.toString();
+            }
+        } catch (Exception e) {
+            log.debug("火花图生成失败（不影响主流程）: {}", e.getMessage());
+        }
+        return existingResult;
+    }
+
+    /**
+     * 从腾讯日K线接口拉取最近 8 个交易日的收盘价（前复权）。
+     */
+    private List<BigDecimal> fetchRecentCloses(String fullCode) {
+        String tencentCode = toTencentCode(fullCode);
+
+        try {
+            String url = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param="
+                    + tencentCode + ",day,,,30,qfq";
+            String response = restClient.get()
+                    .uri(url)
+                    .header("Referer", "https://finance.qq.com")
+                    .retrieve()
+                    .body(String.class);
+
+            @SuppressWarnings("unchecked")
+            var map = new com.fasterxml.jackson.databind.ObjectMapper().readValue(response, Map.class);
+            if (map == null || map.get("data") == null) return List.of();
+
+            @SuppressWarnings("unchecked")
+            var data = (Map<String, Object>) map.get("data");
+            @SuppressWarnings("unchecked")
+            var stockData = (Map<String, Object>) data.get(tencentCode);
+            if (stockData == null) {
+                stockData = (Map<String, Object>) data.get(tencentCode.toLowerCase());
+            }
+            if (stockData == null) return List.of();
+
+            // 优先取前复权，无则取不复权
+            @SuppressWarnings("unchecked")
+            var klines = (List<List<String>>) stockData.get("qfqday");
+            if (klines == null || klines.isEmpty()) {
+                klines = (List<List<String>>) stockData.get("day");
+            }
+            if (klines == null || klines.isEmpty()) return List.of();
+
+            List<BigDecimal> closes = new ArrayList<>();
+            for (List<String> item : klines) {
+                // 腾讯K线格式: [日期, 开盘, 收盘, 最高, 最低, 成交量]
+                if (item.size() >= 3) {
+                    closes.add(new BigDecimal(item.get(2))); // 收盘价在索引2
+                }
+            }
+            // 腾讯接口可能多返回1条(含当前不完整日),截取到30条,保证火花图标签固定为"近30日走势"
+            if (closes.size() > 30) {
+                return closes.subList(0, 30);
+            }
+            return closes;
+        } catch (Exception e) {
+            log.debug("获取近K线失败(code={}): {}", fullCode, e.getMessage());
+            return List.of();
         }
     }
 
     // ==================== 新浪接口 ====================
 
     /**
-     * 新浪股票接口.根据市场类型分别解析.
+     * 新浪股票接口。根据市场类型分别解析。
      */
     private String fetchFromSina(String fullCode) {
         String response = restClient.get()
@@ -163,7 +254,7 @@ public class StockService {
         }
         String data = response.substring(eqIdx + 1, response.lastIndexOf('"'));
         if (data.isEmpty()) {
-            throw new RuntimeException("新浪返回空行情数据,股票代码可能无效或无数据");
+            throw new RuntimeException("新浪返回空行情数据，股票代码可能无效或无数据");
         }
 
         String[] fields = data.split(",");
@@ -177,7 +268,7 @@ public class StockService {
     }
 
     /**
-     * 解析新浪 A 股响应.
+     * 解析新浪 A 股响应。
      * 字段: 名称,今开,昨收,当前价,最高,最低,买价,卖价,成交量,成交额,...
      */
     private String parseSinaA(String code, String[] fields) {
@@ -191,11 +282,14 @@ public class StockService {
         String high = fields[4];
         String low = fields[5];
         String volume = fields.length > 8 ? fields[8] : "0";
-        return formatStockInfo(name, code, price, open, prevClose, high, low, volume);
+        // 新浪A股末尾字段: 日期(30), 时间(31)
+        String date = fields.length > 30 ? fields[30] : "";
+        String time = fields.length > 31 ? fields[31] : "";
+        return formatStockInfo(name, code, price, open, prevClose, high, low, volume, date, time);
     }
 
     /**
-     * 解析新浪港股响应.
+     * 解析新浪港股响应。
      * 字段: 英文名,今开,昨收,当前价,最高,最低,买价,卖价,成交量,成交额,日期,时间,...
      */
     private String parseSinaHK(String code, String[] fields) {
@@ -209,20 +303,23 @@ public class StockService {
         String high = fields[4];
         String low = fields[5];
         String volume = fields.length > 8 ? fields[8] : "0";
-        return formatStockInfo(engName, code, price, open, prevClose, high, low, volume);
+        // 港股末尾字段: 日期(17), 时间(18), 格式 2026/08/03
+        String date = fields.length > 17 ? fields[17].replace("/", "-") : "";
+        String time = fields.length > 18 ? fields[18] : "";
+        return formatStockInfo(engName, code, price, open, prevClose, high, low, volume, date, time);
     }
 
     /**
-     * 解析新浪美股响应.
-     * 格式与 A 股/港股不同,字段位置有偏移.
+     * 解析新浪美股响应。
+     * 格式与 A 股/港股不同，字段位置有偏移。
      * 字段: 名称,当前价,涨跌幅(%),涨跌额,...,买价,卖价,最低,最高,成交量,成交额,市值,市盈率,...,日期,时间
      * <p>
-     * 索引参考(以实际返回为准):
+     * 索引参考（以实际返回为准）:
      *   0: 名称
      *   1: 当前价
      *   2: 涨跌幅(%)
      *   3: 涨跌额
-     *   4-20: 其他(买卖盘等)
+     *   4-20: 其他（买卖盘等）
      *   21: 最低 (approx)
      *   22: 最高 (approx)
      *   ...末尾前两个: 日期, 时间
@@ -237,13 +334,13 @@ public class StockService {
         String volume = "0";
 
         // 尝试从后面字段提取成交量和最高最低
-        // 新浪美股格式较不稳定,尽量提取有用信息
+        // 新浪美股格式较不稳定，尽量提取有用信息
         String prevClose = "";
-        String open = "-";
-        String high = "-";
-        String low = "-";
+        String open = "—";
+        String high = "—";
+        String low = "—";
 
-        // 从末尾找日期时间,再往前找价量
+        // 从末尾找日期时间，再往前找价量
         // 常见结构: ..., 买价, 卖价, 日低, 日高, 成交量, 成交额, 市值, 市盈率, 日期, 时间
         int len = fields.length;
         if (len >= 25) {
@@ -253,7 +350,7 @@ public class StockService {
             low = fields[len - 9];
         }
 
-        // 计算昨收: 当前价 - 涨跌额 = 昨收(近似)
+        // 计算昨收: 当前价 - 涨跌额 = 昨收（近似）
         try {
             BigDecimal curPrice = new BigDecimal(price);
             String changeStr = fields.length > 3 ? fields[3] : "0";
@@ -261,17 +358,20 @@ public class StockService {
             BigDecimal prev = curPrice.subtract(change);
             prevClose = prev.toPlainString();
         } catch (NumberFormatException e) {
-            prevClose = "-";
+            prevClose = "—";
         }
 
+        // 美股末尾字段: 日期, 时间
+        String date = fields.length > 25 ? fields[len - 2] : "";
+        String time = fields.length > 26 ? fields[len - 1] : "";
         // 美股用 $ 符号
-        return formatUSStockInfo(name, code, price, prevClose, open, high, low, volume, changePctStr);
+        return formatUSStockInfo(name, code, price, prevClose, open, high, low, volume, changePctStr, date, time);
     }
 
-    // ==================== 腾讯接口(回退) ====================
+    // ==================== 腾讯接口（回退） ====================
 
     /**
-     * 腾讯股票接口.需要对美股代码做转换: gb_aapl → usAAPL
+     * 腾讯股票接口。需要对美股代码做转换: gb_aapl → usAAPL
      */
     private String fetchFromTencent(String fullCode) {
         String tencentCode = toTencentCode(fullCode);
@@ -306,18 +406,26 @@ public class StockService {
         String prevClose = fields[4];
         String open = fields[5];
         String volume = fields[6];
-        String high = "-";
-        String low = "-";
+        String high = "—";
+        String low = "—";
+        // 腾讯字段: f[30] 是完整时间戳(如 20260803141010)
+        String date = "";
+        String time = "";
+        if (fields.length > 30 && fields[30] != null && fields[30].length() >= 14) {
+            String ts = fields[30];
+            date = ts.substring(0, 4) + "-" + ts.substring(4, 6) + "-" + ts.substring(6, 8);
+            time = ts.substring(8, 10) + ":" + ts.substring(10, 12) + ":" + ts.substring(12, 14);
+        }
 
         String market = getMarketType(fullCode);
         if ("us".equals(market)) {
-            return formatUSStockInfo(name, fullCode, price, prevClose, open, high, low, volume, null);
+            return formatUSStockInfo(name, fullCode, price, prevClose, open, high, low, volume, null, date, time);
         }
-        return formatStockInfo(name, fullCode, price, open, prevClose, high, low, volume);
+        return formatStockInfo(name, fullCode, price, open, prevClose, high, low, volume, date, time);
     }
 
     /**
-     * 将新浪格式代码转为腾讯格式.
+     * 将新浪格式代码转为腾讯格式。
      * gb_aapl → usAAPL, hk00700 → hk00700, sh600519 → sh600519
      */
     private String toTencentCode(String sinaCode) {
@@ -330,11 +438,11 @@ public class StockService {
     // ==================== 格式化输出 ====================
 
     /**
-     * 格式化 A 股/港股行情.
+     * 格式化 A 股/港股行情。
      */
     private String formatStockInfo(String name, String code, String currentPrice,
                                     String open, String yesterdayClose, String high,
-                                    String low, String volume) {
+                                    String low, String volume, String dataDate, String dataTime) {
         try {
             BigDecimal price = new BigDecimal(currentPrice);
             BigDecimal prevClose = new BigDecimal(yesterdayClose);
@@ -352,42 +460,56 @@ public class StockService {
             String marketLabel = getMarketLabel(code);
 
             StringBuilder sb = new StringBuilder();
-            sb.append(name).append("(").append(code).append(")").append(direction).append("\n");
+            sb.append(name).append("（").append(code).append("）").append(direction).append("\n");
             sb.append("  市场: ").append(marketLabel).append("\n");
             sb.append("  当前价: ").append(price).append("\n");
             sb.append("  涨跌额: ").append(sign).append(change).append("\n");
             sb.append("  涨跌幅: ").append(sign).append(changePct).append("%\n");
             sb.append("  今开: ").append(open).append("\n");
             sb.append("  昨收: ").append(yesterdayClose).append("\n");
-            if (!high.isBlank() && !"-".equals(high)) {
+            if (!high.isBlank() && !"—".equals(high)) {
                 sb.append("  最高: ").append(high).append("\n");
             }
-            if (!low.isBlank() && !"-".equals(low)) {
+            if (!low.isBlank() && !"—".equals(low)) {
                 sb.append("  最低: ").append(low).append("\n");
             }
-            sb.append("  成交量: ").append(formatVolume(volume));
+            sb.append("  成交量: ").append(formatVolume(volume)).append("\n");
+            sb.append("  🕐 数据时间: ").append(formatQuoteTime(dataDate, dataTime));
             return sb.toString();
         } catch (NumberFormatException e) {
             log.warn("价格格式化失败: price={}, prevClose={}", currentPrice, yesterdayClose);
-            return name + "(" + code + ")\n  当前价: " + currentPrice
+            return name + "（" + code + "）\n  当前价: " + currentPrice
                     + "\n  今开: " + open + "\n  昨收: " + yesterdayClose;
         }
     }
 
+    /** 格式化行情数据时间;若非今天开盘时段数据,标注为历史数据. */
+    private String formatQuoteTime(String date, String time) {
+        if (date == null || date.isBlank()) return "未知";
+        String today = java.time.LocalDate.now()
+            .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+        String ts = date + " " + (time != null ? time : "");
+        if (date.contains(today)) {
+            return ts;
+        }
+        return ts + "（⚠️非今日数据，可能未开盘或已收盘）";
+    }
+
     /**
-     * 格式化美股行情(价格以美元计).
+     * 格式化美股行情（价格以美元计）。
      */
     private String formatUSStockInfo(String name, String code, String currentPrice,
                                       String yesterdayClose, String open, String high,
-                                      String low, String volume, String changePctStr) {
+                                      String low, String volume, String changePctStr,
+                                      String dataDate, String dataTime) {
         try {
             BigDecimal price = new BigDecimal(currentPrice);
 
             String direction = "📈";
-            String changeStr = "-";
+            String changeStr = "—";
             String sign = "";
 
-            if (!"-".equals(yesterdayClose) && !yesterdayClose.isBlank()) {
+            if (!"—".equals(yesterdayClose) && !yesterdayClose.isBlank()) {
                 BigDecimal prevClose = new BigDecimal(yesterdayClose);
                 BigDecimal change = price.subtract(prevClose);
                 direction = change.compareTo(BigDecimal.ZERO) >= 0 ? "📈" : "📉";
@@ -403,36 +525,37 @@ public class StockService {
             }
 
             StringBuilder sb = new StringBuilder();
-            sb.append(name).append("(").append(code).append(")").append(direction).append("\n");
+            sb.append(name).append("（").append(code).append("）").append(direction).append("\n");
             sb.append("  市场: 美股\n");
             sb.append("  当前价: $").append(price).append("\n");
-            if (!"-".equals(yesterdayClose) && !yesterdayClose.isBlank()) {
+            if (!"—".equals(yesterdayClose) && !yesterdayClose.isBlank()) {
                 sb.append("  昨收: $").append(yesterdayClose).append("\n");
             }
             if (changePctStr != null && !changePctStr.isBlank()) {
                 sb.append("  涨跌幅: ").append(sign).append(changePctStr).append("%\n");
-            } else if (!"-".equals(changeStr)) {
+            } else if (!"—".equals(changeStr)) {
                 sb.append("  涨跌额: $").append(changeStr).append("\n");
             }
-            if (!"-".equals(open) && !open.isBlank()) {
+            if (!"—".equals(open) && !open.isBlank()) {
                 sb.append("  今开: $").append(open).append("\n");
             }
-            if (!"-".equals(high) && !high.isBlank()) {
+            if (!"—".equals(high) && !high.isBlank()) {
                 sb.append("  最高: $").append(high).append("\n");
             }
-            if (!"-".equals(low) && !low.isBlank()) {
+            if (!"—".equals(low) && !low.isBlank()) {
                 sb.append("  最低: $").append(low).append("\n");
             }
-            sb.append("  成交量: ").append(formatVolume(volume));
+            sb.append("  成交量: ").append(formatVolume(volume)).append("\n");
+            sb.append("  🕐 数据时间: ").append(formatQuoteTime(dataDate, dataTime));
             return sb.toString();
         } catch (NumberFormatException e) {
             log.warn("美股价格格式化失败: price={}", currentPrice);
-            return name + "(" + code + ")\n  当前价: $" + currentPrice;
+            return name + "（" + code + "）\n  当前价: $" + currentPrice;
         }
     }
 
     /**
-     * 格式化成交量.
+     * 格式化成交量。
      */
     private String formatVolume(String volume) {
         try {
@@ -447,7 +570,7 @@ public class StockService {
     }
 
     /**
-     * 根据代码前缀返回市场名称标签.
+     * 根据代码前缀返回市场名称标签。
      */
     private String getMarketLabel(String code) {
         if (code.startsWith("sh")) return "上证 A 股";
@@ -456,5 +579,358 @@ public class StockService {
         if (code.startsWith("hk")) return "港股";
         if (code.startsWith("gb_")) return "美股";
         return "A 股";
+    }
+
+    // ==================== 历史K线 ====================
+
+    /** K线数据记录 */
+    public record KlineData(String date, String open, String high, String low, String close, String volume) {}
+
+    // ==================== 基本面数据 ====================
+
+    /** 股票基本面数据 */
+    public record FundamentalData(
+        String pe,           // 市盈率
+        String peRank,       // 市盈率排名百分位
+        String pb,           // 市净率
+        String marketCap,    // 总市值
+        String circulatingCap, // 流通市值
+        String dividendYield, // 股息率
+        String roe,          // 净资产收益率
+        String revenue,      // 营收
+        String netProfit     // 净利润
+    ) {}
+
+    /**
+     * 获取股票基本面数据（东方财富接口）。
+     *
+     * @param input 股票名称或代码
+     * @return 基本面数据，查询失败返回null
+     */
+    public FundamentalData getFundamentals(String input) {
+        String code = resolveStockCode(input);
+        if (code == null) return null;
+
+        // 东方财富 secid 格式: 1.600519(上证), 0.000001(深证)
+        String secid = com.example.youkeda_project.util.StockCodes.toEastMoneySecid(code);
+        if (secid == null) return null;
+
+        // 东财接口偶发断开,失败重试 5 次,间隔递增
+        for (int attempt = 0; attempt < 5; attempt++) {
+            try {
+                return fetchFundamentals(secid);
+            } catch (Exception e) {
+                log.debug("基本面查询失败(第{}次): {}", attempt + 1, e.getMessage());
+                try { Thread.sleep(400L * (attempt + 1)); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+            }
+        }
+        return null;
+    }
+
+    private FundamentalData fetchFundamentals(String secid) throws Exception {
+        try {
+            String urlStr = "https://push2.eastmoney.com/api/qt/stock/get?secid=" + secid
+                + "&fields=f57,f58,f162,f163,f164,f167,f116,f117&_=" + System.currentTimeMillis();
+
+            java.net.URL url = new java.net.URL(urlStr);
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+            conn.setRequestProperty("Referer", "https://quote.eastmoney.com");
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+            conn.setConnectTimeout(10000);
+            conn.setReadTimeout(10000);
+
+            java.io.InputStream is = conn.getInputStream();
+            String response = new String(is.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            is.close();
+            conn.disconnect();
+
+            if (response == null || response.isBlank()) return null;
+
+            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            com.fasterxml.jackson.databind.JsonNode root = mapper.readTree(response);
+            com.fasterxml.jackson.databind.JsonNode data = root.path("data");
+
+            if (data.isMissingNode()) return null;
+
+            String pe = formatFundamentalValue(data.path("f162").asText(""), 2);
+            String pb = formatFundamentalValue(data.path("f167").asText(""), 2);
+            String marketCap = formatMarketCap(data.path("f116").asText(""));
+            String circulatingCap = formatMarketCap(data.path("f117").asText(""));
+
+            return new FundamentalData(pe, "", pb, marketCap, circulatingCap, "—", "—", "", "");
+        } catch (Exception e) {
+            log.warn("基本面数据查询失败: code={}, error={}", secid, e.getMessage());
+            throw e;
+        }
+    }
+
+    /**
+     * 将新浪格式代码转为东方财富 secid。
+     */
+    private String formatFundamentalValue(String val, int scale) {
+        if (val == null || val.isEmpty() || "null".equals(val) || "-".equals(val)) return "—";
+        try {
+            BigDecimal bd = new BigDecimal(val);
+            // 东方财富返回的是放大100倍的整数
+            bd = bd.divide(new BigDecimal("100"), scale, RoundingMode.HALF_UP);
+            return bd.toString();
+        } catch (NumberFormatException e) {
+            return val;
+        }
+    }
+
+    private String formatMarketCap(String val) {
+        if (val == null || val.isEmpty() || "null".equals(val) || "-".equals(val)) return "—";
+        try {
+            BigDecimal bd = new BigDecimal(val);
+            BigDecimal yi = bd.divide(new BigDecimal("100000000"), 2, RoundingMode.HALF_UP);
+            if (yi.compareTo(new BigDecimal("10000")) >= 0) {
+                return yi.divide(new BigDecimal("10000"), 2, RoundingMode.HALF_UP) + "万亿";
+            }
+            return yi + "亿";
+        } catch (NumberFormatException e) {
+            return val;
+        }
+    }
+
+    /**
+     * 获取股票历史K线数据（带缓存）。
+     * A股使用新浪API，港股/美股使用腾讯API。
+     */
+    public List<KlineData> getHistoricalKline(String input, int days) {
+        String code = resolveStockCode(input);
+        if (code == null) return List.of();
+
+        // 检查缓存
+        String cacheKey = code + ":" + days;
+        long now = System.currentTimeMillis();
+        long[] ts = klineCacheTs.get(cacheKey);
+        if (ts != null && now - ts[0] < KLINE_CACHE_TTL_MS) {
+            List<KlineData> cached = klineCacheData.get(cacheKey);
+            if (cached != null) {
+                log.debug("K线缓存命中: key={}", cacheKey);
+                return cached;
+            }
+        }
+
+        // 获取数据
+        List<KlineData> result;
+        if (code.startsWith("sh") || code.startsWith("sz") || code.startsWith("bj")) {
+            result = getAStockKline(code, days);
+        } else if (code.startsWith("hk")) {
+            result = getHKStockKline(code, days);
+        } else if (code.startsWith("gb_")) {
+            result = getUSStockKline(code, days);
+        } else {
+            result = List.of();
+        }
+
+        // 写入缓存
+        if (!result.isEmpty()) {
+            klineCacheTs.put(cacheKey, new long[]{now});
+            klineCacheData.put(cacheKey, result);
+        }
+
+        return result;
+    }
+
+    /** A股K线（新浪API） */
+    private List<KlineData> getAStockKline(String code, int days) {
+        String url = "https://quotes.sina.cn/cn/api/jsonp_v2.php/var%20_"
+            + code + "=/CN_MarketDataService.getKLineData?symbol=" + code
+            + "&scale=240&ma=no&datalen=" + (days + 20);
+
+        try {
+            String response = restClient.get()
+                .uri(url)
+                .header("Referer", "https://finance.sina.com.cn")
+                .retrieve()
+                .body(String.class);
+
+            if (response == null || response.isBlank()) return List.of();
+
+            int start = response.indexOf("([");
+            int end = response.indexOf("])");
+            if (start == -1 || end == -1) return List.of();
+
+            String json = response.substring(start + 1, end + 1);
+            if (json.isEmpty() || "null".equals(json)) return List.of();
+
+            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            com.fasterxml.jackson.databind.JsonNode arr = mapper.readTree(json);
+
+            List<KlineData> result = new ArrayList<>();
+            for (com.fasterxml.jackson.databind.JsonNode item : arr) {
+                String date = item.path("day").asText("");
+                String open = item.path("open").asText("");
+                String high = item.path("high").asText("");
+                String low = item.path("low").asText("");
+                String close = item.path("close").asText("");
+                String volume = item.path("volume").asText("0");
+                if (!date.isEmpty() && !close.isEmpty()) {
+                    result.add(new KlineData(date, open, high, low, close, volume));
+                }
+            }
+
+            if (result.size() > days) {
+                result = result.subList(result.size() - days, result.size());
+            }
+
+            log.info("A股K线获取成功: code={}, 数据量={}", code, result.size());
+            return result;
+
+        } catch (Exception e) {
+            log.error("A股K线获取失败: code={}", code, e);
+            return List.of();
+        }
+    }
+
+    /** 港股K线（腾讯API） */
+    private List<KlineData> getHKStockKline(String code, int days) {
+        String url = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param="
+            + code + ",day,,," + (days + 20) + ",qfq";
+
+        try {
+            String response = restClient.get()
+                .uri(url)
+                .header("Referer", "https://web.ifzq.gtimg.cn")
+                .retrieve()
+                .body(String.class);
+
+            if (response == null || response.isBlank()) return List.of();
+
+            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            com.fasterxml.jackson.databind.JsonNode root = mapper.readTree(response);
+
+            // data.hk00700.day = [[date, open, close, high, low, volume], ...]
+            com.fasterxml.jackson.databind.JsonNode dataNode = root.path("data").path(code).path("day");
+            if (dataNode.isMissingNode() || !dataNode.isArray()) {
+                // 尝试 qfqday 字段
+                dataNode = root.path("data").path(code).path("qfqday");
+            }
+            if (dataNode.isMissingNode() || !dataNode.isArray()) return List.of();
+
+            List<KlineData> result = new ArrayList<>();
+            for (com.fasterxml.jackson.databind.JsonNode item : dataNode) {
+                if (!item.isArray() || item.size() < 6) continue;
+                String date = item.get(0).asText("");
+                String open = item.get(1).asText("");
+                String close = item.get(2).asText("");
+                String high = item.get(3).asText("");
+                String low = item.get(4).asText("");
+                String volume = item.get(5).asText("0");
+                // 去掉 volume 中的小数点
+                if (volume.contains(".")) volume = volume.substring(0, volume.indexOf('.'));
+                if (!date.isEmpty() && !close.isEmpty()) {
+                    result.add(new KlineData(date, open, high, low, close, volume));
+                }
+            }
+
+            if (result.size() > days) {
+                result = result.subList(result.size() - days, result.size());
+            }
+
+            log.info("港股K线获取成功: code={}, 数据量={}", code, result.size());
+            return result;
+
+        } catch (Exception e) {
+            log.error("港股K线获取失败: code={}", code, e);
+            return List.of();
+        }
+    }
+
+    /** 美股K线（腾讯API） */
+    /**
+     * 美股K线（新浪 US_MinKService API）。
+     * 返回 JSONP: var _usXXX=([{d,o,h,l,c,v,a},...])
+     * 数据从 1984 年至今，远多于腾讯 API。
+     */
+    private List<KlineData> getUSStockKline(String code, int days) {
+        String symbol = code.substring(3).toUpperCase(); // gb_aapl -> AAPL
+        String url = "https://stock.finance.sina.com.cn/usstock/api/jsonp.php/var%20_"
+            + code + "=/US_MinKService.getDailyK?symbol=" + symbol
+            + "&datalen=" + (days + 20);
+
+        try {
+            String response = restClient.get()
+                .uri(url)
+                .header("Referer", "https://finance.sina.com.cn")
+                .retrieve()
+                .body(String.class);
+
+            if (response == null || response.isBlank()) return List.of();
+
+            // 解析 JSONP: var _gb_aapl=([{...}])
+            int start = response.indexOf("([");
+            int end = response.lastIndexOf("])");
+            if (start < 0 || end < 0) {
+                log.warn("美股K线JSONP解析失败: {}", response.substring(0, Math.min(200, response.length())));
+                return List.of();
+            }
+            String json = response.substring(start + 1, end + 1);
+
+            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            com.fasterxml.jackson.databind.JsonNode root = mapper.readTree(json);
+
+            List<KlineData> result = new ArrayList<>();
+            for (com.fasterxml.jackson.databind.JsonNode item : root) {
+                String date = item.path("d").asText("");
+                String open = item.path("o").asText("");
+                String high = item.path("h").asText("");
+                String low = item.path("l").asText("");
+                String close = item.path("c").asText("");
+                String volume = item.path("v").asText("0");
+                if (!date.isEmpty() && !close.isEmpty()) {
+                    result.add(new KlineData(date, open, high, low, close, volume));
+                }
+            }
+
+            if (result.size() > days) {
+                result = result.subList(result.size() - days, result.size());
+            }
+
+            log.info("美股K线获取成功(Sina): symbol={}, 数据量={}", symbol, result.size());
+            return result;
+
+        } catch (Exception e) {
+            log.error("美股K线获取失败: code={}", code, e);
+            return List.of();
+        }
+    }
+
+    /**
+     * 解析股票代码（返回新浪格式完整代码）。
+     */
+    private String resolveStockCode(String input) {
+        if (input == null || input.isBlank()) return null;
+
+        String trimmed = input.trim();
+
+        // 1. 先从名称映射查找
+        String fullCode = StockCodes.byName(trimmed);
+        if (fullCode != null) return fullCode;
+
+        // 2. 已带新浪前缀
+        if (trimmed.matches("(?i)^(?:sh|sz|bj|hk|gb_)[a-z0-9.]+$")) {
+            return trimmed.toLowerCase();
+        }
+
+        // 3. 纯数字代码
+        if (trimmed.matches("^\\d{5,6}$")) {
+            String prefix = detectNumericMarket(trimmed);
+            if (prefix != null) return prefix + trimmed;
+        }
+
+        // 4. 纯字母 → 美股
+        if (trimmed.matches("(?i)^[a-z]+$")) {
+            return "gb_" + trimmed.toLowerCase();
+        }
+
+        // 5. 带 . 的 → 美股
+        if (trimmed.matches("(?i)^[a-z]+(\\.[a-z]+)?$")) {
+            return "gb_" + trimmed.toLowerCase();
+        }
+
+        return null;
     }
 }

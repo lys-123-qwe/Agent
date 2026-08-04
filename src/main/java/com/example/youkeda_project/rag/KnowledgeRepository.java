@@ -10,6 +10,10 @@ import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * 统一知识持久化：通用知识与 skill 文档知识都存同一个 knowledge.db。
+ * skill_name 为 NULL 表示通用知识，否则表示属于某个 skill 的文档知识。
+ */
 @Component
 public class KnowledgeRepository {
 
@@ -25,9 +29,11 @@ public class KnowledgeRepository {
                 "text TEXT NOT NULL UNIQUE, " +
                 "source TEXT DEFAULT '', " +
                 "vector BLOB, " +
+                "skill_name TEXT DEFAULT NULL, " +
                 "created_at TEXT DEFAULT (datetime('now','localtime')))");
-            // 兼容旧表：添加 vector 列（如已存在则忽略）
             try { stmt.execute("ALTER TABLE knowledge ADD COLUMN vector BLOB"); }
+            catch (SQLException ignored) {}
+            try { stmt.execute("ALTER TABLE knowledge ADD COLUMN skill_name TEXT DEFAULT NULL"); }
             catch (SQLException ignored) {}
             log.info("知识库持久化表初始化完成");
         } catch (SQLException e) {
@@ -56,36 +62,117 @@ public class KnowledgeRepository {
         return DriverManager.getConnection("jdbc:sqlite:" + DB_PATH);
     }
 
-    public record KnowledgeEntry(String text, float[] vector) {}
+    public record KnowledgeEntry(String text, float[] vector, String skillName) {}
+
+    // ---- 通用知识(skill_name IS NULL) ----
 
     public List<String> findAll() {
+        return findAll(null);
+    }
+
+    public List<KnowledgeEntry> findAllWithVector() {
+        return findAllWithVector(null);
+    }
+
+    public int count() {
+        return count(null);
+    }
+
+    public void save(String text, String source) {
+        save(text, source, null, null);
+    }
+
+    public void save(String text, String source, float[] vector) {
+        save(text, source, vector, null);
+    }
+
+    public void saveBatch(List<String> texts, String source) {
+        saveBatch(texts, source, null);
+    }
+
+    // ---- skill 知识(指定 skill_name) ----
+
+    public List<String> findAll(String skillName) {
         List<String> result = new ArrayList<>();
+        String sql = skillName == null
+            ? "SELECT text FROM knowledge WHERE skill_name IS NULL ORDER BY id"
+            : "SELECT text FROM knowledge WHERE skill_name = ? ORDER BY id";
         try (Connection conn = getConnection();
-             PreparedStatement ps = conn.prepareStatement("SELECT text FROM knowledge ORDER BY id");
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                result.add(rs.getString("text"));
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            if (skillName != null) ps.setString(1, skillName);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) result.add(rs.getString("text"));
             }
         } catch (SQLException e) {
-            log.error("查询知识库失败", e);
+            log.error("查询知识库失败: skillName={}", skillName, e);
         }
         return result;
     }
 
-    public List<KnowledgeEntry> findAllWithVector() {
+    public List<KnowledgeEntry> findAllWithVector(String skillName) {
         List<KnowledgeEntry> result = new ArrayList<>();
+        String sql = skillName == null
+            ? "SELECT text, vector FROM knowledge WHERE skill_name IS NULL AND vector IS NOT NULL ORDER BY id"
+            : "SELECT text, vector FROM knowledge WHERE skill_name = ? AND vector IS NOT NULL ORDER BY id";
         try (Connection conn = getConnection();
-             PreparedStatement ps = conn.prepareStatement(
-                 "SELECT text, vector FROM knowledge WHERE vector IS NOT NULL ORDER BY id");
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                result.add(new KnowledgeEntry(rs.getString("text"),
-                    deserializeVector(rs.getBytes("vector"))));
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            if (skillName != null) ps.setString(1, skillName);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    result.add(new KnowledgeEntry(rs.getString("text"),
+                        deserializeVector(rs.getBytes("vector")), skillName));
+                }
             }
         } catch (SQLException e) {
-            log.error("查询知识库(含向量)失败", e);
+            log.error("查询知识库(含向量)失败: skillName={}", skillName, e);
         }
         return result;
+    }
+
+    public int count(String skillName) {
+        String sql = skillName == null
+            ? "SELECT COUNT(*) FROM knowledge WHERE skill_name IS NULL"
+            : "SELECT COUNT(*) FROM knowledge WHERE skill_name = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            if (skillName != null) ps.setString(1, skillName);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        } catch (SQLException e) {
+            log.error("统计知识数失败: skillName={}", skillName, e);
+            return 0;
+        }
+    }
+
+    public void save(String text, String source, float[] vector, String skillName) {
+        try (Connection conn = getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                 "INSERT OR IGNORE INTO knowledge (text, source, vector, skill_name) VALUES (?, ?, ?, ?)")) {
+            ps.setString(1, text);
+            ps.setString(2, source != null ? source : "");
+            ps.setBytes(3, serializeVector(vector));
+            ps.setString(4, skillName);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            log.error("保存知识失败", e);
+        }
+    }
+
+    public void saveBatch(List<String> texts, String source, String skillName) {
+        try (Connection conn = getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                 "INSERT OR IGNORE INTO knowledge (text, source, skill_name) VALUES (?, ?, ?)")) {
+            for (String text : texts) {
+                ps.setString(1, text);
+                ps.setString(2, source != null ? source : "");
+                ps.setString(3, skillName);
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        } catch (SQLException e) {
+            log.error("批量保存知识失败", e);
+        }
     }
 
     public boolean exists(String text) {
@@ -101,23 +188,6 @@ public class KnowledgeRepository {
         }
     }
 
-    public void save(String text, String source) {
-        save(text, source, null);
-    }
-
-    public void save(String text, String source, float[] vector) {
-        try (Connection conn = getConnection();
-             PreparedStatement ps = conn.prepareStatement(
-                 "INSERT OR IGNORE INTO knowledge (text, source, vector) VALUES (?, ?, ?)")) {
-            ps.setString(1, text);
-            ps.setString(2, source != null ? source : "");
-            ps.setBytes(3, serializeVector(vector));
-            ps.executeUpdate();
-        } catch (SQLException e) {
-            log.error("保存知识失败", e);
-        }
-    }
-
     public void updateVector(String text, float[] vector) {
         try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(
@@ -130,29 +200,15 @@ public class KnowledgeRepository {
         }
     }
 
-    public void saveBatch(List<String> texts, String source) {
+    /** 按来源删除知识（如清理误入库的 topics.md 条目） */
+    public void deleteBySource(String source) {
         try (Connection conn = getConnection();
-             PreparedStatement ps = conn.prepareStatement(
-                 "INSERT OR IGNORE INTO knowledge (text, source) VALUES (?, ?)")) {
-            for (String text : texts) {
-                ps.setString(1, text);
-                ps.setString(2, source != null ? source : "");
-                ps.addBatch();
-            }
-            ps.executeBatch();
+             PreparedStatement ps = conn.prepareStatement("DELETE FROM knowledge WHERE source = ?")) {
+            ps.setString(1, source);
+            int deleted = ps.executeUpdate();
+            if (deleted > 0) log.info("按来源清理知识 {} 条: {}", deleted, source);
         } catch (SQLException e) {
-            log.error("批量保存知识失败", e);
-        }
-    }
-
-    public int count() {
-        try (Connection conn = getConnection();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM knowledge")) {
-            return rs.next() ? rs.getInt(1) : 0;
-        } catch (SQLException e) {
-            log.error("统计知识数失败", e);
-            return 0;
+            log.error("按来源删除知识失败: {}", source, e);
         }
     }
 }

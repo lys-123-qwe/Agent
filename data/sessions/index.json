@@ -1,11 +1,6 @@
 [ {
-  "sessionId" : "fa50f0fc-9af7-45d7-81aa-412fef8913ac",
+  "sessionId" : "da15bfcb-c589-4cd1-9b16-52f38d7d0c9a",
   "label" : "default",
-  "botId" : "7ba208bfb2fd@im.bot",
-  "savedAt" : "2026-08-01T11:22:08.284214"
-}, {
-  "sessionId" : "a923333c-e217-48db-9283-a0de567e4278",
-  "label" : "default",
-  "botId" : "995b04c9856d@im.bot",
-  "savedAt" : "2026-08-01T11:41:41.012349400"
+  "botId" : "71940b19a527@im.bot",
+  "savedAt" : "2026-08-04T10:07:14.190490400"
 } ]

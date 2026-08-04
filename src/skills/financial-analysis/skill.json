@@ -1,7 +1,7 @@
 {
   "name": "financial-analysis",
-  "description": "金融分析智能体：基于 MA/RSI/MACD/布林带 等技术指标预测股票/指数走势，提供方向判断、置信度、预测有效期和底部/顶部区域估算。",
-  "skillClass": "com.example.youkeda_project.skill.financial.FinancialAnalysisSkill",
+  "description": "金融分析智能体：基于 MA/RSI/MACD/布林带等技术指标预测股票/指数走势，结合资金流向、K线形态、量价关系、行业轮动、宏观指标、风控框架进行综合分析。",
+  "skillClass": "com.example.youkeda_project.skill.finance.FinanceSkill",
   "triggerExamples": [
     "分析一下股票走势",
     "贵州茅台未来怎么看",
@@ -11,10 +11,22 @@
     "这只股票什么时候见顶",
     "怎么看美股",
     "港股走势预测",
-    "技术面分析"
+    "技术面分析",
+    "主力资金在买什么",
+    "板块轮动怎么看",
+    "如何控制仓位",
+    "美联储加息有什么影响",
+    "基金怎么选",
+    "现在该买什么基金"
   ],
   "knowledgeDocuments": [
     "knowledge/technical-analysis.md",
-    "knowledge/lean-patterns.md"
+    "knowledge/lean-patterns.md",
+    "knowledge/candlestick-patterns.md",
+    "knowledge/volume-analysis.md",
+    "knowledge/sector-rotation.md",
+    "knowledge/risk-management.md",
+    "knowledge/macro-indicators.md",
+    "knowledge/fund-selection.md"
   ]
 }

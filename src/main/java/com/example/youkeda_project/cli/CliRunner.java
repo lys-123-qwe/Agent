@@ -1,12 +1,14 @@
 package com.example.youkeda_project.cli;
 
 import com.example.youkeda_project.ai.*;
-import com.example.youkeda_project.ai.tool.EditImageTool;
-import com.example.youkeda_project.ai.tool.RecognizeImageTool;
+import com.example.youkeda_project.rag.RagService;
+import com.example.youkeda_project.tool.Tool;
+import com.example.youkeda_project.tool.ToolResult;
+import com.example.youkeda_project.tool.media.EditImageTool;
+import com.example.youkeda_project.tool.media.RecognizeImageTool;
 import com.example.youkeda_project.service.wechat.FileService;
 import com.example.youkeda_project.service.wechat.IlinkService;
 import com.example.youkeda_project.service.wechat.ImageService;
-import com.example.youkeda_project.service.wechat.TtsService;
 import com.example.youkeda_project.service.wechat.VoiceService;
 import com.example.youkeda_project.skill.*;
 import com.example.youkeda_project.protocol.WeixinMessage;
@@ -15,9 +17,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeoutException;
@@ -31,17 +30,11 @@ public class CliRunner implements CommandLineRunner {
         嗨!我是 Claw 小助手 😊\n\
         查天气,看股票,搜新闻,聊天,画图......有啥需要直接跟我说就行～""";
 
-    /** 自动收集所有 @Component Tool 实现，新增工具类无需手动注册 */
-    private final List<Tool> allTools;
-
     private final IlinkService ilinkService;
     private final AIService aiService;
     private final ImageService imageService;
     private final VoiceService voiceService;
-    private final TtsService ttsService;
     private final FileService fileService;
-
-    // Tool instances for direct CLI commands
 
     // Per-user state
     private final Map<String, byte[]> pendingImages = new ConcurrentHashMap<>();
@@ -50,31 +43,26 @@ public class CliRunner implements CommandLineRunner {
 
     private final ToolRegistry toolRegistry;
     private final SkillManager skillManager;
-    private final KnowledgeService knowledgeService;
+    private final RagService ragService;
 
     /** All tools available for LLM Function Calling (loaded from ToolRegistry). */
     private final List<Tool> TOOLS;
-
     public CliRunner(IlinkService ilinkService,
                      AIService aiService,
                      ImageService imageService,
                      VoiceService voiceService,
-                     TtsService ttsService,
                      FileService fileService,
-                     List<Tool> allTools,
                      ToolRegistry toolRegistry,
                      SkillManager skillManager,
-                     KnowledgeService knowledgeService) {
+                     RagService ragService) {
         this.ilinkService = ilinkService;
         this.aiService = aiService;
         this.imageService = imageService;
         this.voiceService = voiceService;
-        this.ttsService = ttsService;
         this.fileService = fileService;
-        this.allTools = allTools;
         this.toolRegistry = toolRegistry;
         this.skillManager = skillManager;
-        this.knowledgeService = knowledgeService;
+        this.ragService = ragService;
 
         TOOLS = toolRegistry.allTools();
     }
@@ -132,15 +120,6 @@ public class CliRunner implements CommandLineRunner {
                 switch (command) {
                     case "help" -> showHelp();
                     case "status" -> showStatus();
-                    case "weather" -> handleWeather(parts.length > 1 ? parts[1] : null);
-                    case "stock" -> handleStock(parts.length > 1 ? parts[1] : null);
-                    case "logistics" -> handleLogistics(parts.length > 1 ? parts[1] : null);
-                    case "hotcomment" -> handleHotComment();
-                    case "chat" -> handleChat(parts.length > 1 ? parts[1] : null);
-                    case "chatimg" -> handleChatImage(parts.length > 1 ? parts[1] : null);
-                    case "imagine" -> handleImagine(parts.length > 1 ? parts[1] : null);
-                    case "tts" -> handleTts(parts.length > 1 ? parts[1] : null);
-                    case "voices" -> handleVoices();
                     case "wechat" -> handleWeChat(parts.length > 1 ? parts[1] : null);
                     case "exit", "quit" -> {
                         ilinkService.logoutAll();
@@ -161,27 +140,11 @@ public class CliRunner implements CommandLineRunner {
     private void showHelp() {
         System.out.println("""
                 Commands:
-                  weather <city>              - Get weather
-                  stock <name/code>           - Query stock (A/HK/US)
-                  logistics <number> [courier] - Track package delivery
-                  hotcomment                  - Random NetEase hot comment
-                  chat <message>              - AI chat
-                  chatimg <url> <text>        - Image recognition
-                  imagine <description>       - Generate image
-                  tts <text>                  - Text to speech
-                  tts <N> <text>              - TTS with timbre #N (1-10)
-                  voices                      - List voice timbres
-                  status                      - Show status
-                  wechat login [label]        - Start QR login
-                  wechat sessions             - List all sessions
-                  wechat switch <id>          - Switch default session
-                  wechat stop [id]            - Stop listener
-                  wechat close <id>           - Close session
-                  wechat logout               - Logout default
-                  wechat logout-all           - Logout all
-                  wechat save                 - Save sessions
-                  wechat restore              - Restore sessions
-                  exit / quit                 - Exit
+                  status                  - Show account status
+                  wechat login [label]    - Start QR login (new bot session)
+                  wechat sessions         - List all sessions
+                  wechat close <id>       - Delete a session
+                  exit / quit             - Exit
                 """);
     }
 
@@ -200,11 +163,11 @@ public class CliRunner implements CommandLineRunner {
             }
             System.out.println("  ★ = default session");
         }
-        System.out.println("Tools: " + allTools.stream().map(Tool::getName).toList());
+        System.out.println("Tools: " + TOOLS.stream().map(Tool::getName).toList());
     }
 
     private Tool findTool(String name) {
-        for (Tool t : allTools) {
+        for (Tool t : TOOLS) {
             if (t.getName().equals(name)) return t;
         }
         return null;
@@ -222,139 +185,6 @@ public class CliRunner implements CommandLineRunner {
         return new ArrayList<>(merged.values());
     }
 
-    // ==================== Direct tool commands ====================
-
-    private void handleWeather(String city) {
-        if (city == null || city.isBlank()) {
-            System.out.println("Usage: weather <city>");
-            return;
-        }
-        Tool t = findTool("get_weather");
-        if (t != null) System.out.println(t.execute(Map.of("location", city)).getText());
-    }
-
-    private void handleStock(String keyword) {
-        if (keyword == null || keyword.isBlank()) {
-            System.out.println("Usage: stock <name or code>");
-            return;
-        }
-        Tool t = findTool("get_stock");
-        if (t != null) System.out.println(t.execute(Map.of("stock", keyword)).getText());
-    }
-
-    private void handleLogistics(String arg) {
-        if (arg == null || arg.isBlank()) {
-            System.out.println("Usage: logistics <trackingNumber> [courier]");
-            return;
-        }
-        String[] parts = arg.split("\\s+", 2);
-        String number = parts[0];
-        String courier = parts.length > 1 ? parts[1] : null;
-        Tool t = findTool("query_express");
-        if (t != null) System.out.println(t.execute(Map.of("number", number, "courier", courier)).getText());
-    }
-
-    private void handleHotComment() {
-        Tool t = findTool("get_hot_comment");
-        if (t != null) System.out.println(t.execute(Map.of()).getText());
-    }
-
-    private void handleChat(String message) {
-        if (message == null || message.isBlank()) {
-            System.out.println("Usage: chat <message>");
-            return;
-        }
-        System.out.print("Thinking... ");
-        ChatResult result = aiService.chat("CLI", message, allTools);
-        System.out.println("\n" + result.getReplyText());
-    }
-
-    private void handleChatImage(String arg) {
-        if (arg == null || arg.isBlank()) {
-            System.out.println("Usage: chatimg <imageUrl> <text>");
-            return;
-        }
-        String[] parts = arg.split("\\s+", 2);
-        if (parts.length < 2) {
-            System.out.println("Usage: chatimg <imageUrl> <text>");
-            return;
-        }
-        System.out.print("Analyzing... ");
-        try {
-            byte[] imageBytes = imageService.downloadImage(parts[0]);
-            String reply = aiService.chatWithImage("CLI", parts[1], imageBytes);
-            System.out.println("\n" + reply);
-        } catch (Exception e) {
-            System.out.println("Error: " + e.getMessage());
-        }
-    }
-
-    private void handleImagine(String prompt) {
-        if (prompt == null || prompt.isBlank()) {
-            System.out.println("Usage: imagine <description>");
-            return;
-        }
-        System.out.print("Generating... ");
-        Tool t = findTool("generate_image");
-        if (t != null) System.out.println("\n" + t.execute(Map.of("prompt", prompt)).getText());
-    }
-
-    private void handleTts(String args) {
-        if (args == null || args.isBlank()) {
-            System.out.println("Usage: tts <text>  or  tts <N> <text>  (N = 1~10)");
-            return;
-        }
-
-        String voice = ttsService.getDefaultVoice();
-        String text;
-
-        String[] parts = args.split("\\s+", 2);
-        if (ttsService.resolveVoice(parts[0]) != null) {
-            voice = ttsService.resolveVoice(parts[0]);
-            if (parts.length < 2) {
-                System.out.println("Usage: tts <N> <text> - text is required");
-                return;
-            }
-            text = parts[1];
-        } else {
-            text = args;
-        }
-
-        String voiceLabel = voice;
-        var voices = ttsService.getVoices();
-        for (var v : voices) {
-            if (v.voiceId().equals(voice)) {
-                voiceLabel = v.name() + " (" + v.description() + ")";
-                break;
-            }
-        }
-
-        System.out.print("Generating speech [" + voiceLabel + "]... ");
-        var ttsResult = ttsService.synthesizeMp3(text, voice);
-        System.out.printf("\nGenerated %d bytes (≈ %d seconds)%n",
-                ttsResult.audioBytes().length, ttsResult.durationSeconds());
-        try {
-            Path outPath = Paths.get("voice_output.mp3");
-            Files.write(outPath, ttsResult.audioBytes());
-            System.out.println("Saved to: " + outPath.toAbsolutePath());
-        } catch (Exception e) {
-            System.out.println("Could not save file: " + e.getMessage());
-        }
-    }
-
-    private void handleVoices() {
-        var voices = ttsService.getVoices();
-        System.out.println("\n  Available timbres:\n");
-        System.out.printf("  %-4s %-20s %s%n", "#", "Name", "Description");
-        System.out.println("  " + "-".repeat(50));
-        for (int i = 0; i < voices.size(); i++) {
-            var v = voices.get(i);
-            boolean isDefault = v.voiceId().equals(ttsService.getDefaultVoice());
-            String marker = isDefault ? " ★ default" : "";
-            System.out.printf("  %-4d %-20s %s%s%n", i + 1, v.name(), v.description(), marker);
-        }
-    }
-
     // ==================== WeChat commands ====================
 
     private void handleWeChat(String args) {
@@ -363,13 +193,7 @@ public class CliRunner implements CommandLineRunner {
                     Usage: wechat <command> [args]
                       login [label]    - Start QR login (new bot session)
                       sessions         - List all sessions
-                      switch <id>      - Switch default session
-                      stop [id]        - Stop listener (default or by id)
-                      close <id>       - Close a session
-                      logout           - Logout default session
-                      logout-all       - Logout ALL sessions
-                      save             - Persist all sessions to disk
-                      restore          - Restore sessions from disk""");
+                      close <id>       - Delete a session""");
             return;
         }
 
@@ -380,36 +204,12 @@ public class CliRunner implements CommandLineRunner {
                 handleWeChatLogin(label, false);
             }
             case "sessions" -> showStatus();
-            case "switch" -> {
-                if (parts.length < 2) {
-                    System.out.println("Usage: wechat switch <sessionId-prefix>");
-                    return;
-                }
-                handleWeChatSwitch(parts[1]);
-            }
-            case "stop" -> {
-                if (parts.length > 1) {
-                    ilinkService.stopListening(resolveSessionId(parts[1]));
-                } else {
-                    ilinkService.stopListening();
-                }
-            }
             case "close" -> {
                 if (parts.length < 2) {
                     System.out.println("Usage: wechat close <sessionId-prefix>");
                     return;
                 }
                 handleWeChatClose(parts[1]);
-            }
-            case "logout" -> {
-                ilinkService.logout();
-                System.out.println("Default session logged out.");
-            }
-            case "logout-all" -> ilinkService.logoutAll();
-            case "save" -> ilinkService.saveAll();
-            case "restore" -> {
-                int n = ilinkService.restoreAll();
-                System.out.println("Restored " + n + " session(s).");
             }
             default -> System.out.println("Unknown: " + parts[0]);
         }
@@ -453,11 +253,6 @@ public class CliRunner implements CommandLineRunner {
         } catch (Exception e) {
             System.out.println("Login failed: " + e.getMessage());
         }
-    }
-
-    private void handleWeChatSwitch(String idPrefix) {
-        String sid = resolveSessionId(idPrefix);
-        ilinkService.switchDefaultSession(sid);
     }
 
     private void handleWeChatClose(String idPrefix) {
@@ -512,18 +307,16 @@ public class CliRunner implements CommandLineRunner {
                     }
                 }
 
-                // Route to Skill if matched, otherwise use all tools
+                // Route to Skill for RAG context, but always give AI all tools
                 Optional<Skill> routedSkill = skillManager.routeSkill(text);
-                List<Tool> selectedTools;
+                List<Tool> selectedTools = TOOLS;
                 String ragContext = "";
                 if (routedSkill.isPresent()) {
                     Skill skill = routedSkill.get();
                     // Skill 工具 + 通用工具合并,保证生图/搜索/翻译等通用能力不被 skill 路由排除
                     selectedTools = mergeTools(skill.getTools());
-                    ragContext = knowledgeService.buildContext(skill.getName(), text);
-                    log.info("Skill routed: {} tools: {}", skill.getName(), selectedTools.size());
-                } else {
-                    selectedTools = TOOLS;
+                    ragContext = ragService.buildSkillContext(skill.getName(), text);
+                    log.info("Skill routed: {}, RAG context added, all {} tools available", skill.getName(), TOOLS.size());
                 }
 
                 ChatResult result = aiService.chat(userId, text, selectedTools, ragContext);
@@ -561,7 +354,7 @@ public class CliRunner implements CommandLineRunner {
                 log.info("语音转文字: {}", transcribedText);
                 System.out.println("[微信] " + userId + " (语音): " + transcribedText);
 
-                ChatResult result = aiService.chat(userId, transcribedText, allTools);
+                ChatResult result = aiService.chat(userId, transcribedText, TOOLS);
                 String reply = result.getReplyText();
 
                 reply = handleMediaResult(sessionId, userId, contextToken, result, reply);
@@ -594,7 +387,7 @@ public class CliRunner implements CommandLineRunner {
 
         RecognizeImageTool recognizeTool = new RecognizeImageTool(aiService, userId, imageBytes);
         EditImageTool editTool = new EditImageTool(imageService, imageBytes);
-        List<Tool> imgTools = new ArrayList<>(allTools);
+        List<Tool> imgTools = new ArrayList<>(TOOLS);
         imgTools.add(recognizeTool);
         imgTools.add(editTool);
 
@@ -610,11 +403,10 @@ public class CliRunner implements CommandLineRunner {
         if (result.hasPendingImage()) {
             String imageUrl = result.getFirstPendingImageUrl();
             lastGeneratedImageUrl.put(userId, imageUrl);
-            byte[] toolImageBytes = result.getFirstPendingImageBytes();
-            System.out.println("[系统] 图片编辑完成，正在上传...");
+            System.out.println("[系统] 图片编辑完成,正在上传...");
             try {
-                byte[] uploadBytes = toolImageBytes != null ? toolImageBytes : imageService.downloadImage(imageUrl);
-                ilinkService.sendImage(sessionId, userId, contextToken, uploadBytes);
+                byte[] editedBytes = imageService.downloadImage(imageUrl);
+                ilinkService.sendImage(sessionId, userId, contextToken, editedBytes);
                 log.info("已发送编辑后的图片");
             } catch (Exception e) {
                 log.error("图片上传失败", e);
@@ -631,7 +423,7 @@ public class CliRunner implements CommandLineRunner {
     private String buildRagContext(String query) {
         Optional<Skill> routed = skillManager.routeSkill(query);
         if (routed.isPresent()) {
-            return knowledgeService.buildContext(routed.get().getName(), query);
+            return ragService.buildSkillContext(routed.get().getName(), query);
         }
         return "";
     }
@@ -650,9 +442,9 @@ public class CliRunner implements CommandLineRunner {
     /** Handle media side-effects from AI tool results. Returns augmented reply text. */
     private String handleMediaResult(String sessionId, String userId, String contextToken,
                                      ChatResult result, String reply) {
-        // 优先发送字节形式的图片
+        // 字节形式图片(如 ChartTool/内存生成的 PNG):直接上传
         for (byte[] imgBytes : result.getAllPendingImageBytes()) {
-            System.out.println("[系统] 图片已生成，正在上传...(" + imgBytes.length + " bytes)");
+            System.out.println("[系统] 图片已生成,正在上传...(" + imgBytes.length + " bytes)");
             try {
                 ilinkService.sendImage(sessionId, userId, contextToken, imgBytes);
                 log.info("已发送图片到 {}", userId);
@@ -661,11 +453,12 @@ public class CliRunner implements CommandLineRunner {
                 reply += "\n\n(图片上传失败: " + e.getMessage() + ")";
             }
         }
-        // URL 形式的图片(如生图结果):下载后上传
+        // URL 形式图片(如生图结果):下载后上传
         if (result.hasPendingImage() && result.getAllPendingImageBytes().isEmpty()) {
             String imageUrl = result.getFirstPendingImageUrl();
             if (imageUrl != null && !imageUrl.isBlank()) {
-                System.out.println("[系统] 图片已生成，正在下载并上传...");
+                lastGeneratedImageUrl.put(userId, imageUrl);
+                System.out.println("[系统] 图片已生成,正在下载并上传...");
                 try {
                     byte[] imgBytes = imageService.downloadImage(imageUrl);
                     ilinkService.sendImage(sessionId, userId, contextToken, imgBytes);
@@ -674,6 +467,16 @@ public class CliRunner implements CommandLineRunner {
                     log.error("图片上传失败", e);
                     reply += "\n\n(图片上传失败: " + e.getMessage() + ")";
                 }
+            }
+        }
+
+        // 随图直接发送的说明文本(如对比图例说明),不经过AI改写,保证用户一定看到
+        for (String caption : result.getAllPendingCaptions()) {
+            try {
+                ilinkService.sendText(sessionId, userId, contextToken, caption);
+                log.info("已发送图例说明到 {}", userId);
+            } catch (Exception e) {
+                log.error("图例说明发送失败", e);
             }
         }
 

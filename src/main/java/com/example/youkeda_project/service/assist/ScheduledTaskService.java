@@ -1,10 +1,9 @@
 package com.example.youkeda_project.service.assist;
 
-import com.example.youkeda_project.config.UserContextStore;
-import com.example.youkeda_project.client.IlinkProtocolClient;
-import com.example.youkeda_project.protocol.MessageItem;
 import com.example.youkeda_project.service.wechat.WeChatSession;
 import com.example.youkeda_project.service.wechat.WeChatSessionManager;
+import com.example.youkeda_project.client.IlinkProtocolClient;
+import com.example.youkeda_project.protocol.MessageItem;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
@@ -34,17 +33,16 @@ public class ScheduledTaskService {
     private static final DateTimeFormatter DTF = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final WeChatSessionManager sessionManager;
-    private final UserContextStore contextStore;
     private ScheduledExecutorService scheduler;
 
-    public ScheduledTaskService(WeChatSessionManager sessionManager, UserContextStore contextStore) {
+    public ScheduledTaskService(WeChatSessionManager sessionManager) {
         this.sessionManager = sessionManager;
-        this.contextStore = contextStore;
     }
 
     @PostConstruct
     public void init() {
         createTableIfNotExists();
+        expireOverdueTasks();
         startScheduler();
     }
 
@@ -70,6 +68,25 @@ public class ScheduledTaskService {
             log.info("定时任务表初始化完成: tasks.db");
         } catch (Exception e) {
             log.error("初始化定时任务表失败", e);
+        }
+    }
+
+    /**
+     * 启动时把已过期的 pending 任务标记为 expired。
+     * 重启后 contextToken 丢失，这些任务无法触发，与其空转不如作废。
+     */
+    private void expireOverdueTasks() {
+        String now = LocalDateTime.now().format(DTF);
+        String sql = "UPDATE scheduled_tasks SET status = 'expired' WHERE status = 'pending' AND trigger_at <= ?";
+        try (Connection conn = getConn();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, now);
+            int count = ps.executeUpdate();
+            if (count > 0) {
+                log.info("已将 {} 个已过期任务标记为 expired（重启后 contextToken 丢失）", count);
+            }
+        } catch (Exception e) {
+            log.warn("清理过期任务失败", e);
         }
     }
 
@@ -200,16 +217,15 @@ public class ScheduledTaskService {
                     String taskType = rs.getString("task_type");
                     String periodConfig = rs.getString("period_config");
 
-                    String token = contextStore.getToken(userId);
-                    if (token == null) {
-                        log.warn("用户 {} 无 contextToken,无法发送提醒", userId);
-                        continue;
-                    }
-
                     try {
                         WeChatSession session = sessionManager.getDefaultSession();
                         if (session == null) {
                             log.warn("No active session to send reminder to {}", userId);
+                            continue;
+                        }
+                        String token = session.getUserToken(userId);
+                        if (token == null) {
+                            // 用户尚未发过消息,暂无 contextToken,等用户下次发消息后再提醒
                             continue;
                         }
                         session.getClient().sendMessage(userId, token, List.of(MessageItem.text("提醒: " + message)));

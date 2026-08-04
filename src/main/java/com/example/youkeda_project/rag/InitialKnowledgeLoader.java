@@ -1,15 +1,15 @@
 package com.example.youkeda_project.rag;
 
-import tools.jackson.core.type.TypeReference;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 
 @Component
@@ -19,14 +19,11 @@ public class InitialKnowledgeLoader {
 
     private final KnowledgeCollector knowledgeCollector;
     private final KnowledgeRepository knowledgeRepo;
-    private final ObjectMapper objectMapper;
 
     public InitialKnowledgeLoader(KnowledgeCollector knowledgeCollector,
-                                  KnowledgeRepository knowledgeRepo,
-                                  ObjectMapper objectMapper) {
+                                  KnowledgeRepository knowledgeRepo) {
         this.knowledgeCollector = knowledgeCollector;
         this.knowledgeRepo = knowledgeRepo;
-        this.objectMapper = objectMapper;
     }
 
     @PostConstruct
@@ -61,10 +58,12 @@ public class InitialKnowledgeLoader {
 
     private List<String> loadTopics() {
         try {
-            JsonNode root = objectMapper.readTree(
-                new ClassPathResource("knowledge.json").getInputStream());
-            return objectMapper.convertValue(root.get("topics"),
-                new TypeReference<List<String>>() {});
+            Path topicsFile = Paths.get("src", "knowledge", "topics.md").toAbsolutePath().normalize();
+            if (!Files.isRegularFile(topicsFile)) return List.of();
+            return Files.readAllLines(topicsFile, StandardCharsets.UTF_8).stream()
+                .map(String::trim)
+                .filter(l -> !l.isEmpty())
+                .toList();
         } catch (Exception e) {
             log.warn("加载 topics 失败", e);
             return List.of();

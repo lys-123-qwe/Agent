@@ -88,6 +88,9 @@ public class ApiConfig {
     public String getImageGenerateSize() { return imageGenerateSize; }
     public String getImageEditSize() { return imageEditSize; }
 
+    /** 翻译/文案/算命等通用 LLM 调用，复用 DeepSeek API URL。 */
+    public String getTranslationApiUrl() { return aiApiUrl; }
+
     // ==================== 通义千问 VL(图片识别) ====================
     @Value("${vision.api.url:https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions}")
     private String visionApiUrl;
@@ -98,6 +101,18 @@ public class ApiConfig {
     public String getVisionApiKey() { return imageApiKey; }
     public String getVisionApiUrl() { return visionApiUrl; }
     public String getVisionModel() { return visionModel; }
+
+    // ==================== Embedding(向量化,知识库语义检索) ====================
+    @Value("${embedding.api.url:https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding}")
+    private String embeddingApiUrl;
+
+    @Value("${embedding.model:text-embedding-v3}")
+    private String embeddingModel;
+
+    /** 复用 Dashscope API Key(与图片生成/VL/ASR 共用) */
+    public String getEmbeddingApiKey() { return imageApiKey; }
+    public String getEmbeddingApiUrl() { return embeddingApiUrl; }
+    public String getEmbeddingModel() { return embeddingModel; }
 
     // ==================== 语音识别(阿里云 ASR) ====================
     @Value("${voice.asr.api.url:https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation}")
@@ -355,10 +370,7 @@ public class ApiConfig {
     public String getNewsApiKey() { return ""; }
     public String getNewsSdkApiKey() { return ""; }
 
-    // ==================== 翻译（DeepSeek 通用接口） ====================
-    public String getTranslationApiUrl() { return aiApiUrl; }
-
-    // ==================== 缘份居 ====================
+    // ==================== 缘份居（算命/黄历/面相） ====================
     @Value("${yuanfenju.api.key:}")
     private String yuanfenjuApiKey;
 

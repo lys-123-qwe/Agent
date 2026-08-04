@@ -1,6 +1,7 @@
 package com.example.youkeda_project.util;
 
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 常用股票名称→代码映射(代码为新浪格式).
@@ -12,6 +13,9 @@ public final class StockCodes {
 
     /** 常用股票名称→代码映射(代码为新浪格式) */
     public static final Map<String, String> NAME_MAP;
+
+    /** 动态反查结果缓存(名称→代码),避免重复请求东财搜索 */
+    private static final Map<String, String> SEARCH_CACHE = new ConcurrentHashMap<>();
 
     static {
         Map<String, String> map = new java.util.HashMap<>();
@@ -45,6 +49,44 @@ public final class StockCodes {
         map.put("保利发展", "sh600048");
         map.put("中兴通讯", "sz000063");
         map.put("寒武纪", "sh688256");
+        map.put("阳光电源", "sz300274");
+        map.put("海尔智家", "sh600690");
+        map.put("中国电信", "sh601728");
+        map.put("中国联通", "sh600050");
+        map.put("建设银行", "sh601939");
+        map.put("交通银行", "sh601328");
+        map.put("邮储银行", "sh601658");
+        map.put("兴业银行", "sh601166");
+        map.put("浦发银行", "sh600000");
+        map.put("民生银行", "sh600016");
+        map.put("中信证券", "sh600030");
+        map.put("东方财富", "sz300059");
+        map.put("中金公司", "sh601995");
+        map.put("华泰证券", "sh601688");
+        map.put("国泰君安", "sh601211");
+        map.put("恒瑞医药", "sh600276");
+        map.put("迈瑞医疗", "sz300760");
+        map.put("片仔癀", "sh600436");
+        map.put("云南白药", "sz000538");
+        map.put("爱尔眼科", "sz300015");
+        map.put("立讯精密", "sz002475");
+        map.put("京东方A", "sz000725");
+        map.put("紫金矿业", "sh601899");
+        map.put("中国神华", "sh601088");
+        map.put("陕西煤业", "sh601225");
+        map.put("三一重工", "sh600031");
+        map.put("潍柴动力", "sz000338");
+        map.put("海天味业", "sh603288");
+        map.put("伊利股份", "sh600887");
+        map.put("农夫山泉港股", "hk09633");
+        map.put("小米集团", "hk01810");
+        map.put("中芯国际港股", "hk00981");
+        map.put("阿里巴巴美股", "gb_baba");
+        map.put("京东美股", "gb_jd");
+        map.put("百度美股", "gb_bidu");
+        map.put("蔚来", "gb_nio");
+        map.put("理想汽车美股", "gb_li");
+        map.put("小鹏汽车美股", "gb_xpev");
         // === 港股热门 ===
         map.put("腾讯控股", "hk00700");
         map.put("腾讯", "hk00700");
@@ -80,11 +122,111 @@ public final class StockCodes {
         NAME_MAP = Map.copyOf(map);
     }
 
-    /** 按名称查找新浪格式代码(不区分大小写),未找到返回 null. */
+    /** 按名称查找新浪格式代码(不区分大小写).映射未命中时动态反查,仍失败返回 null. */
     public static String byName(String name) {
         if (name == null) return null;
         String code = NAME_MAP.get(name);
         if (code != null) return code;
-        return NAME_MAP.get(name.toLowerCase());
+        code = NAME_MAP.get(name.toLowerCase());
+        if (code != null) return code;
+        // 名称映射未命中:动态调用东财搜索反查
+        return searchCode(name);
+    }
+
+    /**
+     * 按名称动态反查代码(名称映射未命中时调用东财搜索接口).
+     * 返回项目统一的新浪格式代码(sh/sz/hk/gb_),未找到返回 null.
+     */
+    public static String searchCode(String name) {
+        if (name == null || name.isBlank()) return null;
+        String cached = SEARCH_CACHE.get(name.trim());
+        if (cached != null) return cached;
+        try {
+            String url = "https://searchapi.eastmoney.com/api/suggest/get?input="
+                + java.net.URLEncoder.encode(name.trim(), java.nio.charset.StandardCharsets.UTF_8)
+                + "&type=14&token=D43BF722C8E33BDC906FB84D85E326E8&count=8";
+            java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder()
+                .connectTimeout(java.time.Duration.ofSeconds(5)).build();
+            java.net.http.HttpRequest req = java.net.http.HttpRequest.newBuilder()
+                .uri(java.net.URI.create(url))
+                .header("Referer", "https://quote.eastmoney.com")
+                .header("User-Agent", "Mozilla/5.0")
+                .timeout(java.time.Duration.ofSeconds(8))
+                .GET().build();
+            java.net.http.HttpResponse<String> resp = client.send(req,
+                java.net.http.HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() != 200) return null;
+
+            String body = resp.body();
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+                "\"Code\":\"([^\"]+)\".*?\"Classify\":\"([^\"]+)\".*?\"QuoteID\":\"([^\"]+)\"").matcher(body);
+            // 优先 A股,其次港股,最后美股
+            String fallback = null;
+            while (m.find()) {
+                String code = m.group(1);
+                String classify = m.group(2);
+                String quoteId = m.group(3);
+                if ("AStock".equals(classify)) {
+                    String prefix = quoteId.startsWith("1.") ? "sh" : "sz";
+                    String result = prefix + code;
+                    SEARCH_CACHE.put(name.trim(), result);
+                    return result;
+                }
+                if (fallback == null) {
+                    if ("HK".equals(classify)) fallback = "hk" + code;
+                    else if ("UsStock".equals(classify)) fallback = "gb_" + code.toLowerCase();
+                }
+            }
+            if (fallback != null) SEARCH_CACHE.put(name.trim(), fallback);
+            return fallback;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 根据新浪格式代码返回市场标签（用于图表副标题等） */
+    public static String marketLabel(String code) {
+        if (code == null) return "A股";
+        if (code.startsWith("sh")) return "上证";
+        if (code.startsWith("sz")) return "深证";
+        if (code.startsWith("bj")) return "北交所";
+        if (code.startsWith("hk")) return "港股";
+        if (code.startsWith("gb_")) return "美股";
+        return "A股";
+    }
+
+    /** 宽松解析数值字符串为 long（支持纯数字与小数），失败返回 0 */
+    public static long parseLong(String s) {
+        try {
+            return Long.parseLong(s);
+        } catch (NumberFormatException e) {
+            try {
+                return (long) Double.parseDouble(s);
+            } catch (NumberFormatException e2) {
+                return 0;
+            }
+        }
+    }
+
+    /**
+     * 将股票代码/名称解析为东方财富 secid。
+     * 支持：已带 secid(1./0.)、sh/sz/bj 前缀新浪格式、纯 6 位数字。
+     */
+    public static String toEastMoneySecid(String input) {
+        if (input == null) return null;
+        String t = input.trim();
+        if (t.matches("^[01]\\.[0-9]{6}$")) return t;
+        if (t.matches("(?i)^sh[0-9]{6}$")) return "1." + t.substring(2);
+        if (t.matches("(?i)^sz[0-9]{6}$")) return "0." + t.substring(2);
+        if (t.matches("(?i)^bj[0-9]{6}$")) return "0." + t.substring(2);
+        if (t.matches("^[0-9]{6}$")) {
+            char first = t.charAt(0);
+            return switch (first) {
+                case '6', '5' -> "1." + t;
+                case '0', '3', '1', '8', '4' -> "0." + t;
+                default -> null;
+            };
+        }
+        return null;
     }
 }

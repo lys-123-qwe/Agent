@@ -37,8 +37,7 @@ public class ImageService {
 
     /**
      * 调用通义万相生图 API,返回图片 URL 或错误信息.
-     * 请求使用 byte[] + UTF-8 编解码避免乱码.
-     * 使用阿里云 dashscope 的多模态生成接口.
+     * wanx 系列模型走异步 text2image 任务接口;wan2.x 系列走同步 multimodal-generation 接口.
      */
     public String generateImage(String prompt) {
         if (apiConfig.getImageApiKey() == null || apiConfig.getImageApiKey().isBlank()) {
@@ -47,7 +46,93 @@ public class ImageService {
         if (prompt == null || prompt.trim().isEmpty()) {
             return "错误: 请提供图片描述,例如: 图片生成 一只猫";
         }
+        String model = apiConfig.getImageModel();
+        if (model != null && model.toLowerCase().contains("wanx")) {
+            return generateImageAsync(model, prompt);
+        }
+        return generateImageSync(prompt);
+    }
 
+    /**
+     * wanx 系列：异步 text2image 任务接口。
+     * 1) 提交任务获取 task_id；2) 轮询任务状态直到 SUCCEEDED；3) 取结果图片 URL。
+     */
+    private String generateImageAsync(String model, String prompt) {
+        try {
+            Map<String, Object> requestBody = Map.of(
+                "model", model,
+                "input", Map.of("prompt", prompt.trim()),
+                "parameters", Map.of(
+                    "prompt_extend", true,
+                    "watermark", false,
+                    "n", 1,
+                    "size", apiConfig.getImageGenerateSize()
+                )
+            );
+
+            String body = objectMapper.writeValueAsString(requestBody);
+            log.info("通义万相异步生图提交: {}", body);
+
+            byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
+            byte[] respBytes = restClient.post()
+                    .uri(apiConfig.getImageApiUrl() + "/api/v1/services/aigc/text2image/image-synthesis")
+                    .header("Content-Type", "application/json; charset=UTF-8")
+                    .header("Authorization", "Bearer " + apiConfig.getImageApiKey())
+                    .header("X-DashScope-Async", "enable")
+                    .body(bodyBytes)
+                    .retrieve()
+                    .body(byte[].class);
+
+            if (respBytes == null) {
+                return "错误: AI 服务返回空响应";
+            }
+            String respJson = new String(respBytes, StandardCharsets.UTF_8);
+            log.info("通义万相异步生图提交响应: {}", respJson);
+
+            JsonNode root = objectMapper.readTree(respJson);
+            String taskId = root.path("output").path("task_id").asText(null);
+            if (taskId == null || taskId.isBlank()) {
+                return "错误: 未获取到任务ID, 原始响应: " + respJson;
+            }
+
+            // 轮询任务状态，最多 60 秒
+            String taskUrl = apiConfig.getImageApiUrl() + "/api/v1/tasks/" + taskId;
+            for (int i = 0; i < 30; i++) {
+                Thread.sleep(2000);
+                byte[] pollBytes = restClient.get()
+                        .uri(taskUrl)
+                        .header("Authorization", "Bearer " + apiConfig.getImageApiKey())
+                        .retrieve()
+                        .body(byte[].class);
+                if (pollBytes == null) continue;
+
+                JsonNode poll = objectMapper.readTree(new String(pollBytes, StandardCharsets.UTF_8));
+                String status = poll.path("output").path("task_status").asText("");
+                log.info("生图任务轮询[{}] status={}", i, status);
+                if ("SUCCEEDED".equals(status)) {
+                    JsonNode results = poll.path("output").path("results");
+                    if (results.isArray() && !results.isEmpty()) {
+                        String url = results.get(0).path("url").asText(null);
+                        if (url != null && !url.isBlank()) return url;
+                    }
+                    return "错误: 任务成功但未解析到图片URL: " + poll;
+                }
+                if ("FAILED".equals(status) || "CANCELED".equals(status)) {
+                    return "错误: 生图任务" + status + ": " + poll;
+                }
+            }
+            return "错误: 生图任务超时（60秒）";
+        } catch (Exception e) {
+            log.error("通义万相异步生图调用失败", e);
+            return "图片生成失败: " + e.getMessage();
+        }
+    }
+
+    /**
+     * wan2.x 系列：同步 multimodal-generation 接口。
+     * 请求使用 byte[] + UTF-8 编解码避免乱码。
+     */
+    private String generateImageSync(String prompt) {
         try {
             // 通义万相请求体:model + input.messages[{role, content[{text}]}] + parameters
             Map<String, Object> requestBody = Map.of(

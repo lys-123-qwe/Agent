@@ -32,12 +32,10 @@ public class FortuneService {
     private final HttpClient httpClient;
     private final ApiConfig apiConfig;
     private final String apiUrl;
-    private final ConstellationService constellationService;
 
-    public FortuneService(ApiConfig apiConfig, ConstellationService constellationService) {
+    public FortuneService(ApiConfig apiConfig) {
         this.apiConfig = apiConfig;
         this.apiUrl = apiConfig.getTranslationApiUrl();
-        this.constellationService = constellationService;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(15))
                 .build();
@@ -803,15 +801,5 @@ public class FortuneService {
                 .replace("\n", "\\n")
                 .replace("\r", "\\r")
                 .replace("\t", "\\t") + "\"";
-    }
-
-    // ==================== 星座（委托 ConstellationService） ====================
-
-    public String queryConstellationByDate(int month, int day) {
-        return constellationService.queryByDate(month, day);
-    }
-
-    public String queryConstellationHoroscope(String sign) {
-        return constellationService.queryHoroscope(sign);
     }
 }

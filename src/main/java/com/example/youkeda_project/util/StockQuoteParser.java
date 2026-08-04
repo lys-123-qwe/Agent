@@ -29,9 +29,19 @@ public final class StockQuoteParser {
         return null;
     }
 
-    /** 从行情文本首行提取股票名称(去掉 emoji 与括号代码),未找到返回 null. */
+    /** 从行情文本中提取股票名称(去掉 emoji 与括号代码),未找到返回 null.
+     *  跳过开头的 sparkline 前缀行(如"近30日走势"),避免把火花图标签当成股票名. */
     public static String extractName(String quote) {
         if (quote == null) return null;
+        for (String line : quote.split("\n")) {
+            // 名称行包含股票代码括号(如"📊 贵州茅台（sh600519）"),sparkline行不含
+            if (CODE_PATTERN.matcher(line).find()) {
+                return line.replaceAll("^[📈📉📊]", "")
+                    .replaceAll("[（(]\\w+[）)].*", "")
+                    .trim();
+            }
+        }
+        // fallback: 首行(去掉emoji与括号代码)
         String first = quote.split("\n")[0].trim();
         return first.replaceAll("^[📈📉📊]", "")
             .replaceAll("[（(]\\w+[）)].*", "")

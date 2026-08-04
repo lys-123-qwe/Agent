@@ -482,7 +482,12 @@ public class FundService {
             }
 
             if (date != null && !date.isBlank()) {
-                sb.append("  日期: ").append(date.trim());
+                sb.append("  🕐 数据时间: ").append(date.trim());
+                String today = java.time.LocalDate.now()
+                    .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+                if (!date.trim().contains(today)) {
+                    sb.append("（⚠️非今日数据）");
+                }
             }
             return sb.toString();
         } catch (NumberFormatException e) {
@@ -522,7 +527,14 @@ public class FundService {
             if (isNonZero(high)) sb.append("  最高: ").append(high.trim()).append("\n");
             if (isNonZero(low)) sb.append("  最低: ").append(low.trim()).append("\n");
             if (isNonZero(volume)) sb.append("  成交量: ").append(formatVolume(volume.trim())).append("\n");
-            if (date != null && !date.isBlank()) sb.append("  日期: ").append(date.trim());
+            if (date != null && !date.isBlank()) {
+                sb.append("  🕐 数据时间: ").append(date.trim());
+                String today = java.time.LocalDate.now()
+                    .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+                if (!date.trim().contains(today)) {
+                    sb.append("（⚠️非今日数据）");
+                }
+            }
             return sb.toString();
         } catch (NumberFormatException e) {
             log.warn("ETF价格格式化失败: price={}", currentPrice);

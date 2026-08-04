@@ -33,16 +33,14 @@ public class SkillManager {
     private static final Logger log = LoggerFactory.getLogger(SkillManager.class);
 
     private final ToolRegistry toolRegistry;
-    private final KnowledgeService knowledgeService;
     private final ObjectMapper objectMapper;
     private final ApplicationContext applicationContext;
 
     private final Path skillRoot;
 
-    public SkillManager(ToolRegistry toolRegistry, KnowledgeService knowledgeService,
+    public SkillManager(ToolRegistry toolRegistry,
                         ObjectMapper objectMapper, ApplicationContext applicationContext) {
         this.toolRegistry = toolRegistry;
-        this.knowledgeService = knowledgeService;
         this.objectMapper = objectMapper;
         this.applicationContext = applicationContext;
         this.skillRoot = Paths.get("src", "skills").toAbsolutePath().normalize();
@@ -58,7 +56,6 @@ public class SkillManager {
 
     private void registerSkill(Skill skill) {
         toolRegistry.register(skill);
-        knowledgeService.loadSkillDocuments(skill.getName(), skill.getKnowledgeDocuments());
     }
 
     /**
@@ -113,7 +110,6 @@ public class SkillManager {
             }
 
             toolRegistry.register(skill);
-            knowledgeService.loadSkillDocuments(skill.getName(), skill.getKnowledgeDocuments());
 
             log.info("    Skill: {} ({}),  : {},  : {}",
                     skill.getName(), skillClass, skill.getTools().size(), skill.getKnowledgeDocuments());

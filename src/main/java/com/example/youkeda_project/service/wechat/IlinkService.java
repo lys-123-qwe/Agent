@@ -82,15 +82,6 @@ public class IlinkService {
 
     // ---- messaging ----
 
-    public List<WeixinMessage> getUpdates() throws IOException {
-        String sid = requireDefaultSessionId();
-        return sessionManager.getUpdates(sid);
-    }
-
-    public List<WeixinMessage> getUpdates(String sessionId) throws IOException {
-        return sessionManager.getUpdates(sessionId);
-    }
-
     /**
      * Start message polling with auto-reply handlers for the default session.
      */

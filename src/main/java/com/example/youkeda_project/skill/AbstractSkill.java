@@ -1,6 +1,6 @@
 package com.example.youkeda_project.skill;
 
-import com.example.youkeda_project.ai.Tool;
+import com.example.youkeda_project.tool.Tool;
 import java.util.List;
 
 /**

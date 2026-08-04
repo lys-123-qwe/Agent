@@ -1,5 +1,10 @@
 package com.example.youkeda_project.ai;
 
+import com.example.youkeda_project.tool.Tool;
+import com.example.youkeda_project.tool.ToolCall;
+import com.example.youkeda_project.tool.ToolResult;
+
+
 import java.util.List;
 
 /**
@@ -46,20 +51,25 @@ public class ChatResult {
 
     /** 获取待上传的第一张图片字节 */
     public byte[] getFirstPendingImageBytes() {
-        return pendingMedia.stream()
-                .filter(ToolResult::hasImage)
-                .map(ToolResult::getImageBytes)
-                .filter(bytes -> bytes != null && bytes.length > 0)
-                .findFirst().orElse(null);
+        List<byte[]> all = getAllPendingImageBytes();
+        return all.isEmpty() ? null : all.get(0);
     }
 
-    /** 获取所有待上传的图片字节 */
+    /** 获取所有待上传的图片字节（含多图形式） */
     public List<byte[]> getAllPendingImageBytes() {
-        return pendingMedia.stream()
-                .filter(ToolResult::hasImage)
-                .map(ToolResult::getImageBytes)
-                .filter(bytes -> bytes != null && bytes.length > 0)
-                .toList();
+        List<byte[]> result = new java.util.ArrayList<>();
+        for (ToolResult tr : pendingMedia) {
+            if (!tr.hasImage()) continue;
+            if (tr.getImageBytes() != null && tr.getImageBytes().length > 0) {
+                result.add(tr.getImageBytes());
+            }
+            if (tr.getImageBytesList() != null) {
+                for (byte[] b : tr.getImageBytesList()) {
+                    if (b != null && b.length > 0) result.add(b);
+                }
+            }
+        }
+        return result;
     }
 
     /** 获取待发送的第一个音频 */
@@ -67,6 +77,14 @@ public class ChatResult {
         return pendingMedia.stream()
                 .filter(ToolResult::hasAudio)
                 .findFirst().orElse(null);
+    }
+
+    /** 获取所有随图直接发送的说明文本(不经过AI改写) */
+    public List<String> getAllPendingCaptions() {
+        return pendingMedia.stream()
+                .map(ToolResult::getCaption)
+                .filter(c -> c != null && !c.isBlank())
+                .toList();
     }
 }
 

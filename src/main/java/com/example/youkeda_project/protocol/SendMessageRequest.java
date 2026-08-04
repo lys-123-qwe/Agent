@@ -26,10 +26,6 @@ public record SendMessageRequest(
         );
     }
 
-    public static SendMessageRequest text(String toUserId, String contextToken, String text) {
-        return items(toUserId, contextToken, List.of(MessageItem.text(text)));
-    }
-
     public static SendMessageRequest cdnImage(String toUserId, String contextToken, CDNMedia media, int midSize) {
         return items(toUserId, contextToken, List.of(MessageItem.cdnImage(media, midSize)));
     }

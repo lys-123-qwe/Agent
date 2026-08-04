@@ -121,11 +121,6 @@ public class WeChatSessionManager {
         }
     }
 
-    /** Manual poll for messages. */
-    public List<WeixinMessage> getUpdates(String sessionId) throws IOException {
-        return requireSession(sessionId).getUpdates();
-    }
-
     // ---- send ----
 
     public void sendText(String sessionId, String toUserId, String contextToken, String text) throws IOException {

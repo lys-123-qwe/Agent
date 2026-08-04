@@ -219,29 +219,31 @@ public class FuturesService {
             return fetchWithCache(fullCode, displayName, market);
         }
 
-        // 2. 已带 hf_ 前缀 → 国际期货
+        // 2. 已带 hf_ 前缀 → 国际期货(新浪代码需大写)
         if (trimmed.regionMatches(true, 0, "hf_", 0, 3)) {
-            return fetchWithCache(trimmed.toLowerCase(), trimmed, "international");
+            String code = trimmed.length() > 3 ? "hf_" + trimmed.substring(3).toUpperCase() : trimmed;
+            return fetchWithCache(code, trimmed, "international");
         }
 
-        // 3. 已带 nf_ 前缀 → 国内期货
+        // 3. 已带 nf_ 前缀 → 国内期货(新浪代码需大写)
         if (trimmed.regionMatches(true, 0, "nf_", 0, 3)) {
-            return fetchWithCache(trimmed.toLowerCase(), trimmed, "domestic");
+            String code = trimmed.length() > 3 ? "nf_" + trimmed.substring(3).toUpperCase() : trimmed;
+            return fetchWithCache(code, trimmed, "domestic");
         }
 
         // 4. 纯字母代码（2~3位）→ 国际期货（自动补 hf_ 前缀）
         if (trimmed.matches("(?i)^[a-z]{2,3}$")) {
-            return fetchWithCache("hf_" + trimmed.toLowerCase(), trimmed, "international");
+            return fetchWithCache("hf_" + trimmed.toUpperCase(), trimmed, "international");
         }
 
         // 5. 国内品种代码（如 RB0、IF0、CU0）→ 自动补 nf_ 前缀
         if (trimmed.matches("(?i)^[a-z]{1,3}\\d$")) {
-            return fetchWithCache("nf_" + trimmed.toLowerCase(), trimmed, "domestic");
+            return fetchWithCache("nf_" + trimmed.toUpperCase(), trimmed, "domestic");
         }
 
         // 6. 国内品种代码带数字后缀（如 RB2510）→ 自动补 nf_ 前缀
         if (trimmed.matches("(?i)^[a-z]{1,3}\\d{3,4}$")) {
-            return fetchWithCache("nf_" + trimmed.toLowerCase(), trimmed, "domestic");
+            return fetchWithCache("nf_" + trimmed.toUpperCase(), trimmed, "domestic");
         }
 
         return "错误: 不支持的期货 '" + trimmed + "'\n"
@@ -515,13 +517,18 @@ public class FuturesService {
                 sb.append("  最低: ").append(currencyPrefix).append(low.trim()).append("\n");
             }
             if (date != null && !date.isBlank()) {
-                sb.append("  日期: ").append(date.trim());
+                sb.append("  🕐 数据时间: ").append(date.trim());
                 if (time != null && !time.isBlank() && !time.equals("0")) {
                     String t = time.trim();
                     if (t.length() == 6) {
                         t = t.substring(0, 2) + ":" + t.substring(2, 4) + ":" + t.substring(4);
                     }
                     sb.append(" ").append(t);
+                }
+                String today = java.time.LocalDate.now()
+                    .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+                if (!date.trim().contains(today)) {
+                    sb.append("（⚠️非今日数据）");
                 }
             }
             return sb.toString();
@@ -536,4 +543,183 @@ public class FuturesService {
         String s = val.trim();
         return !"0".equals(s) && !"0.000".equals(s) && !"0.00".equals(s);
     }
+
+    /**
+     * 查询某品种全部在交易合约列表(按成交量排序,标主力/次主力).
+     * 国内期货自动探测未来常见月份;国际期货返回常见连续月份.
+     *
+     * @param variety 品种名或代码,如 "螺纹钢"/"RB"/"nf_RB0"
+     * @return 格式化合约列表文本;无法识别返回 null
+     */
+    public String listContracts(String variety) {
+        if (variety == null || variety.isBlank()) return null;
+        String trimmed = variety.trim();
+
+        // 解析品种基代码(RB)和市场类型
+        String baseCode = null;
+        boolean international = false;
+        String mapped = DOMESTIC_MAP.get(trimmed);
+        if (mapped == null) mapped = DOMESTIC_MAP.get(trimmed.toLowerCase());
+        if (mapped != null && mapped.matches("nf_([A-Za-z]+)0")) {
+            baseCode = java.util.regex.Matcher.quoteReplacement(mapped);
+            baseCode = mapped.substring(3, mapped.length() - 1); // nf_RB0 -> RB
+            international = false;
+        }
+        if (baseCode == null) {
+            mapped = INTERNATIONAL_MAP.get(trimmed);
+            if (mapped == null) mapped = INTERNATIONAL_MAP.get(trimmed.toLowerCase());
+            if (mapped != null && mapped.matches("hf_([A-Za-z]+)")) {
+                baseCode = mapped.substring(3);
+                international = true;
+            }
+        }
+        // 纯代码如 RB / RB0 / CL
+        if (baseCode == null) {
+            String t = trimmed.toUpperCase().replaceAll("^NF_", "").replaceAll("^HF_", "").replaceAll("0$", "");
+            if (t.matches("^[A-Z]{1,3}$")) {
+                baseCode = t;
+                international = trimmed.toUpperCase().startsWith("HF_");
+            }
+        }
+        if (baseCode == null) return null;
+
+        StringBuilder result = new StringBuilder();
+        if (!international) {
+            result.append(probeDomesticContracts(baseCode));
+        } else {
+            result.append(probeInternationalContracts(baseCode));
+        }
+        return result.length() == 0 ? null : result.toString();
+    }
+
+    /** 探测国内期货在交易合约:生成未来常见月份合约,一次批量查询. */
+    private String probeDomesticContracts(String baseCode) {
+        int[] months = {1, 3, 5, 7, 8, 9, 10, 11, 12};
+        StringBuilder codes = new StringBuilder();
+        for (int y = 0; y < 2; y++) {
+            int yy = (java.time.LocalDate.now().getYear() + y) % 100;
+            for (int m : months) {
+                if (codes.length() > 0) codes.append(",");
+                codes.append("nf_").append(baseCode).append(String.format("%02d%02d", yy, m));
+            }
+        }
+
+        // 批量查询,过滤有效合约
+        java.util.List<ContractInfo> valid = new ArrayList<>();
+        try {
+            String url = SINA_API + codes;
+            String response = restClient.get().uri(url)
+                .header("Referer", "https://finance.sina.com.cn")
+                .retrieve().body(String.class);
+            if (response != null) {
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+                    "nf_" + baseCode + "(\\d{4})=\"(.*?)\"").matcher(response);
+                while (m.find()) {
+                    String month = m.group(1);
+                    String data = m.group(2);
+                    if (data != null && !data.isEmpty()) {
+                        String[] f = data.split(",", -1);
+                        String vol = f.length > 13 ? f[13] : "0";
+                        String price = f.length > 2 ? f[2] : "";
+                        String date = f.length > 17 ? f[17] : "";
+                        valid.add(new ContractInfo(baseCode + month, price, vol, date));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("探测国内合约失败: {}", e.getMessage());
+            return "";
+        }
+
+        if (valid.isEmpty()) return "";
+        // 按成交量降序
+        valid.sort((a, b) -> Double.compare(parseVol(b.vol), parseVol(a.vol)));
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("📋 ").append(baseCode).append(" 在交易合约（按成交量排序）\n\n");
+        for (int i = 0; i < valid.size(); i++) {
+            ContractInfo c = valid.get(i);
+            String tag = switch (i) {
+                case 0 -> "🏆 主力";
+                case 1 -> "🥈 次主力";
+                case 2 -> "🥉";
+                default -> "";
+            };
+            sb.append(String.format("%s %s  价格:%s  成交量:%s\n",
+                tag, c.code, c.price.isEmpty() ? "—" : c.price, fmtVol(c.vol)));
+        }
+        sb.append("\n回复合约代码（如 ").append(valid.get(0).code).append("）查看行情");
+        return sb.toString();
+    }
+
+    /** 国际期货合约列表(常见主力月份序列). */
+    private String probeInternationalContracts(String baseCode) {
+        // 国际期货主要月份: 当前年+下一年, 取 1-12 月中常见主力月
+        int[] months = {1, 3, 5, 7, 8, 9, 10, 11, 12};
+        StringBuilder codes = new StringBuilder();
+        for (int y = 0; y < 2; y++) {
+            int yy = (java.time.LocalDate.now().getYear() + y) % 100;
+            for (int m : months) {
+                if (codes.length() > 0) codes.append(",");
+                codes.append("hf_").append(baseCode).append(String.format("%02d%02d", yy, m));
+            }
+        }
+        java.util.List<ContractInfo> valid = new ArrayList<>();
+        try {
+            String url = SINA_API + codes;
+            String response = restClient.get().uri(url)
+                .header("Referer", "https://finance.sina.com.cn")
+                .retrieve().body(String.class);
+            if (response != null) {
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+                    "hf_" + baseCode + "(\\d{4})=\"(.*?)\"").matcher(response);
+                while (m.find()) {
+                    String month = m.group(1);
+                    String data = m.group(2);
+                    if (data != null && !data.isEmpty()) {
+                        String[] f = data.split(",", -1);
+                        String vol = f.length > 10 ? f[10] : "0";
+                        String price = f.length > 0 ? f[0] : "";
+                        String date = f.length > 12 ? f[12] : "";
+                        valid.add(new ContractInfo(baseCode + month, price, vol, date));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("探测国际合约失败: {}", e.getMessage());
+            return "";
+        }
+        if (valid.isEmpty()) return "";
+        valid.sort((a, b) -> Double.compare(parseVol(b.vol), parseVol(a.vol)));
+        StringBuilder sb = new StringBuilder();
+        sb.append("📋 ").append(baseCode).append(" 在交易合约（按成交量排序）\n\n");
+        for (int i = 0; i < valid.size(); i++) {
+            ContractInfo c = valid.get(i);
+            String tag = switch (i) {
+                case 0 -> "🏆 主力";
+                case 1 -> "🥈 次主力";
+                case 2 -> "🥉";
+                default -> "";
+            };
+            sb.append(String.format("%s %s  价格:%s  成交量:%s\n",
+                tag, c.code, c.price.isEmpty() ? "—" : c.price, fmtVol(c.vol)));
+        }
+        sb.append("\n回复合约代码（如 ").append(valid.get(0).code).append("）查看行情");
+        return sb.toString();
+    }
+
+    private double parseVol(String v) {
+        try { return Double.parseDouble(v.trim()); } catch (Exception e) { return 0; }
+    }
+
+    private String fmtVol(String v) {
+        try {
+            double d = Double.parseDouble(v.trim());
+            if (d >= 10000) return String.format("%.1f万", d / 10000);
+            return String.format("%.0f", d);
+        } catch (Exception e) { return v; }
+    }
+
+    /** 合约信息 */
+    private record ContractInfo(String code, String price, String vol, String date) {}
 }
