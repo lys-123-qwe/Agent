@@ -200,33 +200,12 @@ public class KLineService {
         return null;
     }
 
-    /** 把名称/代码解析为新浪格式代码。 */
+    /** 把名称/代码解析为新浪格式代码（K 线仅支持 A 股，故只接受 sh/sz）。 */
     public String resolveSymbol(String input) {
-        if (input == null || input.isBlank()) return null;
-
-        String trimmed = input.trim();
-
-        // 已有 sh/sz 前缀
-        if (trimmed.matches("(?i)^(?:sh|sz)[0-9]{6}$")) {
-            return trimmed.toLowerCase();
+        String code = com.example.youkeda_project.util.StockCodes.resolveSinaCode(input);
+        if (code != null && (code.startsWith("sh") || code.startsWith("sz"))) {
+            return code;
         }
-
-        // 名称映射(A 股才支持 K 线)
-        String mapped = StockCodes.byName(trimmed);
-        if (mapped != null && (mapped.startsWith("sh") || mapped.startsWith("sz"))) {
-            return mapped;
-        }
-
-        // 纯数字 6 位
-        if (trimmed.matches("^\\d{6}$")) {
-            return switch (trimmed.charAt(0)) {
-                case '6', '5' -> "sh" + trimmed;
-                case '0', '3', '1' -> "sz" + trimmed;
-                case '8', '4' -> null; // 北交所暂不支持
-                default -> null;
-            };
-        }
-
         return null;
     }
 }

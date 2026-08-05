@@ -147,13 +147,7 @@ public class IlinkProtocolClient {
             throw new RuntimeException("消息中没有图片");
         }
 
-        String url = null;
-        if (imageItem.media().fullUrl() != null && !imageItem.media().fullUrl().isBlank()) {
-            url = imageItem.media().fullUrl();
-        } else if (imageItem.media().encryptQueryParam() != null && !imageItem.media().encryptQueryParam().isBlank()) {
-            url = CDN_BASE + "/download?encrypted_query_param="
-                + URLEncoder.encode(imageItem.media().encryptQueryParam(), StandardCharsets.UTF_8);
-        }
+        String url = resolveCdnUrl(imageItem.media());
         if (url == null) throw new RuntimeException("图片无下载URL");
 
         // AES key 可能在 ImageItem 的 aeskey 字段或在 CDNMedia 的 aesKey 字段中
@@ -174,20 +168,7 @@ public class IlinkProtocolClient {
             return encryptedBytes;
         }
 
-        byte[] key = deriveAesKey(aesKeyStr);
-        try {
-            // AES-128-ECB 解密,去除 PKCS5Padding
-            Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
-            cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"));
-            byte[] decrypted = cipher.doFinal(encryptedBytes);
-            int pad = decrypted[decrypted.length - 1];
-            if (pad > 0 && pad <= 16) {
-                return Arrays.copyOf(decrypted, decrypted.length - pad);
-            }
-            return decrypted;
-        } catch (Exception e) {
-            throw new RuntimeException("图片AES解密失败", e);
-        }
+        return aesDecrypt(encryptedBytes, aesKeyStr);
     }
 
     /**
@@ -200,13 +181,7 @@ public class IlinkProtocolClient {
             throw new RuntimeException("消息中没有文件");
         }
 
-        String url = null;
-        if (fileItem.media().fullUrl() != null && !fileItem.media().fullUrl().isBlank()) {
-            url = fileItem.media().fullUrl();
-        } else if (fileItem.media().encryptQueryParam() != null && !fileItem.media().encryptQueryParam().isBlank()) {
-            url = CDN_BASE + "/download?encrypted_query_param="
-                + URLEncoder.encode(fileItem.media().encryptQueryParam(), StandardCharsets.UTF_8);
-        }
+        String url = resolveCdnUrl(fileItem.media());
         if (url == null) throw new RuntimeException("文件无下载URL");
 
         String aesKeyStr = fileItem.media().aesKey();
@@ -222,18 +197,36 @@ public class IlinkProtocolClient {
             return encryptedBytes;
         }
 
+        return aesDecrypt(encryptedBytes, aesKeyStr);
+    }
+
+    /** 从 CDNMedia 解析下载 URL（优先 fullUrl，其次 encryptQueryParam 拼装）。无可用 URL 返回 null。 */
+    private String resolveCdnUrl(CDNMedia media) {
+        if (media == null) return null;
+        if (media.fullUrl() != null && !media.fullUrl().isBlank()) {
+            return media.fullUrl();
+        }
+        if (media.encryptQueryParam() != null && !media.encryptQueryParam().isBlank()) {
+            return CDN_BASE + "/download?encrypted_query_param="
+                + URLEncoder.encode(media.encryptQueryParam(), StandardCharsets.UTF_8);
+        }
+        return null;
+    }
+
+    /** AES-128-ECB 解密并去除 PKCS5Padding。 */
+    private byte[] aesDecrypt(byte[] encrypted, String aesKeyStr) {
         byte[] key = deriveAesKey(aesKeyStr);
         try {
             Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
             cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"));
-            byte[] decrypted = cipher.doFinal(encryptedBytes);
+            byte[] decrypted = cipher.doFinal(encrypted);
             int pad = decrypted[decrypted.length - 1];
             if (pad > 0 && pad <= 16) {
                 return Arrays.copyOf(decrypted, decrypted.length - pad);
             }
             return decrypted;
         } catch (Exception e) {
-            throw new RuntimeException("文件AES解密失败", e);
+            throw new RuntimeException("AES解密失败", e);
         }
     }
 
@@ -524,19 +517,7 @@ public class IlinkProtocolClient {
             return encryptedBytes;
         }
 
-        try {
-            byte[] key = deriveAesKey(media.aesKey());
-            Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
-            cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"));
-            byte[] decrypted = cipher.doFinal(encryptedBytes);
-            int pad = decrypted[decrypted.length - 1];
-            if (pad > 0 && pad <= 16) {
-                decrypted = Arrays.copyOf(decrypted, decrypted.length - pad);
-            }
-            return decrypted;
-        } catch (Exception e) {
-            throw new RuntimeException("语音 AES 解密失败", e);
-        }
+        return aesDecrypt(encryptedBytes, media.aesKey());
     }
 
     /**

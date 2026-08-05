@@ -112,17 +112,6 @@ public class SessionPersistenceService {
         }
     }
 
-    public boolean exists(String sessionId) {
-        return Files.exists(sessionFile(sessionId));
-    }
-
-    private void updateIndex(String sessionId, String label, String botId) {
-        List<SessionMeta> metas = new ArrayList<>(loadIndex());
-        metas.removeIf(m -> m.sessionId.equals(sessionId));
-        metas.add(new SessionMeta(sessionId, label, botId, java.time.LocalDateTime.now().toString()));
-        writeIndex(metas);
-    }
-
     // ---- internal helpers ----
 
     private SessionPersistData buildPersistData(WeChatSession session) {

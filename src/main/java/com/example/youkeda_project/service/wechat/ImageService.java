@@ -1,6 +1,7 @@
 package com.example.youkeda_project.service.wechat;
 
 import com.example.youkeda_project.config.ApiConfig;
+import com.example.youkeda_project.util.MimeTypes;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -193,7 +194,7 @@ public class ImageService {
         }
 
         try {
-            String mimeType = detectMimeType(refImage);
+            String mimeType = MimeTypes.detect(refImage);
             String base64 = Base64.getEncoder().encodeToString(refImage);
             String dataUrl = "data:" + mimeType + ";base64," + base64;
 
@@ -236,14 +237,6 @@ public class ImageService {
             log.error("通义万相图编辑调用失败", e);
             return "图片编辑失败: " + e.getMessage();
         }
-    }
-
-    private String detectMimeType(byte[] data) {
-        if (data.length > 2 && data[0] == (byte) 0xFF && data[1] == (byte) 0xD8) return "image/jpeg";
-        if (data.length > 3 && data[0] == (byte) 0x89 && data[1] == (byte) 0x50 && data[2] == (byte) 0x4E) return "image/png";
-        if (data.length > 3 && data[0] == (byte) 0x47 && data[1] == (byte) 0x49 && data[2] == (byte) 0x46) return "image/gif";
-        if (data.length > 4 && data[0] == (byte) 0x52 && data[1] == (byte) 0x49 && data[2] == (byte) 0x46 && data[3] == (byte) 0x46) return "image/webp";
-        return "image/jpeg";
     }
 
     /**

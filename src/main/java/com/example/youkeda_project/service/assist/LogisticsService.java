@@ -42,32 +42,10 @@ public class LogisticsService {
      * 查询快递物流信息.
      *
      * @param trackingNumber 快递单号
-     * @return 格式化后的物流信息
-     */
-    public String query(String trackingNumber) {
-        return query(trackingNumber, null, null);
-    }
-
-    /**
-     * 查询快递物流信息.
-     *
-     * @param trackingNumber 快递单号
      * @param courierName    快递公司名称(可选,API 会自动识别)
      * @return 格式化后的物流信息
      */
     public String query(String trackingNumber, String courierName) {
-        return query(trackingNumber, courierName, null);
-    }
-
-    /**
-     * 查询快递物流信息.
-     *
-     * @param trackingNumber 快递单号
-     * @param courierName    快递公司名称(可选)
-     * @param mobile         收/寄件人手机号后四位(顺丰,京东等必填)
-     * @return 格式化后的物流信息
-     */
-    public String query(String trackingNumber, String courierName, String mobile) {
         if (trackingNumber == null || trackingNumber.isBlank()) {
             return "错误:请输入快递单号";
         }
@@ -76,21 +54,21 @@ public class LogisticsService {
         // 顺丰单号特殊提示
         String phoneHint = "";
         String upper = trackingNumber.toUpperCase();
-        if (upper.startsWith("SF") && (mobile == null || mobile.isBlank())) {
+        if (upper.startsWith("SF")) {
             phoneHint = "\n💡 顺丰快递需提供收/寄件人手机号后四位,下次查顺丰时可以一起发给我,如:查快递 SF1234567890 手机尾号1234";
         }
 
-        log.info("查询物流: number={}, courier={}, mobile={}", trackingNumber, courierName, mobile);
+        log.info("查询物流: number={}, courier={}", trackingNumber, courierName);
 
         try {
-            return doQuery(trackingNumber, mobile) + phoneHint;
+            return doQuery(trackingNumber) + phoneHint;
         } catch (Exception e) {
             log.error("物流查询失败: {}", e.getMessage(), e);
             return "物流查询失败: " + e.getMessage();
         }
     }
 
-    private String doQuery(String trackingNumber, String mobile) throws Exception {
+    private String doQuery(String trackingNumber) throws Exception {
         String appCode = apiConfig.getExpressApiAppCode();
         if (appCode == null || appCode.isBlank()) {
             throw new RuntimeException("未配置快递查询 AppCode,请在 application.properties 中设置 express.api.appcode");
@@ -99,9 +77,6 @@ public class LogisticsService {
         // 构造 form-urlencoded body
         StringBuilder body = new StringBuilder();
         body.append("expressNo=").append(URLEncoder.encode(trackingNumber, StandardCharsets.UTF_8));
-        if (mobile != null && !mobile.isBlank()) {
-            body.append("&mobile=").append(URLEncoder.encode(mobile.trim(), StandardCharsets.UTF_8));
-        }
 
         log.info("快递查询请求: POST {} body={}", apiConfig.getExpressApiUrl(), body);
 

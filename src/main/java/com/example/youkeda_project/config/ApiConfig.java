@@ -43,24 +43,12 @@ public class ApiConfig {
     @Value("${ai.api.url:https://api.deepseek.com/chat/completions}")
     private String aiApiUrl;
 
-    @Value("${ai.model:deepseek-chat}")
-    private String aiModel;
-
-    @Value("${ai.history.max:10}")
-    private int aiHistoryMax;
-
     @Value("${ai.tool.max.rounds:8}")
     private int aiToolMaxRounds;
 
-    @Value("${ai.system.prompt:你是一个 helpful 的 AI 助手,回答简洁.}")
-    private String aiSystemPrompt;
-
     public String getAiApiKey() { return aiApiKey; }
     public String getAiApiUrl() { return aiApiUrl; }
-    public String getAiModel() { return aiModel; }
-    public int getAiHistoryMax() { return aiHistoryMax; }
     public int getAiToolMaxRounds() { return aiToolMaxRounds; }
-    public String getAiSystemPrompt() { return aiSystemPrompt; }
 
     // ==================== 通义万相(图片生成) ====================
     @Value("${image.api.key:}")
@@ -200,9 +188,6 @@ public class ApiConfig {
     @Value("${constellation.query.api.url:https://apis.juhe.cn/fapig/constellation/query}")
     private String constellationQueryUrl;
 
-    @Value("${constellation.zodiacs:[]}")
-    private String constellationZodiacsJson;
-
     @Value("${constellation.horoscope.api.key:}")
     private String constellationHoroscopeKey;
 
@@ -214,12 +199,6 @@ public class ApiConfig {
     public String getConstellationHoroscopeKey() { return constellationHoroscopeKey; }
     public String getConstellationHoroscopeUrl() { return constellationHoroscopeUrl; }
 
-    @SuppressWarnings("unchecked")
-    public List<Map<String, Object>> getConstellationZodiacs() {
-        try {
-            return configMapper.convertValue(configMapper.readTree(constellationZodiacsJson), List.class);
-        } catch (Exception e) { return List.of(); }
-    }
 
     // ==================== 手机归属地 ====================
     @Value("${phone.api.key:}")
@@ -228,18 +207,9 @@ public class ApiConfig {
     @Value("${phone.api.url:https://apis.juhe.cn/mobile/get}")
     private String phoneApiUrl;
 
-    @Value("${phone.operators:{}}")
-    private String phoneOperatorsJson;
-
     public String getPhoneApiKey() { return phoneApiKey; }
     public String getPhoneApiUrl() { return phoneApiUrl; }
 
-    @SuppressWarnings("unchecked")
-    public Map<String, String> getPhoneOperators() {
-        try {
-            return configMapper.convertValue(configMapper.readTree(phoneOperatorsJson), LinkedHashMap.class);
-        } catch (Exception e) { return Map.of(); }
-    }
 
     // ==================== 博查搜索 ====================
     @Value("${bocha.api.key:}")
@@ -248,16 +218,8 @@ public class ApiConfig {
     @Value("${bocha.api.url:https://api.bochaai.com/v1/web-search}")
     private String bochaApiUrl;
 
-    @Value("${bocha.default.count:10}")
-    private int bochaDefaultCount;
-
-    @Value("${bocha.max.count:20}")
-    private int bochaMaxCount;
-
     public String getBochaApiKey() { return bochaApiKey; }
     public String getBochaApiUrl() { return bochaApiUrl; }
-    public int getBochaDefaultCount() { return bochaDefaultCount; }
-    public int getBochaMaxCount() { return bochaMaxCount; }
 
     // ==================== 股票行情 ====================
     @Value("${stock.sina.api.url:http://hq.sinajs.cn/list=}")
@@ -269,61 +231,16 @@ public class ApiConfig {
     @Value("${stock.sina.referer.url:https://finance.sina.com.cn}")
     private String stockSinaRefererUrl;
 
-    @Value("${stock.name.map:{}}")
-    private String stockNameMapJson;
-
     public String getStockSinaApiUrl() { return stockSinaApiUrl; }
     public String getStockTencentApiUrl() { return stockTencentApiUrl; }
     public String getStockSinaRefererUrl() { return stockSinaRefererUrl; }
 
-    @SuppressWarnings("unchecked")
-    public Map<String, String> getStockNameMap() {
-        try {
-            return configMapper.convertValue(configMapper.readTree(stockNameMapJson), LinkedHashMap.class);
-        } catch (Exception e) { return Map.of(); }
-    }
 
     // ==================== iLink 协议 ====================
     @Value("${ilink.base.url:https://ilinkai.weixin.qq.com}")
     private String ilinkBaseUrl;
 
-    @Value("${ilink.cdn.base.url:https://novac2c.cdn.weixin.qq.com/c2c}")
-    private String ilinkCdnBaseUrl;
-
-    @Value("${ilink.bot.type:3}")
-    private int ilinkBotType;
-
-    @Value("${ilink.channel.version:1.0.2}")
-    private String ilinkChannelVersion;
-
-    @Value("${ilink.auth.type:ilink_bot_token}")
-    private String ilinkAuthType;
-
-    @Value("${ilink.poll.timeout:35000}")
-    private int ilinkPollTimeout;
-
-    @Value("${ilink.request.timeout:15000}")
-    private int ilinkRequestTimeout;
-
-    @Value("${ilink.cdn.timeout:10000}")
-    private int ilinkCdnTimeout;
-
-    @Value("${ilink.poll.interval:3000}")
-    private int ilinkPollInterval;
-
-    @Value("${ilink.qrcode.poll.interval:2000}")
-    private int ilinkQrcodePollInterval;
-
     public String getIlinkBaseUrl() { return ilinkBaseUrl; }
-    public String getIlinkCdnBaseUrl() { return ilinkCdnBaseUrl; }
-    public int getIlinkBotType() { return ilinkBotType; }
-    public String getIlinkChannelVersion() { return ilinkChannelVersion; }
-    public String getIlinkAuthType() { return ilinkAuthType; }
-    public int getIlinkPollTimeout() { return ilinkPollTimeout; }
-    public int getIlinkRequestTimeout() { return ilinkRequestTimeout; }
-    public int getIlinkCdnTimeout() { return ilinkCdnTimeout; }
-    public int getIlinkPollInterval() { return ilinkPollInterval; }
-    public int getIlinkQrcodePollInterval() { return ilinkQrcodePollInterval; }
 
     // ==================== 文件解析 ====================
     @Value("${file.max.size:20971520}")
@@ -345,17 +262,6 @@ public class ApiConfig {
         } catch (Exception e) { return List.of(); }
     }
 
-    // ==================== 节日 ====================
-    @Value("${holidays:[]}")
-    private String holidaysJson;
-
-    @SuppressWarnings("unchecked")
-    public List<Map<String, Object>> getHolidays() {
-        try {
-            return configMapper.convertValue(configMapper.readTree(holidaysJson), List.class);
-        } catch (Exception e) { return List.of(); }
-    }
-
     // ==================== 快递物流查询 ====================
     @Value("${express.api.appcode:}")
     private String expressApiAppCode;
@@ -366,9 +272,6 @@ public class ApiConfig {
     public String getExpressApiAppCode() { return expressApiAppCode; }
     public String getExpressApiUrl() { return expressApiUrl; }
 
-    // 兼容旧接口
-    public String getNewsApiKey() { return ""; }
-    public String getNewsSdkApiKey() { return ""; }
 
     // ==================== 缘份居（算命/黄历/面相） ====================
     @Value("${yuanfenju.api.key:}")
@@ -376,6 +279,4 @@ public class ApiConfig {
 
     public String getYuanfenjuApiKey() { return yuanfenjuApiKey; }
 
-    // ==================== 博查搜索（兼容旧调用） ====================
-    public String getNewsBochaSearchUrl() { return bochaApiUrl; }
 }

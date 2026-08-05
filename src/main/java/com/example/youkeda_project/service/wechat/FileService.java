@@ -22,9 +22,6 @@ public class FileService {
 
     private static final Logger log = LoggerFactory.getLogger(FileService.class);
 
-    /** 兼容旧代码的静态常量 */
-    public static final long MAX_FILE_SIZE = 20971520;
-
     private final Tika tika = new Tika();
     private final ApiConfig apiConfig;
 

@@ -4,7 +4,7 @@ import com.example.youkeda_project.tool.AbstractTool;
 
 import com.example.youkeda_project.tool.ToolResult;
 
-import com.example.youkeda_project.service.chart.ChartService;
+import com.example.youkeda_project.service.stock.ChartService;
 import com.example.youkeda_project.service.stock.FundService;
 import org.springframework.stereotype.Component;
 

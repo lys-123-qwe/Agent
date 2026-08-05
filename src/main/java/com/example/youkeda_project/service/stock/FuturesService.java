@@ -5,13 +5,16 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
+import com.example.youkeda_project.util.FormatUtil;
+import com.example.youkeda_project.util.StockQuoteParser;
+import com.example.youkeda_project.util.TtlCache;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 期货查询服务，接入新浪/腾讯公开接口。
@@ -33,8 +36,7 @@ public class FuturesService {
     private final RestClient restClient;
 
     /** 短缓存: code → {timestamp, result} */
-    private final ConcurrentHashMap<String, long[]> cacheTs = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, String> cacheResult = new ConcurrentHashMap<>();
+    private final TtlCache<String> cache = new TtlCache<>(CACHE_TTL_MS);
 
     /** 中文名称 → 新浪代码映射（国际期货 20+ 品种） */
     private static final Map<String, String> INTERNATIONAL_MAP;
@@ -253,19 +255,14 @@ public class FuturesService {
     // ==================== 缓存 ====================
 
     private String fetchWithCache(String fullCode, String displayName, String market) {
-        long now = System.currentTimeMillis();
-        long[] ts = cacheTs.get(fullCode);
-        if (ts != null && now - ts[0] < CACHE_TTL_MS) {
-            String cached = cacheResult.get(fullCode);
-            if (cached != null) {
-                log.debug("期货缓存命中: {}", fullCode);
-                return cached;
-            }
+        String cached = cache.get(fullCode);
+        if (cached != null) {
+            log.debug("期货缓存命中: {}", fullCode);
+            return cached;
         }
 
         String result = fetchFuturesData(fullCode, displayName, market);
-        cacheTs.put(fullCode, new long[]{now});
-        cacheResult.put(fullCode, result);
+        cache.put(fullCode, result);
         return result;
     }
 
@@ -302,16 +299,16 @@ public class FuturesService {
 
         log.info("新浪期货响应(code={}): {}", fullCode, response);
 
-        int eqIdx = response.indexOf('"');
-        if (eqIdx == -1) {
-            throw new RuntimeException("新浪响应格式异常: 无引号包裹");
-        }
-        String data = response.substring(eqIdx + 1, response.lastIndexOf('"'));
-        if (data.isEmpty() || data.isBlank()) {
+        String[] fields = StockQuoteParser.extractQuotedFields(response, ",");
+        if (fields == null) {
+            if (response.indexOf('"') == -1) {
+                throw new RuntimeException("新浪响应格式异常: 无引号包裹");
+            }
             throw new RuntimeException("新浪返回空行情数据，期货代码可能无效或无数据");
         }
-
-        String[] fields = data.split(",", -1);
+        if (fields.length == 1 && fields[0].isBlank()) {
+            throw new RuntimeException("新浪返回空行情数据，期货代码可能无效或无数据");
+        }
 
         if ("international".equals(market)) {
             return parseSinaInternational(fullCode, fields, displayName);
@@ -404,16 +401,14 @@ public class FuturesService {
 
         log.info("腾讯期货响应(code={}): {}", fullCode, response);
 
-        int eqIdx = response.indexOf('"');
-        if (eqIdx == -1) {
-            throw new RuntimeException("腾讯响应格式异常");
-        }
-        String data = response.substring(eqIdx + 1, response.lastIndexOf('"'));
-        if (data.isEmpty()) {
+        String[] fields = StockQuoteParser.extractQuotedFields(response, ",");
+        if (fields == null) {
+            if (response.indexOf('"') == -1) {
+                throw new RuntimeException("腾讯响应格式异常");
+            }
             throw new RuntimeException("腾讯返回空行情数据");
         }
 
-        String[] fields = data.split(",", -1);
         if (fields.length < 14) {
             throw new RuntimeException("腾讯期货字段不足: " + fields.length);
         }
@@ -476,35 +471,18 @@ public class FuturesService {
                                       String marketLabel, String currencyPrefix) {
         try {
             BigDecimal price = new BigDecimal(currentPrice.trim());
-            BigDecimal change = BigDecimal.ZERO;
-            BigDecimal changePct = BigDecimal.ZERO;
-            String direction = "📈";
-            String sign = "";
-
-            if (prevClose != null && !prevClose.isBlank()) {
-                String ps = prevClose.trim();
-                if (!"0".equals(ps) && !"0.000".equals(ps)) {
-                    BigDecimal prev = new BigDecimal(ps);
-                    if (prev.compareTo(BigDecimal.ZERO) > 0) {
-                        change = price.subtract(prev);
-                        changePct = change.divide(prev, 4, RoundingMode.HALF_UP)
-                            .multiply(new BigDecimal("100"));
-                        direction = change.compareTo(BigDecimal.ZERO) >= 0 ? "📈" : "📉";
-                        sign = change.compareTo(BigDecimal.ZERO) >= 0 ? "+" : "";
-                    }
-                }
-            }
+            FormatUtil.ChangeInfo ci = FormatUtil.calcChange(price, prevClose);
 
             StringBuilder sb = new StringBuilder();
-            sb.append(direction).append(" ").append(name).append("（").append(code).append("）\n");
+            sb.append(ci.direction()).append(" ").append(name).append("（").append(code).append("）\n");
             sb.append("  品种: ").append(marketLabel).append("\n");
             sb.append("  最新价: ").append(currencyPrefix).append(price).append("\n");
 
-            if (change.compareTo(BigDecimal.ZERO) != 0) {
-                sb.append("  涨跌额: ").append(sign)
-                    .append(change.setScale(2, RoundingMode.HALF_UP)).append("\n");
-                sb.append("  涨跌幅: ").append(sign)
-                    .append(changePct.setScale(2, RoundingMode.HALF_UP)).append("%\n");
+            if (ci.change().compareTo(BigDecimal.ZERO) != 0) {
+                sb.append("  涨跌额: ").append(ci.sign())
+                    .append(ci.change().setScale(2, RoundingMode.HALF_UP)).append("\n");
+                sb.append("  涨跌幅: ").append(ci.sign())
+                    .append(ci.changePct().setScale(2, RoundingMode.HALF_UP)).append("%\n");
             }
 
             if (isNonZero(open)) {
@@ -517,19 +495,14 @@ public class FuturesService {
                 sb.append("  最低: ").append(currencyPrefix).append(low.trim()).append("\n");
             }
             if (date != null && !date.isBlank()) {
-                sb.append("  🕐 数据时间: ").append(date.trim());
+                String t = "";
                 if (time != null && !time.isBlank() && !time.equals("0")) {
-                    String t = time.trim();
+                    t = time.trim();
                     if (t.length() == 6) {
                         t = t.substring(0, 2) + ":" + t.substring(2, 4) + ":" + t.substring(4);
                     }
-                    sb.append(" ").append(t);
                 }
-                String today = java.time.LocalDate.now()
-                    .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"));
-                if (!date.trim().contains(today)) {
-                    sb.append("（⚠️非今日数据）");
-                }
+                sb.append("  🕐 数据时间: ").append(FormatUtil.formatQuoteDate(date.trim(), t));
             }
             return sb.toString();
         } catch (NumberFormatException e) {

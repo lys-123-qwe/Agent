@@ -3,8 +3,9 @@ package com.example.youkeda_project.tool.finance;
 import com.example.youkeda_project.tool.AbstractTool;
 
 import com.example.youkeda_project.tool.ToolResult;
-import com.example.youkeda_project.service.chart.ChartService;
+import com.example.youkeda_project.service.stock.ChartService;
 import com.example.youkeda_project.service.stock.FinancialAnalysisService;
+import com.example.youkeda_project.service.stock.KLineService;
 import com.example.youkeda_project.service.stock.StockService;
 import org.springframework.stereotype.Component;
 
@@ -87,7 +88,7 @@ public class FinancialAnalysisTool extends AbstractTool {
         String code = resolveCode(stock);
         if (code == null) return null;
         // 从 StockService 获取历史K线
-        List<StockService.KlineData> klines = stockService.getHistoricalKline(stock, 60);
+        List<KLineService.KLineData> klines = stockService.getHistoricalKline(stock, 60);
         if (klines == null || klines.size() < 5) return null;
 
         List<ChartService.CandlestickPoint> data = ChartService.toCandlestickPoints(klines, false);
@@ -99,11 +100,7 @@ public class FinancialAnalysisTool extends AbstractTool {
     }
 
     private String resolveCode(String stock) {
-        try {
-            return com.example.youkeda_project.util.StockCodes.byName(stock);
-        } catch (Exception e) {
-            return null;
-        }
+        return com.example.youkeda_project.util.StockCodes.resolveSinaCode(stock);
     }
 
 

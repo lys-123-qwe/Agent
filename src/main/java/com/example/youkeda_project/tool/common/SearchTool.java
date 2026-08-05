@@ -136,7 +136,7 @@ public class SearchTool extends AbstractTool {
             log.info("博查通用搜索请求: {}", bodyJson);
 
             var hreq = HttpRequest.newBuilder()
-                    .uri(URI.create(apiConfig.getNewsBochaSearchUrl()))
+                    .uri(URI.create(apiConfig.getBochaApiUrl()))
                     .header("Content-Type", "application/json; charset=UTF-8")
                     .header("Authorization", "Bearer " + apiKey)
                     .POST(HttpRequest.BodyPublishers.ofString(bodyJson, StandardCharsets.UTF_8))

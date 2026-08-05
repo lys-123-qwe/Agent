@@ -24,6 +24,7 @@ public class FortuneService {
 
     private static final Logger log = LoggerFactory.getLogger(FortuneService.class);
     private static final String YUANFENJU_BASE = "https://api.yuanfenju.com/index.php/v1";
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final String GAN = "甲乙丙丁戊己庚辛壬癸";
     private static final String[] GAN_WUXING = {"木","木","火","火","土","土","金","金","水","水"};
     private static final String ZHI = "子丑寅卯辰巳午未申酉戌亥";
@@ -32,10 +33,12 @@ public class FortuneService {
     private final HttpClient httpClient;
     private final ApiConfig apiConfig;
     private final String apiUrl;
+    private final ChatTextClient chatTextClient;
 
-    public FortuneService(ApiConfig apiConfig) {
+    public FortuneService(ApiConfig apiConfig, ChatTextClient chatTextClient) {
         this.apiConfig = apiConfig;
         this.apiUrl = apiConfig.getTranslationApiUrl();
+        this.chatTextClient = chatTextClient;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(15))
                 .build();
@@ -185,7 +188,7 @@ public class FortuneService {
                     .timeout(Duration.ofSeconds(15))
                     .build();
             HttpResponse<String> hresp = httpClient.send(hreq, HttpResponse.BodyHandlers.ofString());
-            var root = new ObjectMapper().readTree(hresp.body());
+            var root = OBJECT_MAPPER.readTree(hresp.body());
             int errcode = root.path("errcode").asInt(-1);
             if (errcode != 0) {
                 log.warn("缘份居 {} API error: {}", path, root.path("errmsg").asText());
@@ -569,22 +572,8 @@ public class FortuneService {
         String apiKey = apiConfig.getImageApiKey();
         if (apiKey == null || apiKey.isBlank()) return "错误: 未配置阿里云 API Key";
         try {
-            String body = "{\"model\":\"qwen-turbo\",\"messages\":["
-                + "{\"role\":\"system\",\"content\":" + jsonEscape(systemPrompt) + "},"
-                + "{\"role\":\"user\",\"content\":" + jsonEscape(userContent) + "}"
-                + "]}";
-            var hreq = HttpRequest.newBuilder()
-                    .uri(URI.create(apiUrl))
-                    .header("Content-Type", "application/json; charset=UTF-8")
-                    .header("Authorization", "Bearer " + apiKey)
-                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-                    .timeout(Duration.ofSeconds(60))
-                    .build();
-            HttpResponse<String> hresp = httpClient.send(hreq, HttpResponse.BodyHandlers.ofString());
-            var root = new ObjectMapper().readTree(hresp.body());
-            var choice = root.path("choices").get(0);
-            if (choice == null) return "服务暂不可用，请稍后再试";
-            String result = choice.path("message").path("content").asText("");
+            String result = chatTextClient.complete(apiUrl, apiKey, "qwen-turbo", systemPrompt, userContent, Duration.ofSeconds(60));
+            if (result == null) return "服务暂不可用，请稍后再试";
             return result.isBlank() ? "结果为空" : result;
         } catch (Exception e) {
             log.error("FortuneService 调用失败", e);
@@ -793,13 +782,5 @@ public class FortuneService {
             "巨蟹座", "狮子座", "处女座", "天秤座", "天蝎座", "射手座", "摩羯座"};
         int idx = day <= lastDays[month - 1] ? month - 1 : month;
         return names[idx % 12];
-    }
-
-    private String jsonEscape(String s) {
-        return "\"" + s.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t") + "\"";
     }
 }

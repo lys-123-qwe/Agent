@@ -201,17 +201,11 @@ public class VectorStore {
         }
     }
 
-    /** 新增一条通用知识（学后入库用） */
+    /** 新增一条通用知识（学后入库用），并重建关键词索引保证 fastSearch 可命中。 */
     public void add(String text) {
         entries.add(new Entry(text, null));
         knowledgeRepo.save(text, "collector");
-    }
-
-    /** 新增一条带向量的知识。 */
-    public void addWithVector(String text, float[] vector) {
-        Entry e = new Entry(text, null);
-        e.vector = vector;
-        entries.add(e);
+        buildKeywordIndex();
     }
 
     // ==================== 通用知识检索 ====================

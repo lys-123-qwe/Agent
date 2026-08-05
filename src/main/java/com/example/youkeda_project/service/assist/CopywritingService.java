@@ -4,13 +4,7 @@ import com.example.youkeda_project.config.ApiConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import tools.jackson.databind.ObjectMapper;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
 @Service
@@ -18,16 +12,14 @@ public class CopywritingService {
 
     private static final Logger log = LoggerFactory.getLogger(CopywritingService.class);
 
-    private final HttpClient httpClient;
     private final ApiConfig apiConfig;
     private final String apiUrl;
+    private final ChatTextClient chatTextClient;
 
-    public CopywritingService(ApiConfig apiConfig) {
+    public CopywritingService(ApiConfig apiConfig, ChatTextClient chatTextClient) {
         this.apiConfig = apiConfig;
         this.apiUrl = apiConfig.getTranslationApiUrl();
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(15))
-                .build();
+        this.chatTextClient = chatTextClient;
     }
 
     public String generate(String requirement, String scene, String tone, String emoji) {
@@ -39,30 +31,11 @@ public class CopywritingService {
         String systemPrompt = buildGeneratePrompt(scene, tone, emoji);
 
         try {
-            String body = "{\"model\":\"qwen-turbo\",\"messages\":["
-                + "{\"role\":\"system\",\"content\":" + jsonEscape(systemPrompt) + "},"
-                + "{\"role\":\"user\",\"content\":" + jsonEscape(requirement) + "}"
-                + "]}";
-
             log.info("文案生成请求: scene={}, tone={}, emoji={}, reqLen={}", scene, tone, emoji, requirement.length());
 
-            var hreq = HttpRequest.newBuilder()
-                    .uri(URI.create(apiUrl))
-                    .header("Content-Type", "application/json; charset=UTF-8")
-                    .header("Authorization", "Bearer " + apiKey)
-                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-                    .timeout(Duration.ofSeconds(30))
-                    .build();
+            String result = chatTextClient.complete(apiUrl, apiKey, "qwen-turbo", systemPrompt, requirement, Duration.ofSeconds(30));
+            if (result == null) return "文案生成服务暂不可用";
 
-            HttpResponse<String> hresp = httpClient.send(hreq, HttpResponse.BodyHandlers.ofString());
-            String respBody = hresp.body();
-
-            var mapper = new ObjectMapper();
-            var root = mapper.readTree(respBody);
-            var choice = root.path("choices").get(0);
-            if (choice == null) return "文案生成服务暂不可用";
-
-            String result = choice.path("message").path("content").asText("");
             if (result.isBlank()) return "文案生成结果为空";
             return result;
         } catch (Exception e) {
@@ -81,30 +54,12 @@ public class CopywritingService {
 
         try {
             String userContent = "原文案：\n" + oldCopy + "\n\n修改需求：" + modifyRequest;
-            String body = "{\"model\":\"qwen-turbo\",\"messages\":["
-                + "{\"role\":\"system\",\"content\":" + jsonEscape(systemPrompt) + "},"
-                + "{\"role\":\"user\",\"content\":" + jsonEscape(userContent) + "}"
-                + "]}";
 
             log.info("文案改写请求: style={}, scene={}, modifyReqLen={}", style, scene, modifyRequest.length());
 
-            var hreq = HttpRequest.newBuilder()
-                    .uri(URI.create(apiUrl))
-                    .header("Content-Type", "application/json; charset=UTF-8")
-                    .header("Authorization", "Bearer " + apiKey)
-                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-                    .timeout(Duration.ofSeconds(30))
-                    .build();
+            String result = chatTextClient.complete(apiUrl, apiKey, "qwen-turbo", systemPrompt, userContent, Duration.ofSeconds(30));
+            if (result == null) return "文案改写服务暂不可用";
 
-            HttpResponse<String> hresp = httpClient.send(hreq, HttpResponse.BodyHandlers.ofString());
-            String respBody = hresp.body();
-
-            var mapper = new ObjectMapper();
-            var root = mapper.readTree(respBody);
-            var choice = root.path("choices").get(0);
-            if (choice == null) return "文案改写服务暂不可用";
-
-            String result = choice.path("message").path("content").asText("");
             if (result.isBlank()) return "文案改写结果为空";
             return result;
         } catch (Exception e) {
@@ -196,13 +151,5 @@ public class CopywritingService {
 3. 只修改用户指定的部分
 4. 修改后保持""" + styleHint + sceneHint + """
 5. 直接输出修改后的文案，不要有任何解释和说明""";
-    }
-
-    private String jsonEscape(String s) {
-        return "\"" + s.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t") + "\"";
     }
 }

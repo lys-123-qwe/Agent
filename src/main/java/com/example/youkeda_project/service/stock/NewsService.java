@@ -29,7 +29,6 @@ import java.util.regex.Pattern;
 public class NewsService {
 
     private static final Logger log = LoggerFactory.getLogger(NewsService.class);
-    private static final String TIAN_API_BASE = "http://api.tianapi.com/generalnews/index";
     private static final String BOCHA_API_URL = "https://api.bocha.cn/v1/web-search";
     private static final Pattern TITLE_TAG = Pattern.compile(
             "<title[^>]*>(.*?)</title>", Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
@@ -53,15 +52,6 @@ public class NewsService {
     }
 
     public String searchOfficialNews() {
-        String tianKey = apiConfig.getNewsSdkApiKey();
-        if (tianKey != null && !tianKey.isBlank()) {
-            String result = tianApiTopHeadlines();
-            if (!result.startsWith("错误:") && !result.startsWith("没有找到")) {
-                return result;
-            }
-            log.warn("天聚数行返回空,降级到博查: {}", result);
-        }
-
         String apiKey = apiConfig.getBochaApiKey();
         if (apiKey == null || apiKey.isBlank()) {
             return "错误: 未配置博查搜索 API Key";
@@ -145,158 +135,10 @@ public class NewsService {
         }
     }
 
-    // ========== 天聚数行 ==========
-
-    private String tianApiTopHeadlines() {
-        return tianApiSearch(null, 20);
-    }
-
-    /**
-     * 从天聚数行获取新闻,按关键词客户端过滤.
-     * <p>
-     * 不传 word 参数(服务器端过滤不准确),而是取最新 50 条头条,
-     * 在客户端按标题/来源匹配关键词.关键词太泛(如"今日""新闻")则不过滤.
-     */
-    private String tianApiSearch(String keyword, int pageSize) {
-        try {
-            String apiKey = apiConfig.getNewsSdkApiKey();
-            int num = Math.min(pageSize, 50);
-            String url = TIAN_API_BASE + "?key=" + apiKey + "&num=" + Math.max(num, 50);
-            log.info("天聚数行请求: {}", url.replace(apiKey, "***"));
-            var hreq = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .GET()
-                .build();
-            HttpResponse<byte[]> hresp = httpClient.send(hreq, HttpResponse.BodyHandlers.ofByteArray());
-            byte[] responseBytes = hresp.body();
-            return tianApiParseResponse(responseBytes, keyword, "今日新闻");
-        } catch (Exception e) {
-            log.error("天聚数行失败", e);
-            return "新闻获取失败: " + e.getMessage();
-        }
-    }
-
-    /**
-     * 解析天聚数行响应,可选客户端关键词过滤.
-     */
-    private String tianApiParseResponse(byte[] responseBytes, String keyword, String fallbackPrefix) {
-        try {
-            String json = new String(responseBytes, StandardCharsets.UTF_8);
-            JsonNode root = objectMapper.readTree(json);
-            int code = root.path("code").asInt(0);
-            if (code != 200) {
-                return "错误: " + root.path("msg").asText("未知错误");
-            }
-            JsonNode newslist = root.path("newslist");
-            if (!newslist.isArray() || newslist.isEmpty()) {
-                return "没有找到相关新闻";
-            }
-
-            boolean doFilter = keyword != null && !keyword.isBlank()
-                && !isGenericQuery(keyword);
-            String prefix = doFilter ? keyword : fallbackPrefix;
-
-            String todayStr = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE);
-            List<String[]> allItems = new ArrayList<>();
-            Set<String> seenUrls = new LinkedHashSet<>();
-            Map<String, Integer> sourceCount = new java.util.HashMap<>();
-            for (JsonNode article : newslist) {
-                String title = article.path("title").asText("").trim();
-                String rawUrl = article.path("url").asText("").trim();
-                String url = cleanUrl(rawUrl);
-                String source = article.path("source").asText("");
-                String ctime = article.path("ctime").asText(""); // 发布时间
-                if (title.isEmpty() || url == null || url.isEmpty()) continue;
-                // 过滤非今日的文章(ctime 格式:2026-07-24 10:30:00)
-                if (!ctime.isBlank() && !ctime.startsWith(todayStr)) continue;
-                String clean = cleanTitle(title);
-                if (clean.length() < 4) continue;
-                if (!seenUrls.add(url)) continue;
-                if (doFilter && !matchKeyword(title, source, keyword)) continue;
-                // 同一来源最多取 3 条,避免结果单一
-                int srcMax = 3;
-                if (!source.isEmpty() && sourceCount.merge(source, 1, Integer::sum) > srcMax) continue;
-                String display = source.isEmpty() ? clean : clean + " [" + source + "]";
-                allItems.add(new String[]{display, url});
-                if (allItems.size() >= 20) break;
-            }
-            if (allItems.isEmpty()) {
-                return doFilter ? "没有找到与关键词匹配的结果" : "没有找到相关新闻";
-            }
-            StringBuilder sb = new StringBuilder();
-            sb.append(prefix).append(":\n");
-            for (int i = 0; i < allItems.size(); i++) {
-                sb.append(i + 1).append(". ").append(allItems.get(i)[0])
-                    .append(" [详情](").append(allItems.get(i)[1]).append(")\n");
-            }
-            return sb.toString();
-        } catch (Exception e) {
-            log.error("解析天聚数行响应失败", e);
-            return "解析新闻结果失败: " + e.getMessage();
-        }
-    }
-
-    /**
-     * 判断关键词是否太泛(自然语言/无具体指向),是则不过滤直接返回全部头条.
-     */
-    private boolean isGenericQuery(String keyword) {
-        String kw = keyword.replaceAll("[\\s,,,.!？;;::\"\"''[]()\\[\\]{}]", "").toLowerCase();
-        if (kw.isEmpty()) return true;
-        // 纯中文短词匹配预定义集合
-        Set<String> generic = Set.of(
-                "今日", "新闻", "最新", "热点", "推荐", "搜索", "今天",
-                "今日新闻", "最新新闻", "今天新闻", "今日热点", "今天热点",
-                "最新消息", "今日最新", "新闻热点", "热门新闻",
-                "刚刚", "要闻", "头条", "快讯",
-                "今日最新新闻", "今天有什么新闻", "最近新闻", "最近热点");
-        if (kw.matches("^[\\u4e00-\\u9fa5]{1,10}$") && generic.contains(kw)) {
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * 客户端模糊匹配:关键词分词后任一有意义的 token 出现在标题或来源中即算匹配.
-     */
-    private boolean matchKeyword(String title, String source, String keyword) {
-        String kw = keyword.trim().toLowerCase();
-        String t = (title + " " + source).toLowerCase();
-        if (t.contains(kw)) return true;
-        String[] tokens = kw.split("[\\s,,,;;]+");
-        if (tokens.length > 1) {
-            for (String token : tokens) {
-                token = token.trim();
-                if (token.length() >= 3 && !token.matches("\\d+") && t.contains(token)) return true;
-            }
-        }
-        return false;
-    }
-
     // ========== 博查 ==========
 
     public String searchNews(int num, String keyword, String category) {
-        // 1) 天聚数行:新闻类查询首选
-        String tianKey = apiConfig.getNewsSdkApiKey();
-        if (tianKey != null && !tianKey.isBlank()) {
-            String result = tianApiSearch(keyword, num);
-            // 有匹配结果或关键词太泛(直接返回头条)→ 直接返回
-            if (!result.startsWith("没有找到")) {
-                return result;
-            }
-            // 空结果且是具体关键词 → 降级到博查(可能是非新闻类查询)
-            if (!isGenericQuery(keyword)) {
-                log.warn("天聚数行无匹配,降级到博查搜索: {}", keyword);
-                String bocha = bochaSearch(keyword, num);
-                if (!bocha.startsWith("没有找到") && !bocha.startsWith("错误:")) {
-                    return bocha;
-                }
-            }
-            // 兜底:头条新闻
-            return tianApiTopHeadlines();
-        }
-
-        // 2) 博查(仅当天聚数行未配置时)
-        return bochaSearch(keyword, num);
+        return bochaSearch(keyword, num, category);
     }
 
     /**

@@ -3,6 +3,7 @@ package com.example.youkeda_project.ai;
 import com.example.youkeda_project.tool.Tool;
 import com.example.youkeda_project.tool.ToolCall;
 import com.example.youkeda_project.tool.ToolResult;
+import com.example.youkeda_project.util.MimeTypes;
 
 
 import com.example.youkeda_project.config.ApiConfig;
@@ -129,13 +130,12 @@ public class AIService {
         List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
             List<ChatMessage> list = new ArrayList<>();
             String basePrompt = buildBasePrompt(userId);
-            // Skill 路由时使用对应智能体提示词替代通用 prompt
+            // 仅金融 skill 有知识文档，故 ragContext 非空即金融场景，叠加金融分析师提示词
             String enrichedBase = ragContext != null && !ragContext.isBlank()
                 ? financialSystemPrompt() + "\n\n" + basePrompt + "\n\n" + ragContext
                 : basePrompt;
             // RAG: 根据用户问题检索相关知识并拼入 system prompt
-            String enrichedPrompt = ragService.augment(userMessage, enrichedBase);
-            list.add(new ChatMessage("system", enrichedPrompt));
+            list.add(new ChatMessage("system", ragService.augment(userMessage, enrichedBase)));
             return list;
         });
 
@@ -163,20 +163,10 @@ public class AIService {
                     tools != null ? tools.size() : 0);
 
                 byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
-                byte[] responseBytes = restClient.post()
-                        .header("Content-Type", "application/json; charset=UTF-8")
-                        .header("Authorization", "Bearer " + apiConfig.getAiApiKey())
-                        .body(bodyBytes)
-                        .retrieve()
-                        .body(byte[].class);
-
-                if (responseBytes == null) {
+                ChatResponse response = callCompletion(restClient, apiConfig.getAiApiKey(), bodyBytes);
+                if (response == null) {
                     return new ChatResult("错误: AI 服务返回空响应");
                 }
-                String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
-                log.debug("DeepSeek响应(round={}): {} chars", round, responseJson.length());
-
-                ChatResponse response = objectMapper.readValue(responseJson, ChatResponse.class);
                 if (response.getChoices() == null || response.getChoices().isEmpty()) {
                     return new ChatResult("错误: AI 未返回内容");
                 }
@@ -373,7 +363,7 @@ public class AIService {
         }
 
         String base64 = Base64.getEncoder().encodeToString(imageBytes);
-        String mimeType = detectMimeType(imageBytes);
+        String mimeType = MimeTypes.detect(imageBytes);
         String dataUrl = "data:" + mimeType + ";base64," + base64;
 
         List<Map<String, Object>> contentParts = new ArrayList<>();
@@ -400,20 +390,11 @@ public class AIService {
             log.info("通义千问VL请求: {} chars", body.length());
 
             byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
-            byte[] responseBytes = visionRestClient.post()
-                    .header("Content-Type", "application/json; charset=UTF-8")
-                    .header("Authorization", "Bearer " + apiConfig.getVisionApiKey())
-                    .body(bodyBytes)
-                    .retrieve()
-                    .body(byte[].class);
-
-            if (responseBytes == null) {
+            ChatResponse response = callCompletion(visionRestClient, apiConfig.getVisionApiKey(), bodyBytes);
+            if (response == null) {
                 return "错误: AI 服务返回空响应";
             }
-            String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
-            log.info("通义千问VL响应: {} chars", responseJson.length());
-
-            ChatResponse response = objectMapper.readValue(responseJson, ChatResponse.class);
+            log.info("通义千问VL调用成功");
             if (response.getChoices() == null || response.getChoices().isEmpty()) {
                 return "错误: AI 未返回内容";
             }
@@ -460,17 +441,11 @@ public class AIService {
             log.info("上下文回复请求: {} chars", body.length());
 
             byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
-            byte[] responseBytes = restClient.post()
-                    .header("Content-Type", "application/json; charset=UTF-8")
-                    .header("Authorization", "Bearer " + apiConfig.getAiApiKey())
-                    .body(bodyBytes)
-                    .retrieve()
-                    .body(byte[].class);
-
-            String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
-            log.info("上下文回复响应: {} chars", responseJson.length());
-
-            ChatResponse response = objectMapper.readValue(responseJson, ChatResponse.class);
+            ChatResponse response = callCompletion(restClient, apiConfig.getAiApiKey(), bodyBytes);
+            if (response == null) {
+                return "错误: AI 服务返回空响应";
+            }
+            log.info("上下文回复生成成功");
             if (response.getChoices() == null || response.getChoices().isEmpty()) {
                 return "错误: AI 未返回内容";
             }
@@ -516,7 +491,12 @@ public class AIService {
             + "用户回复具体合约代码（如'RB2610'）后，再调用 get_futures 传该代码查看行情；"
             + "若用户明确要当前主力行情（如'螺纹钢现在多少钱'）或已指定合约代码，直接调用 get_futures 传对应代码或连续合约(RB0/CL)即可，不要多此一举弹列表。"
             + "【走势分析】用户说'进一步分析''分析走势''技术分析''怎么看''未来怎么走'等要对某只股票/指数做分析时，调用 analyze_stock（输出技术面分析并自动附带K线图，无需再调用 generate_chart，避免重复出图）。"
-            + "若用户只是单纯查行情（'查一下''多少钱'），则只查行情，不要生成图表。";
+            + "若用户只是单纯查行情（'查一下''多少钱'），则只查行情，不要生成图表。"
+            + "【数据时效】回答股票/基金/期货行情时必须注意：A股/港股交易日为周一至周五（法定节假日除外），美股为美国时间周一至周五。"
+            + "周末或节假日查询到的是上一交易日收盘数据，必须明确告知实际数据日期（如'截至上周五收盘'）；"
+            + "周一到周五但尚未开盘（如早8点）说明'截至昨日收盘'；盘中则说'实时行情'。永远不要让用户误以为非今日数据是今天的实时数据。"
+            + "【期货合约】期货合约有固定到期日（交割月份），合约到期会强制平仓或进入交割。回复时标注主力合约月份（如'玉米2509合约'）并提醒关注到期时间；"
+            + "持仓合约临近最后交易日要警告'该合约即将到期，注意平仓或移仓换月'；分析走势时要说清分析的是哪个合约，不同月份合约价格差异可能较大。";
     }
 
     /** 从数据库加载用户记忆,构建上下文块. */
@@ -576,13 +556,18 @@ public class AIService {
                 .orElse(null);
     }
 
-    /** 根据文件头字节识别图片 MIME 类型（用于图片识别请求）。 */
-    private String detectMimeType(byte[] data) {
-        if (data.length > 2 && data[0] == (byte) 0xFF && data[1] == (byte) 0xD8) return "image/jpeg";
-        if (data.length > 3 && data[0] == (byte) 0x89 && data[1] == (byte) 0x50 && data[2] == (byte) 0x4E) return "image/png";
-        if (data.length > 3 && data[0] == (byte) 0x47 && data[1] == (byte) 0x49 && data[2] == (byte) 0x46) return "image/gif";
-        if (data.length > 4 && data[0] == (byte) 0x52 && data[1] == (byte) 0x49 && data[2] == (byte) 0x46 && data[3] == (byte) 0x46) return "image/webp";
-        return "image/jpeg";
+    /** 发送一次对话补全请求并解析响应。响应为空返回 null，解析异常向上抛。 */
+    private ChatResponse callCompletion(RestClient client, String apiKey, byte[] bodyBytes) throws Exception {
+        byte[] responseBytes = client.post()
+                .header("Content-Type", "application/json; charset=UTF-8")
+                .header("Authorization", "Bearer " + apiKey)
+                .body(bodyBytes)
+                .retrieve()
+                .body(byte[].class);
+        if (responseBytes == null) return null;
+        String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
+        log.debug("AI 响应: {} chars", responseJson.length());
+        return objectMapper.readValue(responseJson, ChatResponse.class);
     }
 
     /** 裁剪会话历史，只保留最近 MAX_HISTORY 条（控制 token 长度）。 */

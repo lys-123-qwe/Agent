@@ -5,13 +5,16 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
+import com.example.youkeda_project.util.FormatUtil;
+import com.example.youkeda_project.util.StockQuoteParser;
+import com.example.youkeda_project.util.TtlCache;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 基金查询服务，接入新浪/腾讯公开接口。
@@ -32,12 +35,10 @@ public class FundService {
 
     private final RestClient restClient;
 
-    private final ConcurrentHashMap<String, long[]> cacheTs = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, String> cacheResult = new ConcurrentHashMap<>();
+    private final TtlCache<String> cache = new TtlCache<>(CACHE_TTL_MS);
 
     // 历史净值缓存
-    private final ConcurrentHashMap<String, long[]> navCacheTs = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, List<NavData>> navCacheData = new ConcurrentHashMap<>();
+    private final TtlCache<List<NavData>> navCache = new TtlCache<>(NAV_CACHE_TTL_MS);
 
     /** 中文名称 → 新浪代码映射（ETF 场内基金） */
     private static final Map<String, String> ETF_MAP;
@@ -220,15 +221,10 @@ public class FundService {
     // ==================== 缓存 ====================
 
     private String fetchWithCache(String fullCode, String displayName, String type) {
-        long now = System.currentTimeMillis();
-        long[] ts = cacheTs.get(fullCode);
-        if (ts != null && now - ts[0] < CACHE_TTL_MS) {
-            String cached = cacheResult.get(fullCode);
-            if (cached != null) return cached;
-        }
+        String cached = cache.get(fullCode);
+        if (cached != null) return cached;
         String result = fetchFundData(fullCode, displayName, type);
-        cacheTs.put(fullCode, new long[]{now});
-        cacheResult.put(fullCode, result);
+        cache.put(fullCode, result);
         return result;
     }
 
@@ -273,12 +269,11 @@ public class FundService {
         if (response == null || response.isBlank()) throw new RuntimeException("新浪返回空数据");
         log.info("新浪基金响应(code={}): {}", fullCode, response);
 
-        int eqIdx = response.indexOf('"');
-        if (eqIdx == -1) throw new RuntimeException("响应格式异常");
-        String data = response.substring(eqIdx + 1, response.lastIndexOf('"'));
-        if (data.isEmpty()) throw new RuntimeException("基金代码无效或无数据");
-
-        String[] fields = data.split(",", -1);
+        String[] fields = StockQuoteParser.extractQuotedFields(response, ",");
+        if (fields == null) {
+            if (response.indexOf('"') == -1) throw new RuntimeException("响应格式异常");
+            throw new RuntimeException("基金代码无效或无数据");
+        }
         if (fields.length < 5) throw new RuntimeException("字段不足: " + fields.length);
 
         String name = fields[0].trim();
@@ -307,12 +302,11 @@ public class FundService {
         if (response == null || response.isBlank()) throw new RuntimeException("新浪返回空数据");
         log.info("新浪ETF响应(code={}): {}", fullCode, response);
 
-        int eqIdx = response.indexOf('"');
-        if (eqIdx == -1) throw new RuntimeException("响应格式异常");
-        String data = response.substring(eqIdx + 1, response.lastIndexOf('"'));
-        if (data.isEmpty()) throw new RuntimeException("ETF代码无效或无数据");
-
-        String[] fields = data.split(",", -1);
+        String[] fields = StockQuoteParser.extractQuotedFields(response, ",");
+        if (fields == null) {
+            if (response.indexOf('"') == -1) throw new RuntimeException("响应格式异常");
+            throw new RuntimeException("ETF代码无效或无数据");
+        }
         if (fields.length < 9) throw new RuntimeException("ETF字段不足: " + fields.length);
 
         String name = fields[0].trim();
@@ -345,12 +339,11 @@ public class FundService {
         if (response == null || response.isBlank()) throw new RuntimeException("腾讯返回空数据");
         log.info("腾讯基金响应(code={}): {}", fullCode, response);
 
-        int eqIdx = response.indexOf('"');
-        if (eqIdx == -1) throw new RuntimeException("响应格式异常");
-        String data = response.substring(eqIdx + 1, response.lastIndexOf('"'));
-        if (data.isEmpty()) throw new RuntimeException("腾讯返回空数据");
-
-        String[] fields = data.split("~", -1);
+        String[] fields = StockQuoteParser.extractQuotedFields(response, "~");
+        if (fields == null) {
+            if (response.indexOf('"') == -1) throw new RuntimeException("响应格式异常");
+            throw new RuntimeException("腾讯返回空数据");
+        }
         if (fields.length < 8) throw new RuntimeException("腾讯字段不足: " + fields.length);
 
         String name = fields[1].trim();
@@ -377,12 +370,11 @@ public class FundService {
         if (response == null || response.isBlank()) throw new RuntimeException("腾讯返回空数据");
         log.info("腾讯ETF响应(code={}): {}", fullCode, response);
 
-        int eqIdx = response.indexOf('"');
-        if (eqIdx == -1) throw new RuntimeException("响应格式异常");
-        String data = response.substring(eqIdx + 1, response.lastIndexOf('"'));
-        if (data.isEmpty()) throw new RuntimeException("腾讯返回空数据");
-
-        String[] fields = data.split("~", -1);
+        String[] fields = StockQuoteParser.extractQuotedFields(response, "~");
+        if (fields == null) {
+            if (response.indexOf('"') == -1) throw new RuntimeException("响应格式异常");
+            throw new RuntimeException("腾讯返回空数据");
+        }
         if (fields.length < 8) throw new RuntimeException("腾讯字段不足: " + fields.length);
 
         String name = fields[1].trim();
@@ -437,20 +429,10 @@ public class FundService {
                                       String size, String category) {
         try {
             BigDecimal navVal = new BigDecimal(nav.trim());
-            String direction = "📈";
-            String sign = "";
-
-            if (prevNav != null && !prevNav.isBlank()) {
-                BigDecimal prev = new BigDecimal(prevNav.trim());
-                if (prev.compareTo(BigDecimal.ZERO) > 0) {
-                    BigDecimal change = navVal.subtract(prev);
-                    direction = change.compareTo(BigDecimal.ZERO) >= 0 ? "📈" : "📉";
-                    sign = change.compareTo(BigDecimal.ZERO) >= 0 ? "+" : "";
-                }
-            }
+            FormatUtil.ChangeInfo ci = FormatUtil.calcChange(navVal, prevNav);
 
             StringBuilder sb = new StringBuilder();
-            sb.append(direction).append(" ").append(name).append("（").append(code).append("）\n");
+            sb.append(ci.direction()).append(" ").append(name).append("（").append(code).append("）\n");
             sb.append("  类型: 开放式基金 · ").append(category).append("\n");
             sb.append("  单位净值: ").append(nav).append("\n");
 
@@ -459,15 +441,9 @@ public class FundService {
                 sb.append("  累计净值: ").append(cumulativeNav).append("\n");
             }
 
-            if (prevNav != null && !prevNav.isBlank()) {
-                BigDecimal prev = new BigDecimal(prevNav.trim());
-                if (prev.compareTo(BigDecimal.ZERO) > 0) {
-                    BigDecimal change = navVal.subtract(prev);
-                    BigDecimal changePct = change.divide(prev, 4, RoundingMode.HALF_UP)
-                        .multiply(new BigDecimal("100"));
-                    sb.append("  日涨跌: ").append(sign).append(change.setScale(4, RoundingMode.HALF_UP)).append("\n");
-                    sb.append("  日涨跌幅: ").append(sign).append(changePct.setScale(2, RoundingMode.HALF_UP)).append("%\n");
-                }
+            if (ci.computed()) {
+                sb.append("  日涨跌: ").append(ci.sign()).append(ci.change().setScale(4, RoundingMode.HALF_UP)).append("\n");
+                sb.append("  日涨跌幅: ").append(ci.sign()).append(ci.changePct().setScale(2, RoundingMode.HALF_UP)).append("%\n");
             }
 
             if (size != null && !size.isBlank() && !"0".equals(size.trim())) {
@@ -482,12 +458,7 @@ public class FundService {
             }
 
             if (date != null && !date.isBlank()) {
-                sb.append("  🕐 数据时间: ").append(date.trim());
-                String today = java.time.LocalDate.now()
-                    .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"));
-                if (!date.trim().contains(today)) {
-                    sb.append("（⚠️非今日数据）");
-                }
+                sb.append("  🕐 数据时间: ").append(FormatUtil.formatQuoteDate(date.trim(), ""));
             }
             return sb.toString();
         } catch (NumberFormatException e) {
@@ -501,39 +472,20 @@ public class FundService {
                                   String low, String volume, String date) {
         try {
             BigDecimal price = new BigDecimal(currentPrice.trim());
-            BigDecimal change = BigDecimal.ZERO;
-            BigDecimal changePct = BigDecimal.ZERO;
-            String direction = "📈";
-            String sign = "";
-
-            if (prevClose != null && !prevClose.isBlank()) {
-                BigDecimal prev = new BigDecimal(prevClose.trim());
-                if (prev.compareTo(BigDecimal.ZERO) > 0) {
-                    change = price.subtract(prev);
-                    changePct = change.divide(prev, 4, RoundingMode.HALF_UP)
-                        .multiply(new BigDecimal("100"));
-                    direction = change.compareTo(BigDecimal.ZERO) >= 0 ? "📈" : "📉";
-                    sign = change.compareTo(BigDecimal.ZERO) >= 0 ? "+" : "";
-                }
-            }
+            FormatUtil.ChangeInfo ci = FormatUtil.calcChange(price, prevClose);
 
             StringBuilder sb = new StringBuilder();
-            sb.append(direction).append(" ").append(name).append("（").append(code).append("）\n");
+            sb.append(ci.direction()).append(" ").append(name).append("（").append(code).append("）\n");
             sb.append("  类型: 场内基金 · ETF\n");
             sb.append("  当前价: ").append(price).append("\n");
-            sb.append("  涨跌额: ").append(sign).append(change.setScale(3, RoundingMode.HALF_UP)).append("\n");
-            sb.append("  涨跌幅: ").append(sign).append(changePct.setScale(2, RoundingMode.HALF_UP)).append("%\n");
+            sb.append("  涨跌额: ").append(ci.sign()).append(ci.change().setScale(3, RoundingMode.HALF_UP)).append("\n");
+            sb.append("  涨跌幅: ").append(ci.sign()).append(ci.changePct().setScale(2, RoundingMode.HALF_UP)).append("%\n");
             if (isNonZero(open)) sb.append("  今开: ").append(open.trim()).append("\n");
             if (isNonZero(high)) sb.append("  最高: ").append(high.trim()).append("\n");
             if (isNonZero(low)) sb.append("  最低: ").append(low.trim()).append("\n");
             if (isNonZero(volume)) sb.append("  成交量: ").append(formatVolume(volume.trim())).append("\n");
             if (date != null && !date.isBlank()) {
-                sb.append("  🕐 数据时间: ").append(date.trim());
-                String today = java.time.LocalDate.now()
-                    .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"));
-                if (!date.trim().contains(today)) {
-                    sb.append("（⚠️非今日数据）");
-                }
+                sb.append("  🕐 数据时间: ").append(FormatUtil.formatQuoteDate(date.trim(), ""));
             }
             return sb.toString();
         } catch (NumberFormatException e) {
@@ -572,14 +524,10 @@ public class FundService {
 
         // 检查缓存
         String cacheKey = code + ":" + days;
-        long now = System.currentTimeMillis();
-        long[] ts = navCacheTs.get(cacheKey);
-        if (ts != null && now - ts[0] < NAV_CACHE_TTL_MS) {
-            List<NavData> cached = navCacheData.get(cacheKey);
-            if (cached != null) {
-                log.debug("基金净值缓存命中: key={}", cacheKey);
-                return cached;
-            }
+        List<NavData> cached = navCache.get(cacheKey);
+        if (cached != null) {
+            log.debug("基金净值缓存命中: key={}", cacheKey);
+            return cached;
         }
 
         String eastmoneyCode = code.startsWith("f_") ? code.substring(2) : code;
@@ -626,8 +574,7 @@ public class FundService {
 
             // 写入缓存
             if (!result.isEmpty()) {
-                navCacheTs.put(cacheKey, new long[]{now});
-                navCacheData.put(cacheKey, result);
+                navCache.put(cacheKey, result);
             }
 
             return result;

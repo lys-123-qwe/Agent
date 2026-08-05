@@ -43,11 +43,6 @@ public class ToolResult {
         return new ToolResult(text, null, null, imageBytesList, null, null, 0, null);
     }
 
-    /** 多张图片 + 随图直接发送的说明文本(不经过AI). */
-    public static ToolResult imagesWithCaption(String text, List<byte[]> imageBytesList, String caption) {
-        return new ToolResult(text, null, null, imageBytesList, null, null, 0, caption);
-    }
-
     public static ToolResult audio(String text, byte[] audioBytes, String audioFileName, int durationSeconds) {
         return new ToolResult(text, null, null, null, audioBytes, audioFileName, durationSeconds, null);
     }

@@ -1,7 +1,5 @@
 package com.example.youkeda_project.tool;
 
-import com.example.youkeda_project.tool.AbstractTool;
-
 import java.util.Map;
 
 /**

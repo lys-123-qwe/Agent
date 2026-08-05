@@ -124,17 +124,6 @@ public class ChatHistoryService {
         return result;
     }
 
-    public void deleteHistory(String userId) {
-        try (Connection conn = getConn();
-             PreparedStatement ps = conn.prepareStatement("DELETE FROM chat_history WHERE user_id = ?")) {
-            ps.setString(1, userId);
-            ps.executeUpdate();
-            log.info("已删除用户 {} 的对话记录", userId);
-        } catch (Exception e) {
-            log.warn("删除对话记录失败", e);
-        }
-    }
-
     static class SqliteDataSource implements DataSource {
         @Override
         public Connection getConnection() throws SQLException {

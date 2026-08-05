@@ -1,31 +1,19 @@
 package com.example.youkeda_project.skill;
 
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
-import java.util.*;
-import java.util.stream.Stream;
+import java.util.HashSet;
+import java.util.Optional;
+import java.util.Set;
 
 /**
- * SkillManager      .
+ * 技能路由管理器。
  *
- *    src/skills/*   ,        Skill:
- * 1.           skill.json
- * 2.    skillClass   ,     
- * 3.     ToolRegistry
- * 4.           KnowledgeService
- *
- *    if-else    ,     Skill        +   +     .
- * 
- *       Spring         Skill Bean,           Spring   Skill.
+ * 技能通过 Spring Bean 注册（ToolRegistry.init 收集），此处仅负责：
+ * 根据用户输入命中技能触发词，返回匹配的技能（供上层做 RAG 知识检索）。
  */
 @Component
 public class SkillManager {
@@ -33,123 +21,19 @@ public class SkillManager {
     private static final Logger log = LoggerFactory.getLogger(SkillManager.class);
 
     private final ToolRegistry toolRegistry;
-    private final ObjectMapper objectMapper;
-    private final ApplicationContext applicationContext;
 
-    private final Path skillRoot;
-
-    public SkillManager(ToolRegistry toolRegistry,
-                        ObjectMapper objectMapper, ApplicationContext applicationContext) {
+    public SkillManager(ToolRegistry toolRegistry) {
         this.toolRegistry = toolRegistry;
-        this.objectMapper = objectMapper;
-        this.applicationContext = applicationContext;
-        this.skillRoot = Paths.get("src", "skills").toAbsolutePath().normalize();
     }
 
     @PostConstruct
     public void init() {
-        // 1.     Spring     Skill Bean(         )
-        applicationContext.getBeansOfType(Skill.class).values().forEach(this::registerSkill);
-        // 2.        ,    Spring   Skill
-        loadAllSkillsFromFile();
-    }
-
-    private void registerSkill(Skill skill) {
-        toolRegistry.register(skill);
+        log.info("技能框架就绪，注册技能数: {}", toolRegistry.getSkills().size());
     }
 
     /**
-     *              Skill.
-     */
-    private void loadAllSkillsFromFile() {
-        if (!Files.isDirectory(skillRoot)) {
-            log.warn("Skill      : {},      ", skillRoot);
-            return;
-        }
-
-        try (Stream<Path> stream = Files.list(skillRoot)) {
-            stream.filter(Files::isDirectory)
-                    .forEach(this::loadSkillFromDirectory);
-        } catch (IOException e) {
-            log.error("   Skill     : {}", e.getMessage(), e);
-        }
-
-        log.info("Skill       ,    {}   Skill,{}    ",
-                toolRegistry.getSkills().size(),
-                toolRegistry.allTools().size());
-    }
-
-    private void loadSkillFromDirectory(Path dir) {
-        Path configFile = dir.resolve("skill.json");
-        if (!Files.isRegularFile(configFile)) {
-            log.debug("   {}    skill.json,  ", dir.getFileName());
-            return;
-        }
-
-        try {
-            String json = Files.readString(configFile, StandardCharsets.UTF_8);
-            JsonNode root = objectMapper.readTree(json);
-
-            String skillClass = root.path("skillClass").asText(null);
-            if (skillClass == null || skillClass.isBlank()) {
-                log.warn("{}    skillClass   ", configFile);
-                return;
-            }
-
-            Class<? extends Skill> clazz = Class.forName(skillClass).asSubclass(Skill.class);
-            Skill skill = instantiateSkill(clazz, root);
-            if (skill == null) {
-                log.warn("      Skill: {}", skillClass);
-                return;
-            }
-
-            //       Spring      ,  
-            if (toolRegistry.getSkills().stream().anyMatch(s -> s.getName().equals(skill.getName()))) {
-                log.debug("Skill {}    Spring   ,      ", skill.getName());
-                return;
-            }
-
-            toolRegistry.register(skill);
-
-            log.info("    Skill: {} ({}),  : {},  : {}",
-                    skill.getName(), skillClass, skill.getTools().size(), skill.getKnowledgeDocuments());
-
-        } catch (Exception e) {
-            log.error("   Skill   : {} - {}", configFile, e.getMessage(), e);
-        }
-    }
-
-    /**
-     *     Skill.    Spring      Bean,     .
-     */
-    @SuppressWarnings("unchecked")
-    private Skill instantiateSkill(Class<? extends Skill> clazz, JsonNode config) {
-        try {
-            //    Spring        ,    
-            Map<String, Skill> beans = (Map<String, Skill>) applicationContext.getBeansOfType(clazz);
-            if (!beans.isEmpty()) {
-                return beans.values().iterator().next();
-            }
-        } catch (Exception e) {
-            log.debug("    Spring       Skill Bean: {}", clazz.getName());
-        }
-
-        try {
-            return clazz.getDeclaredConstructor(ObjectMapper.class).newInstance(objectMapper);
-        } catch (Exception e) {
-            log.debug("  ObjectMapper    : {},      ", clazz.getName());
-        }
-        try {
-            return clazz.getDeclaredConstructor().newInstance();
-        } catch (Exception e) {
-            log.warn("Skill      : {} - {}", clazz.getName(), e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     *          ,       Skill.
-     *         +        ,     .
+     * 根据用户输入匹配技能，未命中返回空。
+     * 采用触发词打分：完整触发词命中强匹配，长词部分匹配加分。
      */
     public Optional<Skill> routeSkill(String query) {
         if (query == null || query.isBlank()) return Optional.empty();
@@ -170,7 +54,7 @@ public class SkillManager {
 
     private double matchScore(Skill skill, String query) {
         double score = 0;
-        List<String> triggers = skill.getTriggerExamples();
+        java.util.List<String> triggers = skill.getTriggerExamples();
         if (triggers == null) return 0;
 
         for (String trigger : triggers) {

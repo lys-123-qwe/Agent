@@ -179,18 +179,6 @@ public class CliRunner implements CommandLineRunner {
         return null;
     }
 
-    /** 合并 Skill 工具与通用工具(去重),保证通用能力不被 skill 路由排除. */
-    private List<Tool> mergeTools(List<Tool> skillTools) {
-        Map<String, Tool> merged = new LinkedHashMap<>();
-        for (Tool t : TOOLS) {
-            merged.put(t.getName(), t);
-        }
-        for (Tool t : skillTools) {
-            merged.putIfAbsent(t.getName(), t);
-        }
-        return new ArrayList<>(merged.values());
-    }
-
     // ==================== WeChat commands ====================
 
     /** 处理 wechat 子命令：login（登录）、sessions（查看）、close（删除会话）。 */
@@ -322,14 +310,12 @@ public class CliRunner implements CommandLineRunner {
                     }
                 }
 
-                // Route to Skill for RAG context, but always give AI all tools
+                // Route to Skill 获取 RAG 上下文；工具集始终全量
                 Optional<Skill> routedSkill = skillManager.routeSkill(text);
                 List<Tool> selectedTools = TOOLS;
                 String ragContext = "";
                 if (routedSkill.isPresent()) {
                     Skill skill = routedSkill.get();
-                    // Skill 工具 + 通用工具合并,保证生图/搜索/翻译等通用能力不被 skill 路由排除
-                    selectedTools = mergeTools(skill.getTools());
                     ragContext = ragService.buildSkillContext(skill.getName(), text);
                     log.info("Skill routed: {}, RAG context added, all {} tools available", skill.getName(), TOOLS.size());
                 }

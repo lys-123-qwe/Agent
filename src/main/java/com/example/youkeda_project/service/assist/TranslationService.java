@@ -4,13 +4,7 @@ import com.example.youkeda_project.config.ApiConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import tools.jackson.databind.ObjectMapper;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
 @Service
@@ -19,14 +13,12 @@ public class TranslationService {
     private static final Logger log = LoggerFactory.getLogger(TranslationService.class);
     private static final String API_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
 
-    private final HttpClient httpClient;
     private final ApiConfig apiConfig;
+    private final ChatTextClient chatTextClient;
 
-    public TranslationService(ApiConfig apiConfig) {
+    public TranslationService(ApiConfig apiConfig, ChatTextClient chatTextClient) {
         this.apiConfig = apiConfig;
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(15))
-                .build();
+        this.chatTextClient = chatTextClient;
     }
 
     public String translate(String text, String targetLang, String mode, String dialect) {
@@ -38,31 +30,12 @@ public class TranslationService {
         String systemPrompt = buildPrompt(mode != null ? mode : "general", targetLang, dialect);
 
         try {
-            String body = "{\"model\":\"qwen-turbo\",\"messages\":["
-                + "{\"role\":\"system\",\"content\":" + jsonEscape(systemPrompt) + "},"
-                + "{\"role\":\"user\",\"content\":" + jsonEscape(text) + "}"
-                + "]}";
-
             log.info("翻译请求: mode={}, target={}, dialect={}, textLen={}", mode, targetLang, dialect, text.length());
 
-            var hreq = HttpRequest.newBuilder()
-                    .uri(URI.create(API_URL))
-                    .header("Content-Type", "application/json; charset=UTF-8")
-                    .header("Authorization", "Bearer " + apiKey)
-                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-                    .timeout(Duration.ofSeconds(30))
-                    .build();
+            String result = chatTextClient.complete(API_URL, apiKey, "qwen-turbo", systemPrompt, text, Duration.ofSeconds(30),
+                    body -> log.info("翻译响应: {}", body.length() > 200 ? body.substring(0, 200) + "..." : body));
+            if (result == null) return "翻译服务暂不可用";
 
-            HttpResponse<String> hresp = httpClient.send(hreq, HttpResponse.BodyHandlers.ofString());
-            String respBody = hresp.body();
-            log.info("翻译响应: {}", respBody.length() > 200 ? respBody.substring(0, 200) + "..." : respBody);
-
-            var mapper = new ObjectMapper();
-            var root = mapper.readTree(respBody);
-            var choice = root.path("choices").get(0);
-            if (choice == null) return "翻译服务暂不可用";
-
-            String result = choice.path("message").path("content").asText("");
             if (result.isBlank()) return "翻译结果为空";
             return result;
         } catch (Exception e) {
@@ -264,13 +237,5 @@ public class TranslationService {
                 """
                 提示:使用""" + dialect + "的典型词汇,语气词,语法结构进行转换,保持自然地道.";
         };
-    }
-
-    private String jsonEscape(String s) {
-        return "\"" + s.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t") + "\"";
     }
 }

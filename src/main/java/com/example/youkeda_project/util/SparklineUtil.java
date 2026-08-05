@@ -75,59 +75,6 @@ public final class SparklineUtil {
         return generate(list);
     }
 
-    /**
-     * 生成带标签的完整走势文本块。
-     *
-     * @param label    品种名称
-     * @param values   价格序列（最近N天收盘价）
-     * @param currentPrice 当前最新价（用于计算涨跌）
-     * @param changePct    当日涨跌幅百分比
-     * @return 格式化的走势文本
-     */
-    public static String formatWithSparkline(String label, List<BigDecimal> values,
-                                              BigDecimal currentPrice, String changePct) {
-        if (values == null || values.isEmpty()) return "";
-
-        String sparkline = generate(values);
-        String direction = changePct.startsWith("-") ? "↓" : changePct.startsWith("+") ? "↑" : "→";
-
-        // 计算近N日涨跌幅
-        String periodChange = "";
-        if (values.size() >= 2) {
-            BigDecimal first = values.get(0);
-            BigDecimal last = values.get(values.size() - 1);
-            try {
-                BigDecimal change = last.subtract(first)
-                        .divide(first, 4, RoundingMode.HALF_UP)
-                        .multiply(BigDecimal.valueOf(100))
-                        .setScale(1, RoundingMode.HALF_UP);
-                String sign = change.compareTo(BigDecimal.ZERO) >= 0 ? "+" : "";
-                periodChange = "近" + Math.min(LABEL_DAYS, values.size()) + "日 " + sign + change + "%";
-            } catch (Exception ignored) {}
-        }
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("  ").append(sparkline).append("\n");
-        sb.append("  ").append(label);
-        if (!periodChange.isEmpty()) sb.append("  ").append(periodChange);
-        sb.append("\n");
-
-        return sb.toString();
-    }
-
-    /**
-     * 生成快报格式的并排迷你走势（多个品种一行）。
-     * 用于大盘快报场景。
-     */
-    public static String formatQuickRow(String name, List<BigDecimal> values,
-                                         String changePct, int labelWidth) {
-        String sparkline = generate(values);
-        String direction = changePct.startsWith("-") ? "📉" : "📈";
-        if (changePct.equals("0.00%") || changePct.equals("0%")) direction = "📊";
-        return String.format("%-" + labelWidth + "s %s %s %s",
-                name, sparkline, changePct, direction);
-    }
-
     // ==================== 内部方法 ====================
 
     /**

@@ -7,8 +7,6 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
-import com.example.youkeda_project.rag.EmbeddingService;
-
 @Service
 public class RagService {
 

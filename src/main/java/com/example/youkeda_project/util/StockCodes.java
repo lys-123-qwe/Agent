@@ -119,6 +119,38 @@ public final class StockCodes {
         map.put("台积电", "gb_tsm");
         map.put("拼多多", "gb_pdd");
         map.put("伯克希尔", "gb_brk.b");
+        // === 全球主要指数（新浪 int_ 前缀） ===
+        map.put("日经指数", "int_nikkei");
+        map.put("日经225", "int_nikkei");
+        map.put("道琼斯", "int_dji");
+        map.put("道指", "int_dji");
+        map.put("纳斯达克", "int_nasdaq");
+        map.put("纳指", "int_nasdaq");
+        map.put("标普500", "int_sp500");
+        map.put("标普", "int_sp500");
+        // === 日股热门 ===
+        map.put("丰田", "jp_7203");
+        map.put("丰田汽车", "jp_7203");
+        map.put("索尼", "jp_6758");
+        map.put("任天堂", "jp_7974");
+        map.put("软银", "jp_9984");
+        map.put("软银集团", "jp_9984");
+        map.put("三菱UFJ", "jp_8306");
+        map.put("三菱日联", "jp_8306");
+        map.put("本田", "jp_7267");
+        map.put("东京电子", "jp_8035");
+        map.put("迅销", "jp_9983");
+        map.put("优衣库", "jp_9983");
+        // === 韩股热门 ===
+        map.put("三星电子", "kr_005930");
+        map.put("三星", "kr_005930");
+        map.put("SK海力士", "kr_000660");
+        map.put("海力士", "kr_000660");
+        map.put("LG新能源", "kr_373220");
+        map.put("现代汽车", "kr_005380");
+        map.put("起亚", "kr_000270");
+        map.put("起亚汽车", "kr_000270");
+        map.put("三星生物", "kr_207940");
         NAME_MAP = Map.copyOf(map);
     }
 
@@ -228,5 +260,52 @@ public final class StockCodes {
             };
         }
         return null;
+    }
+
+    /**
+     * 将股票名称/代码解析为新浪格式完整代码（sh/sz/bj/hk/gb_/jp_/kr_）。
+     * 支持：名称映射、带前缀代码、纯数字（自动识别交易所）、纯字母/带点（美股）。
+     * 无法识别返回 null。
+     */
+    public static String resolveSinaCode(String input) {
+        if (input == null || input.isBlank()) return null;
+        String trimmed = input.trim();
+
+        // 1. 名称映射（含动态反查）
+        String mapped = byName(trimmed);
+        if (mapped != null) return mapped;
+
+        // 2. 已带前缀
+        if (trimmed.matches("(?i)^(?:sh|sz|bj|hk|gb_|jp_|kr_)[a-z0-9.]+$")) {
+            return trimmed.toLowerCase();
+        }
+
+        // 3. 纯数字代码，自动识别交易所
+        if (trimmed.matches("^\\d{5,6}$")) {
+            String prefix = detectNumericMarket(trimmed);
+            if (prefix != null) return prefix + trimmed;
+        }
+
+        // 4. 纯字母/带点 → 美股
+        if (trimmed.matches("(?i)^[a-z]+(\\.[a-z]+)?$")) {
+            return "gb_" + trimmed.toLowerCase();
+        }
+
+        return null;
+    }
+
+    /** 根据纯数字代码判断市场前缀（5 位=港股，6 位按首字符识别沪/深/北）。 */
+    private static String detectNumericMarket(String code) {
+        if (code.length() == 5) {
+            return "hk";  // 5 位数字 → 港股
+        }
+        // 6 位数字 → A 股
+        char first = code.charAt(0);
+        return switch (first) {
+            case '6', '5' -> "sh";
+            case '0', '3', '1' -> "sz";
+            case '8', '4' -> "bj";
+            default -> null;
+        };
     }
 }

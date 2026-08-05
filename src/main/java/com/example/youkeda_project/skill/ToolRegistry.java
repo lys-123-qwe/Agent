@@ -9,7 +9,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 
 /**
  *      .
@@ -114,23 +113,5 @@ public class ToolRegistry {
         Skill skill = skills.get(skillName);
         if (skill == null) return List.of();
         return new ArrayList<>(skill.getTools());
-    }
-
-    /**
-     *      Skill       ,   LLM   /    .
-     */
-    public List<SkillMeta> getSkillMetas() {
-        return skills.values().stream()
-                .map(s -> new SkillMeta(s.getName(), s.getDescription(), s.getTriggerExamples()))
-                .collect(Collectors.toList());
-    }
-
-    public record SkillMeta(String name, String description, List<String> triggers) {}
-
-    /**
-     *        Skill    Tool,       Skill    .
-     */
-    public interface SkillTool extends Tool {
-        String skillName();
     }
 }

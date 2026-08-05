@@ -150,24 +150,6 @@ public class TtsService {
     public record TtsResult(byte[] audioBytes, int durationSeconds) {}
 
     /**
-     * 音色信息.
-     */
-    public record VoiceInfo(String voiceId, String name, String description) {}
-
-    /**
-     * 获取所有可用音色.
-     */
-    public List<VoiceInfo> getVoices() {
-        List<Map<String, String>> raw = apiConfig.getTtsVoices();
-        return raw.stream()
-            .map(m -> new VoiceInfo(
-                m.getOrDefault("voiceId", ""),
-                m.getOrDefault("name", ""),
-                m.getOrDefault("description", "")))
-            .toList();
-    }
-
-    /**
      * 解析用户输入的音色选择.
      * 支持:数字 1-5,音色名(龙小淳),voice ID(longxiaochun).
      * 返回匹配的 voice ID,未匹配返回 null.

@@ -59,4 +59,13 @@ public final class StockQuoteParser {
         }
         return null;
     }
+
+    /** 提取响应字符串中第一对双引号之间的内容并按分隔符切分（新浪/腾讯行情格式）。无引号或空内容返回 null。 */
+    public static String[] extractQuotedFields(String resp, String splitRe) {
+        int eqIdx = resp.indexOf('"');
+        if (eqIdx < 0) return null;
+        String quoted = resp.substring(eqIdx + 1, resp.lastIndexOf('"'));
+        if (quoted.isEmpty()) return null;
+        return quoted.split(splitRe, -1);
+    }
 }

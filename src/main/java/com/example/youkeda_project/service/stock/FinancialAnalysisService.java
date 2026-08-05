@@ -146,23 +146,30 @@ public class FinancialAnalysisService {
     private record Macd(double dif, double dea, double hist) {}
 
     private Macd macd(List<Double> prices) {
-        double ema12 = ema(prices, 12);
-        double ema26 = ema(prices, 26);
-        double dif = ema12 - ema26;
-        // 简化 DEA:用 DIF 的 9 周期 EMA,这里用最近一次 DIF 近似
-        double dea = dif * 0.8;
+        if (prices.size() < 26) {
+            double last = prices.get(prices.size() - 1);
+            return new Macd(round(last), round(last), 0);
+        }
+        // EMA12/EMA26 递推计算 DIF（与回测引擎算法一致）
+        double ema12 = prices.get(0), ema26 = prices.get(0);
+        double[] difs = new double[prices.size()];
+        for (int i = 0; i < prices.size(); i++) {
+            double p = prices.get(i);
+            if (i > 0) {
+                ema12 = ema12 * (11.0 / 13) + p * (2.0 / 13);
+                ema26 = ema26 * (25.0 / 27) + p * (2.0 / 27);
+            }
+            difs[i] = ema12 - ema26;
+        }
+        double dif = difs[difs.length - 1];
+        // DEA = DIF 的 9 周期 EMA
+        int start = difs.length - Math.min(9, difs.length);
+        double dea = difs[start];
+        for (int i = start + 1; i < difs.length; i++) {
+            dea = dea * (8.0 / 10) + difs[i] * (2.0 / 10);
+        }
         double hist = dif - dea;
         return new Macd(round(dif), round(dea), round(hist));
-    }
-
-    private double ema(List<Double> prices, int period) {
-        if (prices.size() < period) return prices.get(prices.size() - 1);
-        double multiplier = 2.0 / (period + 1);
-        double ema = prices.get(prices.size() - period);
-        for (int i = prices.size() - period + 1; i < prices.size(); i++) {
-            ema = (prices.get(i) - ema) * multiplier + ema;
-        }
-        return ema;
     }
 
     private record Bollinger(double lower, double mid, double upper) {}

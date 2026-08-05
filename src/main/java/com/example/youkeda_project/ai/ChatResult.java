@@ -49,12 +49,6 @@ public class ChatResult {
                 .findFirst().orElse(null);
     }
 
-    /** 获取待上传的第一张图片字节 */
-    public byte[] getFirstPendingImageBytes() {
-        List<byte[]> all = getAllPendingImageBytes();
-        return all.isEmpty() ? null : all.get(0);
-    }
-
     /** 获取所有待上传的图片字节（含多图形式） */
     public List<byte[]> getAllPendingImageBytes() {
         List<byte[]> result = new java.util.ArrayList<>();

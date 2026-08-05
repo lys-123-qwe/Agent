@@ -1,4 +1,4 @@
-package com.example.youkeda_project.service.chart;
+package com.example.youkeda_project.service.stock;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -91,21 +91,21 @@ public class ChartService {
     public record SeriesData(String name, List<ChartPoint> data) {}
 
     /**
-     * 将 StockService 的 K 线数据(字符串字段)转换为 CandlestickPoint 列表。
+     * 将 K 线数据（double 字段）转换为 CandlestickPoint 列表。
      * withChangePct=true 时计算相对前收的涨跌幅。
      */
     public static List<CandlestickPoint> toCandlestickPoints(
-            List<com.example.youkeda_project.service.stock.StockService.KlineData> klines,
+            List<KLineService.KLineData> klines,
             boolean withChangePct) {
         List<CandlestickPoint> data = new ArrayList<>();
         if (klines == null) return data;
         for (var k : klines) {
             try {
-                BigDecimal open = new BigDecimal(k.open());
-                BigDecimal high = new BigDecimal(k.high());
-                BigDecimal low = new BigDecimal(k.low());
-                BigDecimal close = new BigDecimal(k.close());
-                long volume = com.example.youkeda_project.util.StockCodes.parseLong(k.volume());
+                BigDecimal open = BigDecimal.valueOf(k.getOpen());
+                BigDecimal high = BigDecimal.valueOf(k.getHigh());
+                BigDecimal low = BigDecimal.valueOf(k.getLow());
+                BigDecimal close = BigDecimal.valueOf(k.getClose());
+                long volume = (long) k.getVolume();
 
                 String changePct = null;
                 if (withChangePct && !data.isEmpty()) {
@@ -117,7 +117,7 @@ public class ChartService {
                                 .toString();
                     }
                 }
-                data.add(new CandlestickPoint(k.date(), open, high, low, close, volume, changePct));
+                data.add(new CandlestickPoint(k.getDay(), open, high, low, close, volume, changePct));
             } catch (NumberFormatException ignored) {}
         }
         return data;
@@ -131,15 +131,6 @@ public class ChartService {
     /** 生成折线图（数据≥20 条时自动加 MA5/10/20 均线）。 */
     public byte[] generateChart(String title, String subtitle, List<ChartPoint> data) {
         List<Integer> maPeriods = data.size() >= 20 ? List.of(5, 10, 20) : null;
-        return generateLineChartInternal(title, subtitle, data, maPeriods);
-    }
-
-    /**
-     * 生成带指定均线的折线图。
-     */
-    /** 生成带指定均线的折线图。 */
-    public byte[] generateChartWithMA(String title, String subtitle, List<ChartPoint> data,
-                                      List<Integer> maPeriods) {
         return generateLineChartInternal(title, subtitle, data, maPeriods);
     }
 

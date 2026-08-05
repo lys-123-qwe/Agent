@@ -4,11 +4,11 @@ import com.example.youkeda_project.tool.AbstractTool;
 
 import com.example.youkeda_project.tool.ToolResult;
 
-import com.example.youkeda_project.service.chart.ChartService;
+import com.example.youkeda_project.service.stock.ChartService;
 import com.example.youkeda_project.service.stock.StockService;
-import com.example.youkeda_project.service.chart.ChartService.ChartPoint;
-import com.example.youkeda_project.service.chart.ChartService.CandlestickPoint;
-import com.example.youkeda_project.service.stock.StockService.KlineData;
+import com.example.youkeda_project.service.stock.ChartService.ChartPoint;
+import com.example.youkeda_project.service.stock.ChartService.CandlestickPoint;
+import com.example.youkeda_project.service.stock.KLineService.KLineData;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
@@ -103,7 +103,7 @@ public class ChartTool extends AbstractTool {
             String name = stock;
 
             // 2. 拉取历史K线数据（60天）
-            List<KlineData> klines = stockService.getHistoricalKline(stock, 60);
+            List<KLineData> klines = stockService.getHistoricalKline(stock, 60);
             if (klines.size() < 3) {
                 return ToolResult.text("抱歉，「" + name + "」历史数据不足，无法生成图表。请确认品种代码正确。");
             }
@@ -130,22 +130,10 @@ public class ChartTool extends AbstractTool {
 
     // ==================== 图表类型生成 ====================
 
-    private byte[] generateLine(String name, String code, List<KlineData> klines) throws Exception {
-        List<ChartPoint> data = new ArrayList<>();
-        for (KlineData k : klines) {
-            BigDecimal close = new BigDecimal(k.close());
-            String changePct = null;
-            if (!data.isEmpty()) {
-                BigDecimal prevClose = data.getLast().value();
-                if (prevClose.compareTo(BigDecimal.ZERO) > 0) {
-                    BigDecimal pct = close.subtract(prevClose)
-                            .divide(prevClose, 4, RoundingMode.HALF_UP)
-                            .multiply(new BigDecimal("100"));
-                    changePct = pct.toString();
-                }
-            }
-            data.add(new ChartPoint(k.date(), close, changePct));
-        }
+    private byte[] generateLine(String name, String code, List<KLineData> klines) throws Exception {
+        List<ChartPoint> data = ChartService.toCandlestickPoints(klines, true).stream()
+                .map(c -> new ChartPoint(c.date(), c.close(), c.changePct()))
+                .toList();
 
         String subtitle = com.example.youkeda_project.util.StockCodes.marketLabel(code) + " · 近" + klines.size() + "日";
         byte[] pngBytes = chartService.generateChart(name, subtitle, data);
@@ -153,7 +141,7 @@ public class ChartTool extends AbstractTool {
         return pngBytes;
     }
 
-    private byte[] generateCandlestick(String name, String code, List<KlineData> klines) throws Exception {
+    private byte[] generateCandlestick(String name, String code, List<KLineData> klines) throws Exception {
         List<CandlestickPoint> data = ChartService.toCandlestickPoints(klines, true);
         String subtitle = com.example.youkeda_project.util.StockCodes.marketLabel(code)
             + " · 近" + klines.size() + "日 · 含MA5/10/20";
@@ -174,31 +162,13 @@ public class ChartTool extends AbstractTool {
     }
 
     /**
-     * 代码解析：优先用 StockCodes 完整名称映射，再按代码格式识别。
+     * 代码解析：统一走 StockCodes.resolveSinaCode，失败抛出提示。
      */
     private String resolveStockCode(String input) {
-        if (input == null || input.isBlank()) {
+        String code = com.example.youkeda_project.util.StockCodes.resolveSinaCode(input);
+        if (code == null) {
             throw new RuntimeException("无法识别品种: " + input);
         }
-        String trimmed = input.trim();
-
-        // 1. 名称映射（StockCodes 含 A股/港股/美股 60+ 名称）
-        String mapped = com.example.youkeda_project.util.StockCodes.byName(trimmed);
-        if (mapped != null) return mapped;
-
-        // 2. 已带前缀
-        if (trimmed.matches("(?i)^(?:sh|sz|bj|hk|gb_)[a-z0-9.]+$")) {
-            return trimmed.toLowerCase();
-        }
-        // 3. 纯数字代码
-        if (trimmed.matches("^\\d{5,6}$")) {
-            char first = trimmed.charAt(0);
-            return (first == '6' || first == '5' ? "sh" : "sz") + trimmed;
-        }
-        // 4. 纯字母 → 美股
-        if (trimmed.matches("(?i)^[a-z]+$")) {
-            return "gb_" + trimmed.toLowerCase();
-        }
-        throw new RuntimeException("无法识别品种: " + input);
+        return code;
     }
 }

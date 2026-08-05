@@ -1,6 +1,5 @@
 package com.example.youkeda_project.service.wechat;
 
-import com.example.youkeda_project.protocol.WeixinMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -82,17 +81,6 @@ public class IlinkService {
 
     // ---- messaging ----
 
-    /**
-     * Start message polling with auto-reply handlers for the default session.
-     */
-    public void startListening(WeChatSession.MessageHandler textHandler,
-                               WeChatSession.ImageMessageHandler imageHandler,
-                               WeChatSession.VoiceMessageHandler voiceHandler,
-                               WeChatSession.FileMessageHandler fileHandler) {
-        String sid = requireDefaultSessionId();
-        sessionManager.startListening(sid, textHandler, imageHandler, voiceHandler, fileHandler);
-    }
-
     public void startListening(String sessionId,
                                WeChatSession.MessageHandler textHandler,
                                WeChatSession.ImageMessageHandler imageHandler,
@@ -101,38 +89,18 @@ public class IlinkService {
         sessionManager.startListening(sessionId, textHandler, imageHandler, voiceHandler, fileHandler);
     }
 
-    public void stopListening() {
-        String sid = requireDefaultSessionId();
-        sessionManager.stopListening(sid);
-    }
-
     public void stopListening(String sessionId) {
         sessionManager.stopListening(sessionId);
     }
 
     // ---- send ----
 
-    public void sendText(String userId, String contextToken, String text) throws IOException {
-        String sid = requireDefaultSessionId();
-        sessionManager.sendText(sid, userId, contextToken, text);
-    }
-
     public void sendText(String sessionId, String userId, String contextToken, String text) throws IOException {
         sessionManager.sendText(sessionId, userId, contextToken, text);
     }
 
-    public void sendImage(String userId, String contextToken, byte[] imageBytes) {
-        String sid = requireDefaultSessionId();
-        sessionManager.sendImage(sid, userId, contextToken, imageBytes);
-    }
-
     public void sendImage(String sessionId, String userId, String contextToken, byte[] imageBytes) {
         sessionManager.sendImage(sessionId, userId, contextToken, imageBytes);
-    }
-
-    public void sendFile(String userId, String contextToken, byte[] fileBytes, String fileName, long fileSize) {
-        String sid = requireDefaultSessionId();
-        sessionManager.sendFile(sid, userId, contextToken, fileBytes, fileName, fileSize);
     }
 
     public void sendFile(String sessionId, String userId, String contextToken, byte[] fileBytes, String fileName, long fileSize) {
@@ -145,23 +113,8 @@ public class IlinkService {
         return sessionManager;
     }
 
-    public WeChatSession getSession(String sessionId) {
-        return sessionManager.getSession(sessionId);
-    }
-
-    public void switchDefaultSession(String sessionId) {
-        sessionManager.setDefaultSessionId(sessionId);
-    }
-
     public void deleteSession(String sessionId) {
         sessionManager.closeSession(sessionId);
-    }
-
-    public void logout() {
-        String sid = sessionManager.getDefaultSessionId();
-        if (sid != null) {
-            sessionManager.closeSession(sid);
-        }
     }
 
     public void logoutAll() {
@@ -170,10 +123,6 @@ public class IlinkService {
 
     public int restoreAll() {
         return sessionManager.restoreSessions();
-    }
-
-    public void saveAll() {
-        sessionManager.saveAllSessions();
     }
 
     public int getSessionCount() {
