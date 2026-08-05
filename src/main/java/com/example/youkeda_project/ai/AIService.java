@@ -12,8 +12,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -289,6 +291,79 @@ public class AIService {
     }
 
     /**
+     * 流式对话（供 Web 前端 SSE 使用）：
+     * 调用 DeepSeek stream=true，逐段把生成的文本通过 onDelta 回调吐出。
+     * 当前为纯文本流式（不调用工具），返回完整回复。
+     */
+    public String chatStream(String userId, String userMessage, java.util.function.Consumer<String> onDelta) {
+        if (apiConfig.getAiApiKey() == null || apiConfig.getAiApiKey().isBlank()) {
+            return "错误: 未配置 DeepSeek API Key";
+        }
+
+        List<ChatMessage> history = sessions.computeIfAbsent(userId, k -> {
+            List<ChatMessage> list = new ArrayList<>();
+            list.add(new ChatMessage("system", buildBasePrompt(userId)));
+            return list;
+        });
+        history.add(new ChatMessage("user", userMessage));
+        trimHistory(history);
+
+        // RAG 增强 system prompt：基于当前问题检索知识库拼入（与微信聊天一致）
+        if (!history.isEmpty() && "system".equals(history.get(0).role())) {
+            String enhanced = ragService.augment(userMessage, String.valueOf(history.get(0).content()));
+            history.set(0, new ChatMessage("system", enhanced));
+        }
+
+        try {
+            Map<String, Object> requestBody = Map.of(
+                "model", MODEL,
+                "messages", history,
+                "stream", true
+            );
+            String body = objectMapper.writeValueAsString(requestBody);
+            log.debug("DeepSeek流式请求: {} chars", body.length());
+
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection)
+                URI.create(apiConfig.getAiApiUrl()).toURL().openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+            conn.setRequestProperty("Authorization", "Bearer " + apiConfig.getAiApiKey());
+            conn.setDoOutput(true);
+            conn.setConnectTimeout(15000);
+            conn.setReadTimeout(120000);
+            conn.getOutputStream().write(body.getBytes(StandardCharsets.UTF_8));
+            conn.getOutputStream().flush();
+
+            StringBuilder full = new StringBuilder();
+            try (var reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (!line.startsWith("data:")) continue;
+                    String data = line.substring(5).trim();
+                    if ("[DONE]".equals(data)) break;
+                    JsonNode node = objectMapper.readTree(data);
+                    JsonNode delta = node.path("choices").path(0).path("delta").path("content");
+                    if (delta.isTextual()) {
+                        String d = delta.asText();
+                        full.append(d);
+                        if (onDelta != null) onDelta.accept(d);
+                    }
+                }
+            }
+            conn.disconnect();
+
+            String reply = full.toString();
+            history.add(new ChatMessage("assistant", reply));
+            trimHistory(history);
+            return reply;
+        } catch (Exception e) {
+            log.error("DeepSeek流式调用失败", e);
+            return "错误: AI 服务暂时不可用 - " + e.getMessage();
+        }
+    }
+
+    /**
      * 发送图片给通义千问 VL 进行识别.
      */
     /** 图片识别/问答：把图片字节 + 文字问题发给通义千问 VL 视觉模型，返回识别结果。 */
@@ -431,8 +506,6 @@ public class AIService {
             + "【大盘/市场行情】用户问'今天市场怎么样''大盘怎么样'等时，优先调用 market_overview 工具获取指数+热点+汇率+财经新闻，不要在总结前省略新闻。"
             + "【免责声明】凡是涉及股票行情、技术分析、投资建议、资金流向等金融类回答，最后必须附上一句免责声明：'⚠️ 以上内容仅供参考，不构成投资建议。'"
             + "【基本面】查股票时若用户问到市盈率/市净率/市值等，如实展示工具返回的数据，数据缺失时不要编造。"
-            + "【日韩股】用户查询'丰田''三星''索尼''任天堂''SK海力士''现代汽车'等日本/韩国股票时，"
-            + "调用 get_stock 并传中文名称（如'丰田'），不要臆造美股代码（如 TM/SSNGY），系统会自动识别为日股/韩股。"
             + "【自选股】用户说'加自选''关注''收藏''添加到自选'等调用 watchlist（operation=add）；"
             + "说'删自选''取消关注''移除'等调用 watchlist（operation=remove）；"
             + "说'自选股''我的自选''关注的股票'等调用 watchlist（operation=list）。"

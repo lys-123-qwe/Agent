@@ -43,12 +43,10 @@ public class StockService {
     private final ConcurrentHashMap<String, List<KlineData>> klineCacheData = new ConcurrentHashMap<>();
 
     private final KLineService kLineService;
-    private final EastAsiaQuoteProvider eastAsiaProvider;
 
-    public StockService(KLineService kLineService, EastAsiaQuoteProvider eastAsiaProvider) {
+    public StockService(KLineService kLineService) {
         this.restClient = RestClient.create();
         this.kLineService = kLineService;
-        this.eastAsiaProvider = eastAsiaProvider;
     }
 
     /**
@@ -69,20 +67,12 @@ public class StockService {
         // 1. 先从名称映射查找
         String fullCode = StockCodes.byName(trimmed);
         if (fullCode != null) {
-            // 日股/韩股走东亚市场数据源（当前为假数据）
-            if (eastAsiaProvider.supports(fullCode)) {
-                return eastAsiaProvider.queryQuote(fullCode);
-            }
             return fetchStockData(fullCode, trimmed);
         }
 
-        // 2. 已带新浪前缀（sh/sz/bj/hk/gb_/jp_/kr_）
-        if (trimmed.matches("(?i)^(?:sh|sz|bj|hk|gb_|jp_|kr_)[a-z0-9.]+$")) {
-            String lower = trimmed.toLowerCase();
-            if (eastAsiaProvider.supports(lower)) {
-                return eastAsiaProvider.queryQuote(lower);
-            }
-            return fetchStockData(lower, trimmed);
+        // 2. 已带新浪前缀（sh/sz/bj/hk/gb_）
+        if (trimmed.matches("(?i)^(?:sh|sz|bj|hk|gb_)[a-z0-9.]+$")) {
+            return fetchStockData(trimmed.toLowerCase(), trimmed);
         }
 
         // 3. 纯数字代码，自动识别交易所

@@ -76,6 +76,8 @@ public class CliRunner implements CommandLineRunner {
         }
         log.info("Application started");
         System.out.println("Welcome to Claw CLI!");
+        // 网页助手入口（前后端分离：前端独立运行）
+        System.out.println("🔗 网页助手(开发): http://localhost:5173  (需先启动前端: cd chat-frontend && npm run dev)");
 
         // Restore persisted sessions (幂等,onStartup 已恢复则跳过)
         try {
@@ -290,7 +292,11 @@ public class CliRunner implements CommandLineRunner {
     // ==================== Message listener (auto-reply) ====================
 
     /** 启动消息监听：注册文本/图片/语音/文件处理器，处理收到的微信消息并回复。 */
-    private void startMessageListener(String sessionId) {
+    /**
+     * 启动消息监听：注册文本/图片/语音/文件处理器，处理收到的微信消息并回复。
+     * Web 端扫码登录成功后也调用此方法，让该账户能收发微信消息。
+     */
+    public void startMessageListener(String sessionId) {
         ilinkService.startListening(sessionId,
             // Text handler
             (userId, text, contextToken) -> {
