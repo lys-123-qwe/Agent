@@ -110,14 +110,13 @@ public class FuturesTool implements Tool {
     private ToolResult generateChart(String futures, int days) {
         List<FuturesService.KlineData> history = futuresService.getHistoricalKline(futures, days);
 
-        if (history.size() < 2) {
-            String textResult = futuresService.queryFutures(futures);
-            return ToolResult.text(textResult + "\n\n⚠️ 历史数据不足，无法生成图表");
-        }
+        // 获取实时行情以拿到实际合约名称（如"玉米连续"、"玉米2601"）
+        String quoteText = futuresService.queryFutures(futures);
+        String contractName = extractContractName(quoteText);
 
-        // 解析品种名称（从代码映射）
-        String displayName = resolveDisplayName(futures);
-        String code = futures;
+        if (history.size() < 2) {
+            return ToolResult.text(quoteText + "\n\n⚠️ 历史数据不足，无法生成图表");
+        }
 
         // 转换为 CandlestickPoint（含OHLC+成交量）
         List<ChartService.CandlestickPoint> candlePoints = new ArrayList<>();
@@ -155,7 +154,7 @@ public class FuturesTool implements Tool {
             default -> "近" + days + "天";
         };
 
-        String title = displayName + "（" + code + "）";
+        String title = contractName + "（" + futures + "）";
         String subtitle = period + "K线走势 · 含MA5/10/20均线";
 
         byte[] chartBytes = chartService.generateCandlestickChart(title, subtitle, candlePoints);
@@ -163,7 +162,7 @@ public class FuturesTool implements Tool {
             return ToolResult.text("⚠️ 图表生成失败");
         }
 
-        String summary = buildChartSummary(displayName, code, days, history);
+        String summary = buildChartSummary(contractName, futures, days, history);
         return ToolResult.imageBytes(summary, chartBytes);
     }
 
@@ -193,6 +192,22 @@ public class FuturesTool implements Tool {
         } catch (NumberFormatException e) {
             return String.format("📊 %s %s走势\n%s ~ %s", displayName, period, firstDate, lastDate);
         }
+    }
+
+    /** 从实时行情文本中提取实际合约名称，如 "玉米连续" → "玉米连续" */
+    private String extractContractName(String quoteText) {
+        if (quoteText == null || quoteText.isBlank()) return "未知合约";
+        // 格式: 📈 玉米连续 (nf_C0)\n  市场: ...
+        String[] lines = quoteText.split("\n");
+        if (lines.length > 0) {
+            String firstLine = lines[0].replace("📈", "").trim();
+            int parenIdx = firstLine.indexOf('(');
+            if (parenIdx > 0) {
+                return firstLine.substring(0, parenIdx).trim();
+            }
+            return firstLine;
+        }
+        return "未知合约";
     }
 
     private String resolveDisplayName(String input) {

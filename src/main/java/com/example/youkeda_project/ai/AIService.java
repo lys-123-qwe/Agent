@@ -96,6 +96,17 @@ public class AIService {
             systemPrompt.append("用户要查快递,查物流,查包裹时用 query_express 工具(传 number 单号,courier 可选).");
             systemPrompt.append("[重要]如果用户在对话中提到了关于自己的信息(昵称,喜好,职业,所在地等),必须调用 save_user_info 工具保存.");
             systemPrompt.append("[重要]工具返回内容中的链接([详情](url) 或 [来源: XXX](url))必须原样保留在最终回答中,每条新闻/结果后面必须附带其链接,不得删除或修改.");
+            systemPrompt.append("[重要]回答股票/基金/期货等行情数据时,必须注意数据时效性:");
+            systemPrompt.append("A股交易日为周一至周五(法定节假日除外),港股周一至周五,美股周一至周五(美国时间).");
+            systemPrompt.append("如果今天是周末或节假日(非交易日),查询到的行情是上一个交易日收盘数据,必须明确告知用户实际数据日期,如'以下是周五收盘数据''截至上周五收盘'.");
+            systemPrompt.append("如果是周一至周五但尚未开盘(如早上8点),行情是前一日收盘数据,需说明'截至昨日收盘'.");
+            systemPrompt.append("如果是盘中交易时段,直接说'实时行情'即可.");
+            systemPrompt.append("总之,永远不要让用户误以为非交易日或未开盘时的数据是'今天'的实时数据.");
+            systemPrompt.append("[重要]回答期货相关问题时,必须注意合约到期规则:");
+            systemPrompt.append("期货合约有固定到期日(交割月份),与股票可长期持有不同,合约到期会强制平仓或进入交割.");
+            systemPrompt.append("回复时必须标注当前主力合约月份(如'玉米2509合约'),提醒用户关注到期时间.");
+            systemPrompt.append("如果用户持仓的合约临近到期(最后交易日前后),必须警告'该合约即将到期,注意平仓或移仓换月'.");
+            systemPrompt.append("分析期货走势时,要说清楚分析的是哪个合约,不同月份合约价格可能差异较大.");
             list.add(new ChatMessage("system", systemPrompt.toString()));
             return list;
         });

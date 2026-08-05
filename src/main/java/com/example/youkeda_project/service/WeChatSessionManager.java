@@ -103,6 +103,8 @@ public class WeChatSessionManager {
 
     /**
      * Start message polling with auto-reply handlers for a session.
+     * If another session with the same botId is already listening, the current
+     * session is silently closed to prevent duplicate replies.
      */
     public void startListening(String sessionId,
                                WeChatSession.MessageHandler textHandler,
@@ -110,6 +112,23 @@ public class WeChatSessionManager {
                                WeChatSession.VoiceMessageHandler voiceHandler,
                                WeChatSession.FileMessageHandler fileHandler) {
         WeChatSession session = requireSession(sessionId);
+        String botId = session.getBotId();
+
+        // Guard: prevent duplicate botId sessions from both listening (causes double replies)
+        if (botId != null) {
+            for (WeChatSession other : sessions.values()) {
+                if (!other.getSessionId().equals(sessionId)
+                        && botId.equals(other.getBotId())
+                        && other.isListening()) {
+                    log.warn("Session {} ({}) botId={} — session {} ({}) is already listening with the same botId, closing duplicate",
+                            shortId(sessionId), session.getLabel(), botId,
+                            shortId(other.getSessionId()), other.getLabel());
+                    closeSession(sessionId);
+                    return;  // silently skip, don't throw — caller may be looping over restored sessions
+                }
+            }
+        }
+
         session.startListening(textHandler, imageHandler, voiceHandler, fileHandler);
     }
 
@@ -265,6 +284,10 @@ public class WeChatSessionManager {
     }
 
     // ---- helpers ----
+
+    private static String shortId(String sessionId) {
+        return sessionId.length() > 8 ? sessionId.substring(0, 8) : sessionId;
+    }
 
     private WeChatSession requireSession(String sessionId) {
         WeChatSession s = sessions.get(sessionId);
