@@ -119,6 +119,30 @@ public final class StockCodes {
         map.put("台积电", "gb_tsm");
         map.put("拼多多", "gb_pdd");
         map.put("伯克希尔", "gb_brk.b");
+        // === 日股 ===
+        map.put("丰田", "jp_7203");
+        map.put("丰田汽车", "jp_7203");
+        map.put("索尼", "jp_6758");
+        map.put("索尼集团", "jp_6758");
+        map.put("任天堂", "jp_7974");
+        map.put("软银", "jp_9984");
+        map.put("软银集团", "jp_9984");
+        map.put("日立", "jp_6501");
+        map.put("本田", "jp_7267");
+        map.put("本田汽车", "jp_7267");
+        map.put("三菱UFJ", "jp_8306");
+        // === 韩股 ===
+        map.put("三星电子", "kr_005930");
+        map.put("三星", "kr_005930");
+        map.put("SK海力士", "kr_000660");
+        map.put("海力士", "kr_000660");
+        map.put("现代汽车", "kr_005380");
+        map.put("现代", "kr_005380");
+        map.put("LG化学", "kr_051910");
+        map.put("起亚", "kr_000270");
+        map.put("起亚汽车", "kr_000270");
+        map.put("NAVER", "kr_035420");
+        map.put("三星生物", "kr_207940");
         NAME_MAP = Map.copyOf(map);
     }
 

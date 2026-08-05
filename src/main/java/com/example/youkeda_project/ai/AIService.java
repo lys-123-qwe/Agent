@@ -36,6 +36,7 @@ public class AIService {
     private static final String QWEN_VL_MODEL = "qwen-vl-plus";
     private static final int MAX_HISTORY = 10;
 
+    /** 金融分析智能体的系统提示词（skill 路由命中时替代通用 prompt）。 */
     private static String financialSystemPrompt() {
         return """
             你是一位资深金融分析师，拥有15年A股、港股、美股及期货市场分析经验。
@@ -290,6 +291,7 @@ public class AIService {
     /**
      * 发送图片给通义千问 VL 进行识别.
      */
+    /** 图片识别/问答：把图片字节 + 文字问题发给通义千问 VL 视觉模型，返回识别结果。 */
     public String chatWithImage(String userId, String textPrompt, byte[] imageBytes) {
         if (apiConfig.getVisionApiKey() == null || apiConfig.getVisionApiKey().isBlank()) {
             return "错误: 未配置通义千问 VL API Key";
@@ -358,6 +360,7 @@ public class AIService {
     /**
      * 带上下文的纯文本回复(不执行工具调用).
      */
+    /** 生成回复：把额外上下文（如文件内容）拼进消息，不走 Function Calling。 */
     public String generateWithContext(String userId, String userMessage, String context) {
         if (apiConfig.getAiApiKey() == null || apiConfig.getAiApiKey().isBlank()) {
             return "错误: 未配置 DeepSeek API Key";
@@ -428,6 +431,8 @@ public class AIService {
             + "【大盘/市场行情】用户问'今天市场怎么样''大盘怎么样'等时，优先调用 market_overview 工具获取指数+热点+汇率+财经新闻，不要在总结前省略新闻。"
             + "【免责声明】凡是涉及股票行情、技术分析、投资建议、资金流向等金融类回答，最后必须附上一句免责声明：'⚠️ 以上内容仅供参考，不构成投资建议。'"
             + "【基本面】查股票时若用户问到市盈率/市净率/市值等，如实展示工具返回的数据，数据缺失时不要编造。"
+            + "【日韩股】用户查询'丰田''三星''索尼''任天堂''SK海力士''现代汽车'等日本/韩国股票时，"
+            + "调用 get_stock 并传中文名称（如'丰田'），不要臆造美股代码（如 TM/SSNGY），系统会自动识别为日股/韩股。"
             + "【自选股】用户说'加自选''关注''收藏''添加到自选'等调用 watchlist（operation=add）；"
             + "说'删自选''取消关注''移除'等调用 watchlist（operation=remove）；"
             + "说'自选股''我的自选''关注的股票'等调用 watchlist（operation=list）。"
@@ -456,6 +461,7 @@ public class AIService {
         return sb.toString();
     }
 
+    /** 将记忆键名（英文 key）翻译成中文显示名。 */
     private static String translateKey(String key) {
         return switch (key) {
             case "nickname" -> "昵称";
@@ -471,6 +477,7 @@ public class AIService {
     }
 
     @SuppressWarnings("unchecked")
+    /** 解析工具参数 JSON 字符串为 Map，解析失败返回空 Map。 */
     private Map<String, Object> parseArguments(String argumentsJson, String userId) {
         Map<String, Object> args;
         if (argumentsJson == null || argumentsJson.isBlank()) {
@@ -487,6 +494,7 @@ public class AIService {
         return args;
     }
 
+    /** 按名称在工具列表中查找工具，未找到返回 null。 */
     private Tool findTool(String name, List<Tool> tools) {
         if (tools == null) return null;
         return tools.stream()
@@ -495,6 +503,7 @@ public class AIService {
                 .orElse(null);
     }
 
+    /** 根据文件头字节识别图片 MIME 类型（用于图片识别请求）。 */
     private String detectMimeType(byte[] data) {
         if (data.length > 2 && data[0] == (byte) 0xFF && data[1] == (byte) 0xD8) return "image/jpeg";
         if (data.length > 3 && data[0] == (byte) 0x89 && data[1] == (byte) 0x50 && data[2] == (byte) 0x4E) return "image/png";
@@ -503,6 +512,7 @@ public class AIService {
         return "image/jpeg";
     }
 
+    /** 裁剪会话历史，只保留最近 MAX_HISTORY 条（控制 token 长度）。 */
     private void trimHistory(List<ChatMessage> history) {
         if (history.size() > MAX_HISTORY + 1) {
             ChatMessage system = history.get(0);
@@ -524,6 +534,7 @@ public class AIService {
     }
 
     @SuppressWarnings("unchecked")
+    /** 过滤历史中仅保留文本消息（工具调用轮次用，避免图片等媒体干扰解析）。 */
     private List<ChatMessage> filterForTextOnly(List<ChatMessage> history) {
         List<ChatMessage> filtered = new ArrayList<>();
         for (ChatMessage msg : history) {
@@ -567,6 +578,7 @@ public class AIService {
         });
     }
 
+    /** 序列化消息内容（对象 → 字符串），供持久化使用。 */
     private static String serializeContent(Object obj) {
         if (obj == null) return "";
         if (obj instanceof String s) return s;

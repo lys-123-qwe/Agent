@@ -128,6 +128,7 @@ public class ChartService {
     /**
      * 生成折线图。数据点 >= 20 时自动添加 MA5/10/20 均线。
      */
+    /** 生成折线图（数据≥20 条时自动加 MA5/10/20 均线）。 */
     public byte[] generateChart(String title, String subtitle, List<ChartPoint> data) {
         List<Integer> maPeriods = data.size() >= 20 ? List.of(5, 10, 20) : null;
         return generateLineChartInternal(title, subtitle, data, maPeriods);
@@ -136,11 +137,13 @@ public class ChartService {
     /**
      * 生成带指定均线的折线图。
      */
+    /** 生成带指定均线的折线图。 */
     public byte[] generateChartWithMA(String title, String subtitle, List<ChartPoint> data,
                                       List<Integer> maPeriods) {
         return generateLineChartInternal(title, subtitle, data, maPeriods);
     }
 
+    /** 折线图内部实现：网格、均线、图例、日期标签。 */
     private byte[] generateLineChartInternal(String title, String subtitle, List<ChartPoint> data,
                                               List<Integer> maPeriods) {
         if (data == null || data.size() < 2) return null;
@@ -212,6 +215,7 @@ public class ChartService {
     /**
      * 生成K线蜡烛图，包含 MA5/10/20 均线和底部成交量柱状图。
      */
+    /** 生成 K 线蜡烛图（含 MA 均线 + 底部成交量）。 */
     public byte[] generateCandlestickChart(String title, String subtitle, List<CandlestickPoint> data) {
         if (data == null || data.size() < 2) return null;
 
@@ -330,6 +334,7 @@ public class ChartService {
     /**
      * 生成多品种对比折线图（归一化为涨跌幅）。
      */
+    /** 生成多品种对比折线图（归一化为涨跌幅）。 */
     public byte[] generateComparisonChart(String title, String subtitle, List<SeriesData> seriesList) {
         if (seriesList == null || seriesList.isEmpty()) return null;
 
@@ -415,6 +420,7 @@ public class ChartService {
 
     // ==================== 内部工具方法 ====================
 
+    /** 把内存图片编码为 PNG 字节数组。 */
     private byte[] toBytes(BufferedImage image, String chartType) {
         try {
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -428,6 +434,7 @@ public class ChartService {
         }
     }
 
+    /** 计算 N 日移动平均线（前 N-1 天为 null）。 */
     private BigDecimal[] calcMA(BigDecimal[] values, int period) {
         int n = values.length;
         BigDecimal[] ma = new BigDecimal[n];
@@ -445,6 +452,7 @@ public class ChartService {
         return ma;
     }
 
+    /** 把价格序列归一化为相对首日的涨跌幅百分比。 */
     private List<BigDecimal> normalizeToPercent(List<ChartPoint> data) {
         List<BigDecimal> result = new ArrayList<>();
         if (data.isEmpty()) return result;
@@ -459,6 +467,7 @@ public class ChartService {
         return result;
     }
 
+    /** 根据均线周期返回对应颜色。 */
     private Color getMAColor(int period) {
         return switch (period) {
             case 5 -> MA5_COLOR;
@@ -471,6 +480,7 @@ public class ChartService {
 
     // ==================== 绘制方法 ====================
 
+    /** 绘制网格线与左侧价格标签。 */
     private void drawGrid(Graphics2D g, int x, int y, int w, int h,
                           BigDecimal minVal, BigDecimal maxVal) {
         g.setColor(GRID_COLOR);
@@ -493,6 +503,7 @@ public class ChartService {
         }
     }
 
+    /** 绘制 0% 基准虚线（对比图用）。 */
     private void drawZeroLine(Graphics2D g, int x, int y, int w, int h,
                               BigDecimal minVal, BigDecimal maxVal) {
         BigDecimal range = maxVal.subtract(minVal);
@@ -506,6 +517,7 @@ public class ChartService {
         }
     }
 
+    /** 绘制折线、面积填充与数据点。 */
     private void drawLine(Graphics2D g, List<ChartPoint> data, BigDecimal[] values,
                           int x, int y, int w, int h, BigDecimal minVal, BigDecimal maxVal) {
         int n = data.size();
@@ -559,6 +571,7 @@ public class ChartService {
         g.drawString(lastVal, px[n - 1] + 10, py[n - 1] + 4);
     }
 
+    /** 绘制一条均线。 */
     private void drawMALine(Graphics2D g, BigDecimal[] maValues, Color color,
                             int x, int y, int w, int h, BigDecimal minVal, BigDecimal maxVal, int n) {
         BigDecimal range = maxVal.subtract(minVal);
@@ -587,6 +600,7 @@ public class ChartService {
         }
     }
 
+    /** 绘制标题与副标题。 */
     private void drawTitle(Graphics2D g, String title, String subtitle) {
         g.setColor(TITLE_COLOR);
         g.setFont(fontTitle);
@@ -597,6 +611,7 @@ public class ChartService {
         g.drawString(subtitle, PAD_LEFT, PAD_TOP - 12);
     }
 
+    /** 绘制 x 轴日期标签（最多 6 个）。 */
     private void drawDateLabels(Graphics2D g, List<String> dates,
                                 int x, int y, int w, int h, int totalLen) {
         g.setColor(LABEL_COLOR);
@@ -614,6 +629,7 @@ public class ChartService {
         }
     }
 
+    /** 绘制折线图图例（涨/跌/均线）。 */
     private void drawLineLegend(Graphics2D g, List<MAData> maDataList) {
         g.setFont(fontSmall);
         FontMetrics fm = g.getFontMetrics();
@@ -650,6 +666,7 @@ public class ChartService {
         }
     }
 
+    /** 绘制 K 线图图例（阳线/阴线/均线）。 */
     private void drawCandlestickLegend(Graphics2D g, List<MAData> maDataList) {
         drawCandlestickLegendAt(g, maDataList, WIDTH - PAD_RIGHT, PAD_TOP - 35);
     }
@@ -691,6 +708,7 @@ public class ChartService {
         }
     }
 
+    /** 绘制对比图图例（色块 + 股票名）。 */
     private void drawComparisonLegend(Graphics2D g, List<SeriesData> seriesList) {
         g.setFont(fontSmall);
         FontMetrics fm = g.getFontMetrics();
@@ -728,6 +746,7 @@ public class ChartService {
      * 生成多股票K线图，每只股票一个面板上下排列。
      * 顶部是总标题，每只股票的面板自带股票名标题。
      */
+    /** 生成多股票 K 线图（每只股票一个面板，上下排列）。 */
     public byte[] generateMultiCandlestickChart(String title, String subtitle,
                                                 List<CandlestickSeries> seriesList) {
         if (seriesList == null || seriesList.isEmpty()) return null;

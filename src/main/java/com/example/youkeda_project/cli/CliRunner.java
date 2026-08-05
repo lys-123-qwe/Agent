@@ -68,6 +68,7 @@ public class CliRunner implements CommandLineRunner {
     }
 
     @Override
+    /** Spring Boot 启动入口：恢复会话、--login 自动登录、启动 CLI 交互循环。 */
     public void run(String... args) {
         if (isRunningTests()) {
             log.info("Test environment detected, skipping CLI interactive loop");
@@ -137,6 +138,7 @@ public class CliRunner implements CommandLineRunner {
 
     // ==================== Help & Status ====================
 
+    /** 打印 CLI 帮助信息。 */
     private void showHelp() {
         System.out.println("""
                 Commands:
@@ -148,6 +150,7 @@ public class CliRunner implements CommandLineRunner {
                 """);
     }
 
+    /** 打印微信账户（会话）状态列表。 */
     private void showStatus() {
         int count = ilinkService.getSessionCount();
         if (count == 0) {
@@ -166,6 +169,7 @@ public class CliRunner implements CommandLineRunner {
         System.out.println("Tools: " + TOOLS.stream().map(Tool::getName).toList());
     }
 
+    /** 按名称在工具列表中查找工具。 */
     private Tool findTool(String name) {
         for (Tool t : TOOLS) {
             if (t.getName().equals(name)) return t;
@@ -187,6 +191,7 @@ public class CliRunner implements CommandLineRunner {
 
     // ==================== WeChat commands ====================
 
+    /** 处理 wechat 子命令：login（登录）、sessions（查看）、close（删除会话）。 */
     private void handleWeChat(String args) {
         if (args == null || args.isBlank()) {
             System.out.println("""
@@ -215,6 +220,7 @@ public class CliRunner implements CommandLineRunner {
         }
     }
 
+    /** 处理扫码登录：创建会话、展示二维码、等待扫码、成功后启动消息监听。 */
     private void handleWeChatLogin(String label, boolean forceNew) {
         String qrContent;
         String sessionId;
@@ -255,12 +261,14 @@ public class CliRunner implements CommandLineRunner {
         }
     }
 
+    /** 处理 wechat close：按前缀删除指定会话。 */
     private void handleWeChatClose(String idPrefix) {
         String sid = resolveSessionId(idPrefix);
         ilinkService.deleteSession(sid);
         System.out.println("Closed session " + sid.substring(0, 8));
     }
 
+    /** 根据前缀/短 ID 解析完整 sessionId，支持唯一匹配校验。 */
     private String resolveSessionId(String prefix) {
         var infos = ilinkService.listSessions();
         var matches = infos.stream()
@@ -281,6 +289,7 @@ public class CliRunner implements CommandLineRunner {
 
     // ==================== Message listener (auto-reply) ====================
 
+    /** 启动消息监听：注册文本/图片/语音/文件处理器，处理收到的微信消息并回复。 */
     private void startMessageListener(String sessionId) {
         ilinkService.startListening(sessionId,
             // Text handler
@@ -381,6 +390,7 @@ public class CliRunner implements CommandLineRunner {
         );
     }
 
+    /** 处理图片指令：识别或编辑图片，返回处理结果文本。 */
     private String processImageInstruction(String sessionId, String userId, String contextToken,
                                            byte[] imageBytes, String instruction) {
         System.out.println("[系统] " + userId + " 正在处理图片指令...");
@@ -420,6 +430,7 @@ public class CliRunner implements CommandLineRunner {
     /**
      * Build RAG context: route query to a Skill and retrieve knowledge snippets.
      */
+    /** 路由查询到匹配的 skill 并构建 RAG 知识上下文。 */
     private String buildRagContext(String query) {
         Optional<Skill> routed = skillManager.routeSkill(query);
         if (routed.isPresent()) {

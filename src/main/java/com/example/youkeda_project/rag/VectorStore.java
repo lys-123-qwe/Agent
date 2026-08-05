@@ -67,6 +67,7 @@ public class VectorStore {
     }
 
     @PostConstruct
+    /** 启动初始化：加载通用+skill 知识入库、构建关键词索引、后台预计算向量。 */
     public void init() {
         // 清理历史误入库的 topics.md 条目（topics 是预搜主题，非知识）
         knowledgeRepo.deleteBySource("topics.md");
@@ -189,6 +190,7 @@ public class VectorStore {
         }
     }
 
+    /** 加载一批知识条目到内存。 */
     private void loadEntries(List<KnowledgeRepository.KnowledgeEntry> withVector, List<String> all, String skillName) {
         Map<String, float[]> vectorMap = new HashMap<>();
         for (var entry : withVector) vectorMap.put(entry.text(), entry.vector());
@@ -205,6 +207,7 @@ public class VectorStore {
         knowledgeRepo.save(text, "collector");
     }
 
+    /** 新增一条带向量的知识。 */
     public void addWithVector(String text, float[] vector) {
         Entry e = new Entry(text, null);
         e.vector = vector;
@@ -218,16 +221,19 @@ public class VectorStore {
         return fastSearch(query, null);
     }
 
+    /** 通用知识向量语义检索。 */
     public List<String> search(float[] queryVec, int topK) {
         return search(queryVec, topK, null);
     }
 
     // ==================== skill 知识检索 ====================
 
+    /** 指定 skill 的关键词检索。 */
     public List<String> fastSearchForSkill(String skillName, String query) {
         return fastSearch(query, skillName);
     }
 
+    /** 指定 skill 的向量语义检索。 */
     public List<String> searchForSkill(String skillName, float[] queryVec, int topK) {
         return search(queryVec, topK, skillName);
     }
@@ -270,8 +276,10 @@ public class VectorStore {
         return skillName.equals(e.skillName);
     }
 
+    /** 返回知识总条数。 */
     public int size() { return entries.size(); }
 
+    /** 构建关键词 → 条目索引。 */
     private void buildKeywordIndex() {
         keywordIndex = new HashMap<>();
         for (int i = 0; i < entries.size(); i++) {
@@ -305,6 +313,7 @@ public class VectorStore {
         return chunks;
     }
 
+    /** 取分块尾部重叠内容。 */
     private String getOverlapTail(String text) {
         if (text.length() <= CHUNK_OVERLAP) return "";
         return text.substring(Math.max(0, text.length() - CHUNK_OVERLAP));

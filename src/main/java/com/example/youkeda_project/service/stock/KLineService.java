@@ -87,6 +87,7 @@ public class KLineService {
         public double getVolume() { return volume; }
     }
 
+    /** 获取股票日 K 线（新浪接口，datalen 限制 20~500）。 */
     public List<KLineData> fetchDailyKLine(String input, int datalen) {
         String symbol = resolveSymbol(input);
         if (symbol == null) return null;
@@ -96,6 +97,7 @@ public class KLineService {
         return fetchSinaKLine(symbol, len);
     }
 
+    /** 调用新浪 K 线接口并解析。 */
     private List<KLineData> fetchSinaKLine(String symbol, int datalen) {
         try {
             String url = SINA_KLINE_API + "?symbol=" + symbol + "&scale=240&ma=no&datalen=" + datalen;
@@ -129,6 +131,7 @@ public class KLineService {
         }
     }
 
+    /** 获取期货主力连续合约的日 K 线。 */
     public List<KLineData> fetchFuturesDailyKLine(String input, int datalen) {
         String base = resolveFuturesBase(input);
         if (base == null) return null;
@@ -166,6 +169,7 @@ public class KLineService {
         }
     }
 
+    /** 判断输入是否为期货品种。 */
     public boolean isFutures(String input) {
         if (input == null || input.isBlank()) return false;
         String t = input.trim().toUpperCase();
@@ -176,6 +180,7 @@ public class KLineService {
         return false;
     }
 
+    /** 把品种名解析为期货基础代码（如 螺纹钢→RB）。 */
     private String resolveFuturesBase(String input) {
         if (input == null || input.isBlank()) return null;
         String trimmed = input.trim();
@@ -195,6 +200,7 @@ public class KLineService {
         return null;
     }
 
+    /** 把名称/代码解析为新浪格式代码。 */
     public String resolveSymbol(String input) {
         if (input == null || input.isBlank()) return null;
 

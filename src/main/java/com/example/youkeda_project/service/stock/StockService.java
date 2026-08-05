@@ -43,10 +43,12 @@ public class StockService {
     private final ConcurrentHashMap<String, List<KlineData>> klineCacheData = new ConcurrentHashMap<>();
 
     private final KLineService kLineService;
+    private final EastAsiaQuoteProvider eastAsiaProvider;
 
-    public StockService(KLineService kLineService) {
+    public StockService(KLineService kLineService, EastAsiaQuoteProvider eastAsiaProvider) {
         this.restClient = RestClient.create();
         this.kLineService = kLineService;
+        this.eastAsiaProvider = eastAsiaProvider;
     }
 
     /**
@@ -55,6 +57,7 @@ public class StockService {
      * @param input 股票名称或代码，如 "贵州茅台"、"600519"、"sh600519"、"腾讯"、"AAPL"、"gb_aapl"
      * @return 格式化的行情字符串
      */
+    /** 查询股票/指数实时行情（支持名称/代码），失败返回错误文本。 */
     public String queryStock(String input) {
         if (input == null || input.trim().isEmpty()) {
             return "错误: 请输入股票名称或代码\n"
@@ -66,12 +69,20 @@ public class StockService {
         // 1. 先从名称映射查找
         String fullCode = StockCodes.byName(trimmed);
         if (fullCode != null) {
+            // 日股/韩股走东亚市场数据源（当前为假数据）
+            if (eastAsiaProvider.supports(fullCode)) {
+                return eastAsiaProvider.queryQuote(fullCode);
+            }
             return fetchStockData(fullCode, trimmed);
         }
 
-        // 2. 已带新浪前缀（sh/sz/bj/hk/gb_）
-        if (trimmed.matches("(?i)^(?:sh|sz|bj|hk|gb_)[a-z0-9.]+$")) {
-            return fetchStockData(trimmed.toLowerCase(), trimmed);
+        // 2. 已带新浪前缀（sh/sz/bj/hk/gb_/jp_/kr_）
+        if (trimmed.matches("(?i)^(?:sh|sz|bj|hk|gb_|jp_|kr_)[a-z0-9.]+$")) {
+            String lower = trimmed.toLowerCase();
+            if (eastAsiaProvider.supports(lower)) {
+                return eastAsiaProvider.queryQuote(lower);
+            }
+            return fetchStockData(lower, trimmed);
         }
 
         // 3. 纯数字代码，自动识别交易所
@@ -106,6 +117,7 @@ public class StockService {
      * A 股 6 位: 6xxxxx→上证, 0xxxxx/3xxxxx→深证, 4xxxxx/8xxxxx→北交所
      * 港股 5 位: 0xxxx→港股（如 00700）
      */
+    /** 根据纯数字代码首字符判断市场（6/5=沪，其余=深）。 */
     private String detectNumericMarket(String code) {
         if (code.length() == 5) {
             return "hk";  // 5 位数字 → 港股
@@ -123,6 +135,7 @@ public class StockService {
     /**
      * 解析内部代码，提取市场类型。
      */
+    /** 根据新浪代码前缀返回市场类型（sh/sz/hk/gb_）。 */
     private String getMarketType(String fullCode) {
         if (fullCode.startsWith("gb_")) return "us";
         if (fullCode.startsWith("hk")) return "hk";
@@ -134,6 +147,7 @@ public class StockService {
     /**
      * 先尝试新浪，失败回退腾讯。成功时附加近期走势火花图。
      */
+    /** 拉取行情数据：新浪优先，失败回退腾讯。 */
     private String fetchStockData(String fullCode, String displayName) {
         log.info("查询股票: code={}, display={}", fullCode, displayName);
 
@@ -156,6 +170,7 @@ public class StockService {
      * 尝试拉取近期收盘价并生成火花图，附加到查询结果前。
      * 失败不影响主流程。
      */
+    /** 在行情文本前附加近期走势火花图，失败不影响主流程。 */
     private String appendSparkline(String fullCode, String existingResult) {
         try {
             List<BigDecimal> closes = fetchRecentCloses(fullCode);
@@ -179,6 +194,7 @@ public class StockService {
     /**
      * 从腾讯日K线接口拉取最近 8 个交易日的收盘价（前复权）。
      */
+    /** 从腾讯接口拉取近期收盘价序列（供火花图使用）。 */
     private List<BigDecimal> fetchRecentCloses(String fullCode) {
         String tencentCode = toTencentCode(fullCode);
 
@@ -235,6 +251,7 @@ public class StockService {
     /**
      * 新浪股票接口。根据市场类型分别解析。
      */
+    /** 调用新浪行情接口并返回原始响应。 */
     private String fetchFromSina(String fullCode) {
         String response = restClient.get()
                 .uri(SINA_API + fullCode)
@@ -271,6 +288,7 @@ public class StockService {
      * 解析新浪 A 股响应。
      * 字段: 名称,今开,昨收,当前价,最高,最低,买价,卖价,成交量,成交额,...
      */
+    /** 解析新浪 A 股行情字段并格式化为文本。 */
     private String parseSinaA(String code, String[] fields) {
         if (fields.length < 9) {
             throw new RuntimeException("A股字段不足: " + fields.length);
@@ -292,6 +310,7 @@ public class StockService {
      * 解析新浪港股响应。
      * 字段: 英文名,今开,昨收,当前价,最高,最低,买价,卖价,成交量,成交额,日期,时间,...
      */
+    /** 解析新浪港股行情字段并格式化为文本。 */
     private String parseSinaHK(String code, String[] fields) {
         if (fields.length < 9) {
             throw new RuntimeException("港股字段不足: " + fields.length);
@@ -324,6 +343,7 @@ public class StockService {
      *   22: 最高 (approx)
      *   ...末尾前两个: 日期, 时间
      */
+    /** 解析新浪美股行情字段并格式化为文本。 */
     private String parseSinaUS(String code, String[] fields) {
         if (fields.length < 5) {
             throw new RuntimeException("美股字段不足: " + fields.length);
@@ -373,6 +393,7 @@ public class StockService {
     /**
      * 腾讯股票接口。需要对美股代码做转换: gb_aapl → usAAPL
      */
+    /** 调用腾讯行情接口查询（新浪失败时的回退数据源）。 */
     private String fetchFromTencent(String fullCode) {
         String tencentCode = toTencentCode(fullCode);
 
@@ -428,6 +449,7 @@ public class StockService {
      * 将新浪格式代码转为腾讯格式。
      * gb_aapl → usAAPL, hk00700 → hk00700, sh600519 → sh600519
      */
+    /** 把新浪格式代码转成腾讯格式代码。 */
     private String toTencentCode(String sinaCode) {
         if (sinaCode.startsWith("gb_")) {
             return "us" + sinaCode.substring(3).toUpperCase();
@@ -557,6 +579,7 @@ public class StockService {
     /**
      * 格式化成交量。
      */
+    /** 成交量格式化（自动转换为万/亿）。 */
     private String formatVolume(String volume) {
         try {
             long vol = Long.parseLong(volume);
@@ -572,6 +595,7 @@ public class StockService {
     /**
      * 根据代码前缀返回市场名称标签。
      */
+    /** 返回市场中文标签（上证/深证/港股/美股）。 */
     private String getMarketLabel(String code) {
         if (code.startsWith("sh")) return "上证 A 股";
         if (code.startsWith("sz")) return "深证 A 股";
@@ -607,6 +631,7 @@ public class StockService {
      * @param input 股票名称或代码
      * @return 基本面数据，查询失败返回null
      */
+    /** 查询基本面（PE/PB/市值），东财接口 + 失败重试，失败返回 null。 */
     public FundamentalData getFundamentals(String input) {
         String code = resolveStockCode(input);
         if (code == null) return null;
@@ -627,6 +652,7 @@ public class StockService {
         return null;
     }
 
+    /** 调用东财接口拉取并解析基本面数据。 */
     private FundamentalData fetchFundamentals(String secid) throws Exception {
         try {
             String urlStr = "https://push2.eastmoney.com/api/qt/stock/get?secid=" + secid
@@ -667,6 +693,7 @@ public class StockService {
     /**
      * 将新浪格式代码转为东方财富 secid。
      */
+    /** 格式化基本面数值（null/空/"null"/"-" 显示为"—"）。 */
     private String formatFundamentalValue(String val, int scale) {
         if (val == null || val.isEmpty() || "null".equals(val) || "-".equals(val)) return "—";
         try {
@@ -679,6 +706,7 @@ public class StockService {
         }
     }
 
+    /** 格式化市值（自动转换为亿/万亿）。 */
     private String formatMarketCap(String val) {
         if (val == null || val.isEmpty() || "null".equals(val) || "-".equals(val)) return "—";
         try {
@@ -697,6 +725,7 @@ public class StockService {
      * 获取股票历史K线数据（带缓存）。
      * A股使用新浪API，港股/美股使用腾讯API。
      */
+    /** 获取历史 K 线数据（带 5 分钟缓存，避免重复请求）。 */
     public List<KlineData> getHistoricalKline(String input, int days) {
         String code = resolveStockCode(input);
         if (code == null) return List.of();

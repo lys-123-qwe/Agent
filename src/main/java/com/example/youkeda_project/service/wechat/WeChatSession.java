@@ -24,35 +24,35 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Wraps a single WeChat bot session - independent IlinkProtocolClient, thread pool,
- * QR code, login state, and message listener.
+ * 封装单个微信 Bot 会话——独立的 IlinkProtocolClient、线程池、
+ * 二维码、登录状态和消息监听器。
  *
- * <p>Each session is fully isolated: its own HTTP client, its own polling thread,
- * its own contextToken pool. Multiple sessions coexist without interference.</p>
+ * <p>每个会话完全隔离：各自的 HTTP 客户端、轮询线程
+ * 和 contextToken 池。多个会话互不干扰。</p>
  */
 public class WeChatSession implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(WeChatSession.class);
 
-    /** Session lifecycle status. */
+    /** 会话生命周期状态。 */
     public enum Status {
-        /** QR code obtained, waiting for user to scan. */
+        /** 已获取二维码，等待用户扫码。 */
         WAITING_QR,
-        /** User scanned and login succeeded. */
+        /** 用户已扫码，登录成功。 */
         LOGGED_IN,
-        /** QR code expired before scan. */
+        /** 二维码在扫码前已过期。 */
         EXPIRED,
-        /** Login or runtime error. */
+        /** 登录或运行时错误。 */
         ERROR,
-        /** Session explicitly closed. */
+        /** 会话被显式关闭。 */
         CLOSED
     }
 
     private final String sessionId;
     private final String label;
     private final IlinkProtocolClient client;
-    private final ExecutorService listenerPool;    // single thread for getUpdates polling
-    private final ExecutorService dispatchPool;    // thread pool for processing messages async
+    private final ExecutorService listenerPool;    // 单线程轮询 getUpdates 消息
+    private final ExecutorService dispatchPool;    // 线程池异步处理消息
     private final SessionConfig sessionConfig;
     private final AtomicBoolean listening = new AtomicBoolean(false);
     private final LocalDateTime createdAt;
@@ -76,43 +76,44 @@ public class WeChatSession implements AutoCloseable {
         return userId == null ? null : userTokens.get(userId);
     }
 
-    // ---- handler interfaces ----
+    // ---- 处理器接口 ----
 
     @FunctionalInterface
     public interface MessageHandler {
-        /** @return reply text, or null to skip sending */
+        /** @return 回复文本，或 null 表示不回复 */
         String onMessage(String userId, String text, String contextToken);
     }
 
     @FunctionalInterface
     public interface ImageMessageHandler {
-        /** @return reply text, or null to skip sending */
+        /** @return 回复文本，或 null 表示不回复 */
         String onImageMessage(String userId, String prompt, byte[] imageBytes, String contextToken);
     }
 
     @FunctionalInterface
     public interface VoiceMessageHandler {
-        /** @return reply text, or null to skip sending */
+        /** @return 回复文本，或 null 表示不回复 */
         String onVoiceMessage(String userId, byte[] audioBytes, String contextToken);
     }
 
     @FunctionalInterface
     public interface FileMessageHandler {
-        /** @return reply text, or null to skip sending */
+        /** @return 回复文本，或 null 表示不回复 */
         String onFileMessage(String userId, String fileName, byte[] fileBytes, String prompt, String contextToken);
     }
 
-    // ---- factory ----
+    // ---- 工厂方法 ----
 
     /**
-     * Create a new session with its own IlinkProtocolClient.
+     * 创建带独立 IlinkProtocolClient 的新会话。
      */
+    /** 创建会话（自动生成 sessionId，默认标签）。 */
     public static WeChatSession create(String label, SessionConfig config, ObjectMapper objectMapper) {
         return create(UUID.randomUUID().toString(), label, config, objectMapper, null, null, null, null);
     }
 
     /**
-     * Create a session, optionally restoring from persisted state.
+     * 创建会话，可选从持久化状态恢复。
      */
     public static WeChatSession create(String sessionId, String label,
                                         SessionConfig config, ObjectMapper objectMapper,
@@ -125,7 +126,7 @@ public class WeChatSession implements AutoCloseable {
                                         String botToken, String baseUrl, String cursor, String botId) {
         IlinkProtocolClient client = new IlinkProtocolClient(objectMapper);
 
-        // If restoring, set credentials immediately
+        // 如果是恢复会话，立即设置登录凭证
         if (botToken != null && !botToken.isBlank()) {
             client.setCredentials(botToken, baseUrl);
         }
@@ -172,13 +173,14 @@ public class WeChatSession implements AutoCloseable {
         }
     }
 
-    // ---- login flow ----
+    // ---- 登录流程 ----
 
     /**
-     * Start login: get QR code and begin async polling for scan.
+     * 开始登录：获取二维码并异步轮询扫码状态。
      *
-     * @return QR code content (URL to display)
+     * @return 二维码内容（展示给用户扫码的 URL）
      */
+    /** 开始扫码登录：获取二维码、后台轮询扫码状态，返回二维码内容。 */
     public String startLogin() {
         if (status == Status.LOGGED_IN) {
             throw new IllegalStateException("Session " + sessionId + " already logged in");
@@ -196,7 +198,7 @@ public class WeChatSession implements AutoCloseable {
             this.loginFuture = new CompletableFuture<>();
             touch();
 
-            // Start async polling for scan status
+            // 开始异步轮询扫码状态
             Thread pollThread = new Thread(() -> pollLoginStatus(),
                 "qr-poll-" + sessionId.substring(0, 8));
             pollThread.setDaemon(true);
@@ -242,7 +244,7 @@ public class WeChatSession implements AutoCloseable {
                             return;
                         case "waiting":
                         case "scanned":
-                            // continue polling
+                            // 继续轮询
                             break;
                         default:
                             log.warn("Session {} unexpected QR status: {}", sessionId, result.status());
@@ -258,12 +260,13 @@ public class WeChatSession implements AutoCloseable {
     }
 
     /**
-     * Block until login completes (user scans QR).
+     * 阻塞直到登录完成（用户扫码）。
      *
-     * @param timeoutMs max wait time in ms
-     * @return LoginResult if login succeeded
-     * @throws Exception on timeout or error
+     * @param timeoutMs 最大等待毫秒数
+     * @return 登录成功返回 LoginResult
+     * @throws Exception 超时或出错时抛出
      */
+    /** 阻塞等待扫码登录结果，超时抛超时异常。 */
     public LoginResult waitForLogin(long timeoutMs) throws Exception {
         if (loginFuture == null) {
             throw new IllegalStateException("No login in progress for session " + sessionId);
@@ -280,11 +283,12 @@ public class WeChatSession implements AutoCloseable {
         }
     }
 
-    // ---- message listening ----
+    // ---- 消息监听 ----
 
     /**
-     * Start long-polling for WeChat messages in this session's dedicated thread.
+     * 在该会话的专用线程中长轮询微信消息。
      */
+    /** 启动消息监听：单线程长轮询收消息，线程池分发到各类型 handler 处理。 */
     public synchronized void startListening(MessageHandler textHandler,
                                             ImageMessageHandler imageHandler,
                                             VoiceMessageHandler voiceHandler,
@@ -307,7 +311,7 @@ public class WeChatSession implements AutoCloseable {
                     GetUpdatesResponse resp = client.getUpdates(cursor);
                     touch();
 
-                    // Update cursor for next poll
+                    // 更新游标供下次轮询
                     if (resp.getUpdatesBuf() != null && !resp.getUpdatesBuf().isBlank()) {
                         this.cursor = resp.getUpdatesBuf();
                     }
@@ -331,7 +335,7 @@ public class WeChatSession implements AutoCloseable {
                     Thread.currentThread().interrupt();
                     break;
                 } catch (Exception e) {
-                    // Session expired on server
+                    // 会话在服务端已过期
                     if (isSessionExpired(e)) {
                         log.warn("Session {} ({}) expired on server - stopping listener",
                                 sessionId, label);
@@ -352,7 +356,7 @@ public class WeChatSession implements AutoCloseable {
     }
 
     /**
-     * Dispatch messages to handlers on the dispatch thread pool.
+     * 在线程池上把消息分发到各处理器。
      */
     private void dispatchMessages(List<WeixinMessage> messages,
                                   MessageHandler textHandler,
@@ -376,11 +380,11 @@ public class WeChatSession implements AutoCloseable {
                 String fileName = null;
 
                 for (MessageItem item : msg.itemList()) {
-                    // Extract text
+                    // 提取文本
                     if (item.textItem() != null && item.textItem().text() != null) {
                         textPrompt = item.textItem().text();
                     }
-                    // Extract image
+                    // 提取图片
                     if (imageBytes == null && item.imageItem() != null) {
                         try {
                             imageBytes = client.downloadAndDecryptImage(item);
@@ -389,7 +393,7 @@ public class WeChatSession implements AutoCloseable {
                                     sessionId, e.getMessage());
                         }
                     }
-                    // Extract voice
+                    // 提取语音
                     if (voiceBytes == null && item.voiceItem() != null) {
                         try {
                             voiceBytes = client.downloadVoice(item.voiceItem());
@@ -398,7 +402,7 @@ public class WeChatSession implements AutoCloseable {
                                     sessionId, e.getMessage());
                         }
                     }
-                    // Extract file
+                    // 提取文件
                     if (fileBytes == null && item.fileItem() != null) {
                         var fi = item.fileItem();
                         fileName = fi.fileName();
@@ -436,37 +440,41 @@ public class WeChatSession implements AutoCloseable {
         }
     }
 
+    /** 停止消息监听。 */
     public void stopListening() {
         if (listening.compareAndSet(true, false)) {
             log.info("Session {} ({}) stopping listener", sessionId, label);
         }
     }
 
-    // ---- send methods ----
+    // ---- 发送方法 ----
 
+    /** 发送文本消息。 */
     public void sendText(String toUserId, String contextToken, String text) throws IOException {
         touch();
         client.sendMessage(toUserId, contextToken, List.of(MessageItem.text(text)));
     }
 
+    /** 发送图片消息（加密上传 CDN 后发送）。 */
     public void sendImage(String toUserId, String contextToken, byte[] imageBytes) {
         touch();
         client.uploadAndSendImage(toUserId, contextToken, imageBytes);
     }
 
+    /** 发送文件消息（加密上传 CDN 后发送）。 */
     public void sendFile(String toUserId, String contextToken, byte[] fileBytes, String fileName, long fileSize) {
         touch();
         client.uploadAndSendFile(toUserId, contextToken, fileBytes, fileName, fileSize);
     }
 
-    // ---- persistence ----
+    // ---- 持久化 ----
 
-    /** Export state for persistence. */
+    /** 导出会话状态供持久化。 */
     public SessionState exportState() {
         return new SessionState(sessionId, label, botToken, baseUrl, botId, userId, cursor, status.name());
     }
 
-    // ---- accessors ----
+    // ---- 访问器 ----
 
     public String getSessionId() { return sessionId; }
     public String getLabel() { return label; }
@@ -488,7 +496,7 @@ public class WeChatSession implements AutoCloseable {
         this.lastActiveAt = LocalDateTime.now();
     }
 
-    /** Check if an exception indicates the server-side session has expired. */
+    /** 判断异常是否表示服务端会话已过期。 */
     private static boolean isSessionExpired(Throwable e) {
         if (e == null) return false;
         String msg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
@@ -496,7 +504,7 @@ public class WeChatSession implements AutoCloseable {
                 || msg.contains("expired");
     }
 
-    // ---- lifecycle ----
+    // ---- 生命周期 ----
 
     @Override
     public void close() {
@@ -529,9 +537,9 @@ public class WeChatSession implements AutoCloseable {
                 getBotId() != null ? getBotId() : "N/A");
     }
 
-    // ---- types ----
+    // ---- 内部类型 ----
 
-    /** Lightweight session state for persistence. */
+    /** 轻量级会话状态，用于持久化。 */
     public record SessionState(
             String sessionId,
             String label,
