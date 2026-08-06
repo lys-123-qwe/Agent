@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
@@ -174,6 +175,14 @@ public class FinAnalysisAgent {
 
             String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
             log.debug("意图解析响应: {}", responseJson);
+
+            // 统计 token 消耗
+            JsonNode usageNode = objectMapper.readTree(responseJson).path("usage");
+            if (usageNode.isObject()) {
+                long pt = usageNode.path("prompt_tokens").asLong(0);
+                long ct = usageNode.path("completion_tokens").asLong(0);
+                if (pt > 0 || ct > 0) com.example.youkeda_project.util.TokenStats.record("金融分析", pt, ct);
+            }
 
             ChatResponse response = objectMapper.readValue(responseJson, ChatResponse.class);
             if (response.getChoices() != null && !response.getChoices().isEmpty()) {

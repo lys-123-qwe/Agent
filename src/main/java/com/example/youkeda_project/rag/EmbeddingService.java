@@ -107,6 +107,10 @@ public class EmbeddingService {
             }
 
             JsonNode root = mapper.readTree(response.body());
+            // 统计 embedding 消耗（dashscope 返回 usage.total_tokens）
+            JsonNode usageNode = root.path("usage");
+            long totalTokens = usageNode.path("total_tokens").asLong(0);
+            if (totalTokens > 0) com.example.youkeda_project.util.TokenStats.record("embedding", totalTokens, 0);
             JsonNode embeddings = root.path("output").path("embeddings");
             if (!embeddings.isArray()) {
                 log.error("Embedding API 响应格式异常: {}", response.body().substring(0, 200));

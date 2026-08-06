@@ -1,6 +1,10 @@
 // SSE 流式接收：fetch + ReadableStream 逐段读取
-export async function chatStream(msg, onDelta) {
-  const resp = await fetch(`/api/chat/stream?msg=${encodeURIComponent(msg)}`, {
+// 事件类型：{delta} 文本增量、{image} 图片(base64/URL)、{log} 运行日志
+export async function chatStream({ msg, model = '', userId = 'web', onDelta, onImage, onLog }) {
+  const params = new URLSearchParams({ msg, userId })
+  if (model) params.set('model', model)
+
+  const resp = await fetch(`/api/chat/stream?${params}`, {
     headers: { Accept: 'text/event-stream' }
   })
   if (!resp.ok) throw new Error('请求失败 ' + resp.status)
@@ -25,7 +29,9 @@ export async function chatStream(msg, onDelta) {
           if (data === '[DONE]') return
           try {
             const obj = JSON.parse(data)
-            if (obj && obj.delta) onDelta(obj.delta)
+            if (obj && obj.delta != null && onDelta) onDelta(obj.delta)
+            if (obj && obj.image && onImage) onImage(obj.image)
+            if (obj && obj.log && onLog) onLog(obj.log)
           } catch (e) { /* 忽略非 JSON 片段 */ }
         }
       }

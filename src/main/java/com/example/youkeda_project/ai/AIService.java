@@ -38,6 +38,27 @@ public class AIService {
     private static final String MODEL = "deepseek-v4-pro";
     private static final String QWEN_VL_MODEL = "qwen-vl-plus";
     private static final int MAX_HISTORY = 10;
+    /** token 消耗统计: userId -> [promptTokens, completionTokens] */
+    private static final Map<String, long[]> TOKEN_USAGE = new ConcurrentHashMap<>();
+    /** token 消耗统计: model -> [promptTokens, completionTokens] */
+    private static final Map<String, long[]> MODEL_USAGE = new ConcurrentHashMap<>();
+    /** 人设: userId -> persona */
+    private final Map<String, String> personas = new ConcurrentHashMap<>();
+
+    /** 获取 token 消耗统计（按账户，供 Web 前端展示）。 */
+    public Map<String, long[]> getTokenUsage() { return TOKEN_USAGE; }
+
+    /** 获取 token 消耗统计（按模型，供 Web 前端展示）。 */
+    public Map<String, long[]> getModelUsage() { return MODEL_USAGE; }
+
+    /** 设置/更新用户人设（Web 配置面板用）。 */
+    public void setPersona(String userId, String persona) {
+        if (persona != null && !persona.isBlank()) personas.put(userId, persona);
+        else personas.remove(userId);
+    }
+
+    /** 获取用户人设。 */
+    public String getPersona(String userId) { return personas.get(userId); }
 
     /** 金融分析智能体的系统提示词（skill 路由命中时替代通用 prompt）。 */
     private static String financialSystemPrompt() {
@@ -147,6 +168,8 @@ public class AIService {
         try {
             // 收集本轮所有工具执行产生的媒体结果(图片URL,音频等)
             List<ToolResult> allPendingMedia = new ArrayList<>();
+            // 已出图的标的 -> 出图工具名(拦截重复出图)
+            Map<String, String> chartedStocks = new HashMap<>();
             // 工具失败追踪:同一工具连续失败≥2次后,跳过调用并通知模型放弃重试
             Map<String, Integer> toolFailureCount = new HashMap<>();
             int maxRounds = apiConfig.getAiToolMaxRounds();
@@ -215,6 +238,19 @@ public class AIService {
                         Map<String, Object> args = parseArguments(tc.arguments(), userId);
                         log.debug("执行工具: {}({})", tc.functionName(), args);
 
+                        // 同一标的已出过图时,拦截重复出图工具(analyze_stock/generate_chart 都会带图)
+                        if (tc.functionName().equals("generate_chart") || tc.functionName().equals("analyze_stock")) {
+                            Object stockArg = args.get("stock");
+                            String stock = stockArg != null ? stockArg.toString() : "";
+                            String prevChartTool = chartedStocks.get(stock);
+                            if (prevChartTool != null && !prevChartTool.equals(tc.functionName())) {
+                                log.info("标的 {} 已通过 {} 出图,跳过重复出图工具 {}", stock, prevChartTool, tc.functionName());
+                                history.add(ChatMessage.tool(tc.id(), tc.functionName(),
+                                    "系统提示:" + stock + "的图表已通过" + prevChartTool + "生成并发送给用户,不要重复生成图表,请直接基于已有图表和数据分析总结回复."));
+                                continue;
+                            }
+                        }
+
                         ToolResult toolResult = matched.execute(args);
                         log.debug("工具结果: {} -> {}, hasImage={}, hasAudio={}",
                             tc.functionName(), toolResult.getText(), toolResult.hasImage(), toolResult.hasAudio());
@@ -230,6 +266,12 @@ public class AIService {
                         // 收集媒体结果
                         if (toolResult.hasImage() || toolResult.hasAudio()) {
                             allPendingMedia.add(toolResult);
+                        }
+                        // 记录已出图的标的
+                        if (toolResult.hasImage()
+                                && (tc.functionName().equals("generate_chart") || tc.functionName().equals("analyze_stock"))) {
+                            Object stockArg = args.get("stock");
+                            chartedStocks.put(stockArg != null ? stockArg.toString() : "", tc.functionName());
                         }
 
                         // 将文本结果加入对话历史（供 LLM 下一轮使用）
@@ -282,10 +324,13 @@ public class AIService {
 
     /**
      * 流式对话（供 Web 前端 SSE 使用）：
-     * 调用 DeepSeek stream=true，逐段把生成的文本通过 onDelta 回调吐出。
-     * 当前为纯文本流式（不调用工具），返回完整回复。
+     * 调用 DeepSeek stream=true，逐段把生成的文本通过 onDelta 回调吐出；
+     * 支持 Function Calling 工具循环（与微信侧一致），工具生成的图片通过 onImage 以 base64 dataURL 吐出。
      */
-    public String chatStream(String userId, String userMessage, java.util.function.Consumer<String> onDelta) {
+    public String chatStream(String userId, String userMessage, String model, List<Tool> tools,
+                             java.util.function.Consumer<String> onDelta,
+                             java.util.function.Consumer<String> onImage,
+                             java.util.function.Consumer<Map<String, Object>> onLog) {
         if (apiConfig.getAiApiKey() == null || apiConfig.getAiApiKey().isBlank()) {
             return "错误: 未配置 DeepSeek API Key";
         }
@@ -301,55 +346,192 @@ public class AIService {
         // RAG 增强 system prompt：基于当前问题检索知识库拼入（与微信聊天一致）
         if (!history.isEmpty() && "system".equals(history.get(0).role())) {
             String enhanced = ragService.augment(userMessage, String.valueOf(history.get(0).content()));
+            String persona = personas.get(userId);
+            if (persona != null && !persona.isBlank()) {
+                enhanced += "\n\n【用户设定的人设，请严格遵守】" + persona;
+            }
             history.set(0, new ChatMessage("system", enhanced));
         }
 
+        StringBuilder full = new StringBuilder();
+        currentUserId.set(userId);
+        final String usedModel = (model != null && !model.isBlank()) ? model : MODEL;
         try {
-            Map<String, Object> requestBody = Map.of(
-                "model", MODEL,
-                "messages", history,
-                "stream", true
-            );
-            String body = objectMapper.writeValueAsString(requestBody);
-            log.debug("DeepSeek流式请求: {} chars", body.length());
+            int maxRounds = apiConfig.getAiToolMaxRounds();
+            for (int round = 0; round < maxRounds; round++) {
+                Map<String, Object> requestBody = new LinkedHashMap<>();
+                requestBody.put("model", usedModel);
+                requestBody.put("messages", history);
+                requestBody.put("stream", true);
+                if (tools != null && !tools.isEmpty()) {
+                    requestBody.put("tools", tools.stream().map(Tool::toToolDefinition).toList());
+                }
+                String body = objectMapper.writeValueAsString(requestBody);
+                log.debug("DeepSeek流式请求(round={}): {} chars", round, body.length());
 
-            java.net.HttpURLConnection conn = (java.net.HttpURLConnection)
-                URI.create(apiConfig.getAiApiUrl()).toURL().openConnection();
-            conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-            conn.setRequestProperty("Authorization", "Bearer " + apiConfig.getAiApiKey());
-            conn.setDoOutput(true);
-            conn.setConnectTimeout(15000);
-            conn.setReadTimeout(120000);
-            conn.getOutputStream().write(body.getBytes(StandardCharsets.UTF_8));
-            conn.getOutputStream().flush();
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection)
+                    URI.create(apiConfig.getAiApiUrl()).toURL().openConnection();
+                conn.setRequestMethod("POST");
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setRequestProperty("Authorization", "Bearer " + apiConfig.getAiApiKey());
+                conn.setDoOutput(true);
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(120000);
+                conn.getOutputStream().write(body.getBytes(StandardCharsets.UTF_8));
+                conn.getOutputStream().flush();
 
-            StringBuilder full = new StringBuilder();
-            try (var reader = new java.io.BufferedReader(
-                    new java.io.InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (!line.startsWith("data:")) continue;
-                    String data = line.substring(5).trim();
-                    if ("[DONE]".equals(data)) break;
-                    JsonNode node = objectMapper.readTree(data);
-                    JsonNode delta = node.path("choices").path(0).path("delta").path("content");
-                    if (delta.isTextual()) {
-                        String d = delta.asText();
-                        full.append(d);
-                        if (onDelta != null) onDelta.accept(d);
+                // 运行日志：本轮请求
+                if (onLog != null) {
+                    Map<String, Object> lm = new LinkedHashMap<>();
+                    lm.put("kind", "req");
+                    lm.put("model", usedModel);
+                    lm.put("msg", "发送请求给 " + usedModel);
+                    lm.put("detail", "第 " + (round + 1) + " 轮 · " + (tools != null && !tools.isEmpty() ? "携带 " + tools.size() + " 个工具" : "纯文本对话"));
+                    lm.put("status", "RUN");
+                    onLog.accept(lm);
+                }
+
+                // 累积流式工具调用片段(按 index)
+                List<String[]> pendingCalls = new ArrayList<>();
+                StringBuilder roundText = new StringBuilder();
+
+                try (var reader = new java.io.BufferedReader(
+                        new java.io.InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (!line.startsWith("data:")) continue;
+                        String data = line.substring(5).trim();
+                        if ("[DONE]".equals(data)) break;
+                        JsonNode node = objectMapper.readTree(data);
+                        // 统计 token 消耗（流式结束时 usage 字段出现）
+                        JsonNode usageNode = node.path("usage");
+                        if (usageNode.isObject() && (usageNode.has("prompt_tokens") || usageNode.has("completion_tokens"))) {
+                            long pt = usageNode.path("prompt_tokens").asLong(0);
+                            long ct = usageNode.path("completion_tokens").asLong(0);
+                            if (pt > 0 || ct > 0) {
+                                long[] u = TOKEN_USAGE.computeIfAbsent(userId, k -> new long[2]);
+                                u[0] += pt;
+                                u[1] += ct;
+                                long[] um = MODEL_USAGE.computeIfAbsent(usedModel, k -> new long[2]);
+                                um[0] += pt;
+                                um[1] += ct;
+                            }
+                        }
+                        JsonNode delta = node.path("choices").path(0).path("delta");
+                        JsonNode contentNode = delta.path("content");
+                        if (contentNode.isTextual()) {
+                            String d = contentNode.asText();
+                            roundText.append(d);
+                            full.append(d);
+                            if (onDelta != null) onDelta.accept(d);
+                        }
+                        JsonNode tcs = delta.path("tool_calls");
+                        if (tcs.isArray()) {
+                            for (JsonNode t : tcs) {
+                                int idx = t.path("index").asInt(0);
+                                while (pendingCalls.size() <= idx) pendingCalls.add(new String[3]);
+                                if (t.path("id").isTextual()) pendingCalls.get(idx)[0] = t.path("id").asText();
+                                JsonNode fn = t.path("function");
+                                if (fn.path("name").isTextual()) pendingCalls.get(idx)[1] = fn.path("name").asText();
+                                if (fn.path("arguments").isTextual()) {
+                                    if (pendingCalls.get(idx)[2] == null) pendingCalls.get(idx)[2] = "";
+                                    pendingCalls.get(idx)[2] += fn.path("arguments").asText();
+                                }
+                            }
+                        }
                     }
                 }
-            }
-            conn.disconnect();
+                conn.disconnect();
 
-            String reply = full.toString();
-            history.add(new ChatMessage("assistant", reply));
-            trimHistory(history);
-            return reply;
+                // 无工具调用:本轮文本回复结束
+                if (pendingCalls.isEmpty()) {
+                    history.add(new ChatMessage("assistant", roundText.toString()));
+                    trimHistory(history);
+                    if (onLog != null) {
+                        Map<String, Object> lm = new LinkedHashMap<>();
+                        lm.put("kind", "reply");
+                        lm.put("model", usedModel);
+                        lm.put("msg", "AI 回复生成完成");
+                        lm.put("detail", roundText.length() > 60 ? roundText.substring(0, 60) + "…" : roundText.toString());
+                        lm.put("status", "OK");
+                        onLog.accept(lm);
+                    }
+                    return full.toString();
+                }
+
+                // 记录 assistant 的工具调用消息
+                List<Map<String, Object>> rawToolCalls = new ArrayList<>();
+                for (String[] c : pendingCalls) {
+                    Map<String, Object> raw = new LinkedHashMap<>();
+                    raw.put("id", c[0]);
+                    raw.put("type", "function");
+                    Map<String, Object> func = new LinkedHashMap<>();
+                    func.put("name", c[1]);
+                    func.put("arguments", c[2]);
+                    raw.put("function", func);
+                    rawToolCalls.add(raw);
+                }
+                history.add(ChatMessage.assistantWithToolCalls(rawToolCalls));
+
+                // 执行工具:文本结果回填,图片经 onImage 传给前端
+                for (String[] c : pendingCalls) {
+                    Tool matched = findTool(c[1], tools);
+                    if (matched == null) {
+                        log.warn("未找到工具: {}", c[1]);
+                        history.add(ChatMessage.tool(c[0], c[1], "错误: 未知工具 " + c[1]));
+                        continue;
+                    }
+                    Map<String, Object> args = parseArguments(c[2], userId);
+                    ToolResult toolResult = matched.execute(args);
+                    String resultText = toolResult.getText();
+                    boolean ok = resultText != null && !resultText.startsWith("错误:");
+                    if (onLog != null) {
+                        Map<String, Object> lm = new LinkedHashMap<>();
+                        lm.put("kind", "tool");
+                        lm.put("model", usedModel);
+                        lm.put("msg", "调用工具 " + c[1]);
+                        lm.put("detail", resultText != null
+                            ? (resultText.length() > 60 ? resultText.substring(0, 60) + "…" : resultText)
+                            : "");
+                        lm.put("status", ok ? "OK" : "FAIL");
+                        onLog.accept(lm);
+                    }
+                    if (toolResult.hasImage() && onImage != null) {
+                        if (toolResult.getImageUrl() != null && !toolResult.getImageUrl().isBlank()) {
+                            onImage.accept(toolResult.getImageUrl());
+                        }
+                        if (toolResult.getImageBytes() != null && toolResult.getImageBytes().length > 0) {
+                            onImage.accept("data:image/png;base64,"
+                                + Base64.getEncoder().encodeToString(toolResult.getImageBytes()));
+                        }
+                        if (toolResult.getImageBytesList() != null) {
+                            for (byte[] img : toolResult.getImageBytesList()) {
+                                if (img != null && img.length > 0) {
+                                    onImage.accept("data:image/png;base64,"
+                                        + Base64.getEncoder().encodeToString(img));
+                                }
+                            }
+                        }
+                    }
+                    history.add(ChatMessage.tool(c[0], c[1], toolResult.getText()));
+                }
+                trimHistory(history);
+            }
+            return full.toString();
         } catch (Exception e) {
             log.error("DeepSeek流式调用失败", e);
+            if (onLog != null) {
+                Map<String, Object> lm = new LinkedHashMap<>();
+                lm.put("kind", "error");
+                lm.put("model", usedModel);
+                lm.put("msg", "请求失败");
+                lm.put("detail", e.getMessage() != null ? e.getMessage() : "未知错误");
+                lm.put("status", "FAIL");
+                onLog.accept(lm);
+            }
             return "错误: AI 服务暂时不可用 - " + e.getMessage();
+        } finally {
+            currentUserId.remove();
         }
     }
 

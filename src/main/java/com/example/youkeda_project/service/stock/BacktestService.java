@@ -541,6 +541,7 @@ public class BacktestService {
             sb.append(String.format("| **交易次数** | %d 笔 |\n", totalTrades));
             sb.append(String.format("| **基准(买入持有)** | %s%.2f%% |\n", benchmarkReturnPct >= 0 ? "+" : "", benchmarkReturnPct));
             sb.append(String.format("| **数据区间** | %s ~ %s (%d个交易日) |\n", startDate, endDate, dataDays));
+            sb.append(String.format("| **回测时间** | %s-%s |\n", startDate.replace('-', '/'), endDate.replace('-', '/')));
 
             // 超额收益
             double excess = totalReturnPct - benchmarkReturnPct;

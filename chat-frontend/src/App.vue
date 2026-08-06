@@ -1,70 +1,93 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import ChatWindow from './components/ChatWindow.vue'
-import InputBar from './components/InputBar.vue'
-import LoginView from './components/LoginView.vue'
-import AccountsView from './components/AccountsView.vue'
-import { chatStream } from './api/stream.js'
+import UserPanel from './components/UserPanel.vue'
+import ConfigPanel from './components/ConfigPanel.vue'
+import TokenPanel from './components/TokenPanel.vue'
+import ChatContent from './components/ChatContent.vue'
+import LogContent from './components/LogContent.vue'
 import { listSessions } from './api/auth.js'
 
-const view = ref('login') // login | chat | accounts
-const messages = ref([
-  { role: 'assistant', content: '你好！我是你的智能助手，可以查股票、看天气、搜新闻等，有什么可以帮你？' }
-])
-const loading = ref(false)
+const sessions = ref([])
+const activeId = ref('')
+const tab = ref('chat') // chat | log
+const logs = ref([])
+// 主题：light / dark（手动切换，持久化到 localStorage）
+const theme = ref(localStorage.getItem('theme') || 'light')
 
-onMounted(async () => {
+function applyTheme() {
+  localStorage.setItem('theme', theme.value)
+  document.documentElement.classList.toggle('dark', theme.value === 'dark')
+}
+
+function toggleTheme() {
+  theme.value = theme.value === 'dark' ? 'light' : 'dark'
+  applyTheme()
+}
+
+async function refreshSessions() {
   try {
-    const sessions = await listSessions()
-    const logged = sessions.some(s => s.listening || s.status === 'LOGGED_IN')
-    view.value = logged ? 'chat' : 'login'
+    sessions.value = await listSessions()
   } catch (e) {
-    view.value = 'login'
+    sessions.value = []
   }
+}
+
+onMounted(() => {
+  applyTheme()
+  refreshSessions()
 })
 
-function onLoginDone() { view.value = 'chat' }
-function showAccounts() { view.value = 'accounts' }
-function showLogin() { view.value = 'login' }
-function backToChat() { view.value = 'chat' }
+function onSelect(sessionId) {
+  activeId.value = sessionId
+}
 
-async function send(text) {
-  if (!text.trim() || loading.value) return
+function onCreated() {
+  refreshSessions()
+}
 
-  messages.value.push({ role: 'user', content: text })
-  const aiMsg = ref({ role: 'assistant', content: '' })
-  messages.value.push(aiMsg.value)
-  loading.value = true
+function onDeleted(sessionId) {
+  if (activeId.value === sessionId) activeId.value = ''
+  refreshSessions()
+}
 
-  try {
-    await chatStream(text, (delta) => {
-      aiMsg.value.content += delta
-    })
-  } catch (e) {
-    aiMsg.value.content = '⚠️ 请求失败：' + e.message
-  } finally {
-    loading.value = false
-  }
+function onLog(log) {
+  logs.value.push(log)          // 新日志追加到末尾（按流程从上到下）
+  if (logs.value.length > 100) logs.value.shift()
 }
 </script>
 
 <template>
-  <div class="chat-app">
-    <header class="chat-header">
-      <h1>🤖 Claw 智能助手</h1>
-      <div class="header-actions">
-        <span v-if="view === 'chat'" class="status" :class="{ online: !loading }">
-          {{ loading ? '思考中...' : '● 在线' }}
-        </span>
-        <button v-if="view === 'chat'" class="btn-accounts" @click="showAccounts">账户管理</button>
-      </div>
-    </header>
+  <div class="console">
+    <!-- 背景层：可放动图/视频，见 style.css .bg-layer 注释 -->
+    <div class="bg-layer"></div>
 
-    <LoginView v-if="view === 'login'" @done="onLoginDone" />
-    <AccountsView v-else-if="view === 'accounts'" @back="backToChat" @add="showLogin" />
-    <template v-else>
-      <ChatWindow :messages="messages" :loading="loading" />
-      <InputBar :loading="loading" @send="send" />
-    </template>
+    <aside class="sidebar">
+      <UserPanel :sessions="sessions" :active-id="activeId" @select="onSelect" @created="onCreated" @deleted="onDeleted" />
+      <ConfigPanel :user-id="activeId" />
+      <TokenPanel :sessions="sessions" />
+    </aside>
+
+    <main class="main">
+      <div class="tabbar">
+        <button :class="{ active: tab === 'chat' }" @click="tab = 'chat'">💬 对话</button>
+        <button :class="{ active: tab === 'log' }" @click="tab = 'log'">🔍 运行日志</button>
+        <button
+          class="theme-toggle"
+          :title="theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'"
+          @click="toggleTheme"
+        >{{ theme === 'dark' ? '☀️' : '🌙' }}</button>
+      </div>
+      <div class="tab-body">
+        <!-- v-show 而非 v-if：切换 tab 不销毁组件，保留对话状态 -->
+        <ChatContent
+          v-show="tab === 'chat'"
+          :sessions="sessions"
+          :account="activeId"
+          @select="onSelect"
+          @log="onLog"
+        />
+        <LogContent v-show="tab !== 'chat'" :logs="logs" @clear="logs = []" />
+      </div>
+    </main>
   </div>
 </template>

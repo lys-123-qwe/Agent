@@ -51,6 +51,13 @@ public class ChatTextClient {
         if (responseLogger != null) responseLogger.accept(respBody);
 
         JsonNode root = objectMapper.readTree(respBody);
+        // 统计 token 消耗（按模型名）
+        JsonNode usageNode = root.path("usage");
+        if (usageNode.isObject()) {
+            long pt = usageNode.path("prompt_tokens").asLong(0);
+            long ct = usageNode.path("completion_tokens").asLong(0);
+            if (pt > 0 || ct > 0) com.example.youkeda_project.util.TokenStats.record(model, pt, ct);
+        }
         JsonNode choice = root.path("choices").get(0);
         if (choice == null) return null;
         return choice.path("message").path("content").asText("");
