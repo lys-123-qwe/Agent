@@ -8,6 +8,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * qrcode: 二维码 ID,用于轮询扫码状态;
  * qrcodeImgContent: 二维码图片内容(base64 或 URL),展示给用户扫码.
  */
+
 public record QRCodeResponse(
     String qrcode,
     @JsonProperty("qrcode_img_content") String qrcodeImgContent

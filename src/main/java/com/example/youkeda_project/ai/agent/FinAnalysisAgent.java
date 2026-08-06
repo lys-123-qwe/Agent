@@ -29,6 +29,7 @@ import java.util.Map;
  * 支持的分析类型见 {@link AnalysisType}，包括个股分析、基金分析、期货趋势、
  * 板块产业链分析、跨市场联动、持仓诊断、资产配置、大盘综评等。
  */
+
 @Service
 public class FinAnalysisAgent {
 

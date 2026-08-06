@@ -12,6 +12,7 @@ import java.util.Map;
 /**
  * 音乐工具：search(按歌名/歌手搜歌) 与 recommend(按风格/心情荐歌)。
  */
+
 @Component
 public class MusicTool extends AbstractTool {
 

@@ -11,6 +11,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * userId: Bot 所有者的微信用户 ID;
  * baseurl: iLink API 地址(可能因环境不同).
  */
+
 public record LoginResult(
     String status,
     @JsonProperty("bot_token") String botToken,

@@ -17,6 +17,7 @@ import org.springframework.web.client.RestClient;
  * <p>
  * 支持任意中国城市名称(中文).
  */
+
 @Service
 public class WeatherService {
 

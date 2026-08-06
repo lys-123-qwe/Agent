@@ -20,6 +20,8 @@ import org.springframework.stereotype.Component;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeoutException;
+/** 命令行入口与消息编排器：启动监听、分发文本/图片/语音/文件消息、上传媒体回发。 */
+
 
 @Component
 public class CliRunner implements CommandLineRunner {

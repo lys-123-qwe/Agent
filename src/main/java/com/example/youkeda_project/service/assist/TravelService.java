@@ -10,6 +10,8 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+/** 出行/路线规划（高德 API）。 */
+
 
 @Service
 public class TravelService {

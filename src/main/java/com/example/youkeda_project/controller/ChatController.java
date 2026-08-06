@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -23,6 +24,7 @@ import java.util.Map;
  * 后端逐段推送 {delta} 文本增量与 {image} 图片(base64 dataURL)，结束时发送 [DONE]。
  * 此接口仅供 Web 前端使用，微信侧仍走原有流程。
  */
+
 @RestController
 @RequestMapping("/api")
 public class ChatController {
@@ -35,6 +37,13 @@ public class ChatController {
     public ChatController(AIService aiService, ToolRegistry toolRegistry) {
         this.aiService = aiService;
         this.tools = toolRegistry.allTools();
+    }
+
+    /** 清空指定用户的会话历史（前端"新建对话"调用，保留人设/记忆）。 */
+    @PostMapping("/chat/clear")
+    public Map<String, Object> clear(@RequestParam(defaultValue = "web") String userId) {
+        aiService.clearHistory(userId);
+        return Map.of("ok", true);
     }
 
     /** SSE 流式聊天端点（支持 model 参数切换模型，推送 delta/image/log 事件） */

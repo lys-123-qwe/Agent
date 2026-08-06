@@ -1,6 +1,8 @@
 package com.example.youkeda_project.tool;
 
 import java.util.List;
+/** 工具执行结果：文本 + 图片/音频媒体。 */
+
 
 public class ToolResult {
 

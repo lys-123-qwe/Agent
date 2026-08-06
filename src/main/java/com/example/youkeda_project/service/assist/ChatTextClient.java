@@ -12,6 +12,8 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.function.Consumer;
+/** 共享的 LLM 文本补全客户端（翻译/文案/运势等服务复用），统计 token。 */
+
 
 @Component
 public class ChatTextClient {

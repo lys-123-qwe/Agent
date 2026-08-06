@@ -15,6 +15,7 @@ import java.util.List;
  * SkillManager dynamically loads and registers Skills by scanning src/skills/{skill-name}/skill.json.
  * No if-else hard-coded routing is required.
  */
+
 public interface Skill {
 
     /** Unique skill identifier, e.g. financial-analysis. */

@@ -17,6 +17,7 @@ import java.util.Map;
 /**
  * 自选股管理工具：add(加入)、remove(删除)、list(查看行情)。
  */
+
 @Component
 public class WatchlistTool extends AbstractTool {
 

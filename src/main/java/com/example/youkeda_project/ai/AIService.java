@@ -31,6 +31,7 @@ import java.util.concurrent.Executors;
  * 每个用户维护独立 session(最多 10 轮历史),
  * 请求/响应全部使用 byte[] + UTF-8 编解码,避免 Windows 控制台 GBK 编码导致乱码.
  */
+
 @Service
 public class AIService {
 
@@ -55,6 +56,11 @@ public class AIService {
     public void setPersona(String userId, String persona) {
         if (persona != null && !persona.isBlank()) personas.put(userId, persona);
         else personas.remove(userId);
+    }
+
+    /** 清空指定用户的会话历史（前端"新建对话"用，记忆/人设保留）。 */
+    public void clearHistory(String userId) {
+        sessions.remove(userId);
     }
 
     /** 获取用户人设。 */
@@ -186,7 +192,7 @@ public class AIService {
                     tools != null ? tools.size() : 0);
 
                 byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
-                ChatResponse response = callCompletion(restClient, apiConfig.getAiApiKey(), bodyBytes);
+                ChatResponse response = callCompletion(restClient, apiConfig.getAiApiKey(), bodyBytes, MODEL);
                 if (response == null) {
                     return new ChatResult("错误: AI 服务返回空响应");
                 }
@@ -572,7 +578,7 @@ public class AIService {
             log.info("通义千问VL请求: {} chars", body.length());
 
             byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
-            ChatResponse response = callCompletion(visionRestClient, apiConfig.getVisionApiKey(), bodyBytes);
+            ChatResponse response = callCompletion(visionRestClient, apiConfig.getVisionApiKey(), bodyBytes, QWEN_VL_MODEL);
             if (response == null) {
                 return "错误: AI 服务返回空响应";
             }
@@ -623,7 +629,7 @@ public class AIService {
             log.info("上下文回复请求: {} chars", body.length());
 
             byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
-            ChatResponse response = callCompletion(restClient, apiConfig.getAiApiKey(), bodyBytes);
+            ChatResponse response = callCompletion(restClient, apiConfig.getAiApiKey(), bodyBytes, MODEL);
             if (response == null) {
                 return "错误: AI 服务返回空响应";
             }
@@ -739,7 +745,7 @@ public class AIService {
     }
 
     /** 发送一次对话补全请求并解析响应。响应为空返回 null，解析异常向上抛。 */
-    private ChatResponse callCompletion(RestClient client, String apiKey, byte[] bodyBytes) throws Exception {
+    private ChatResponse callCompletion(RestClient client, String apiKey, byte[] bodyBytes, String model) throws Exception {
         byte[] responseBytes = client.post()
                 .header("Content-Type", "application/json; charset=UTF-8")
                 .header("Authorization", "Bearer " + apiKey)
@@ -749,6 +755,17 @@ public class AIService {
         if (responseBytes == null) return null;
         String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
         log.debug("AI 响应: {} chars", responseJson.length());
+        // 统计 token 消耗（按模型）
+        JsonNode usageNode = objectMapper.readTree(responseJson).path("usage");
+        if (usageNode.isObject()) {
+            long pt = usageNode.path("prompt_tokens").asLong(0);
+            long ct = usageNode.path("completion_tokens").asLong(0);
+            if (pt > 0 || ct > 0) {
+                long[] um = MODEL_USAGE.computeIfAbsent(model, k -> new long[2]);
+                um[0] += pt;
+                um[1] += ct;
+            }
+        }
         return objectMapper.readValue(responseJson, ChatResponse.class);
     }
 

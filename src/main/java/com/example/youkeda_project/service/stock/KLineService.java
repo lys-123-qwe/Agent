@@ -13,6 +13,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+/** K 线数据统一类型与新浪/期货接口拉取。 */
+
 
 @Service
 public class KLineService {

@@ -13,6 +13,7 @@ import java.util.List;
  * 包含 LLM 的文本回复以及工具执行产生的 pending 媒体操作
  * (如图片 CDN 上传,音频文件发送),供调用方处理.
  */
+
 public class ChatResult {
 
     private final String replyText;

@@ -7,6 +7,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * 兼容 OpenAI/DeepSeek/通义千问 VL 的 chat completion 响应格式.
  * 支持 Function Calling: finish_reason=tool_calls 和 tool_calls 字段.
  */
+
 public class ChatChoice {
 
     private int index;

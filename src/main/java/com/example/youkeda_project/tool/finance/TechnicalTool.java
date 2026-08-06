@@ -10,6 +10,8 @@ import org.springframework.stereotype.Component;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+/** 技术指标查询工具。 */
+
 
 @Component
 public class TechnicalTool extends AbstractTool {

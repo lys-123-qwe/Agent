@@ -14,6 +14,7 @@ import java.util.List;
  * 统一知识持久化：通用知识与 skill 文档知识都存同一个 knowledge.db。
  * skill_name 为 NULL 表示通用知识，否则表示属于某个 skill 的文档知识。
  */
+
 @Component
 public class KnowledgeRepository {
 

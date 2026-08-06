@@ -7,6 +7,8 @@ import com.example.youkeda_project.tool.ToolResult;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+/** 图片识别工具（qwen-vl-plus）。 */
+
 
 public class RecognizeImageTool extends AbstractTool {
 

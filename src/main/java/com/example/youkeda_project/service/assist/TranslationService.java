@@ -6,6 +6,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+/** 翻译与方言转换。 */
+
 
 @Service
 public class TranslationService {

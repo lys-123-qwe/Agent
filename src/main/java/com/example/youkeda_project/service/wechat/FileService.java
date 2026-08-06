@@ -17,6 +17,7 @@ import java.util.List;
  * 支持 txt,docx,xlsx,pptx,pdf,html,csv 等常见格式.
  * 提取结果截断到 MAX_TEXT_LENGTH 字符,避免 AI token 超限.
  */
+
 @Service
 public class FileService {
 

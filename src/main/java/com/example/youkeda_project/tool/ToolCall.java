@@ -7,6 +7,7 @@ import java.util.List;
 /**
  * 解析后的工具调用信息,对应 OpenAI/DeepSeek 响应中的 tool_calls.
  */
+
 public record ToolCall(
     String id,
     String functionName,

@@ -12,6 +12,7 @@ import java.util.Map;
 /**
  * 股票查询工具(Function Calling).
  */
+
 @Component
 public class StockTool extends AbstractTool {
 

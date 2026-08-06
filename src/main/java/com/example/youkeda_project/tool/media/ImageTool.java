@@ -15,6 +15,7 @@ import java.util.Map;
  * 定义 generate_image 函数,供 DeepSeek 通过 Function Calling 调用.
  * 委托 ImageService 调用通义万相生图,返回 OSS 图片 URL.
  */
+
 @Component
 public class ImageTool extends AbstractTool {
 

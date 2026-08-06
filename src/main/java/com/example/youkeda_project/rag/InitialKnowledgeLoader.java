@@ -11,6 +11,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+/** 启动时加载初始知识入库。 */
+
 
 @Component
 public class InitialKnowledgeLoader {

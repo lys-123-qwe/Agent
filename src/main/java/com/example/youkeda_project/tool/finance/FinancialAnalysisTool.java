@@ -12,6 +12,8 @@ import org.springframework.stereotype.Component;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+/** 技术面分析工具（analyze_stock，自带 K 线图）。 */
+
 
 @Component
 public class FinancialAnalysisTool extends AbstractTool {

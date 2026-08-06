@@ -14,6 +14,7 @@ import java.util.Map;
  * <p>
  * 封装 {@link LogisticsService},供 DeepSeek/OpenAI 模型在对话中自动调用.
  */
+
 @Component
 public class LogisticsTool extends AbstractTool {
 

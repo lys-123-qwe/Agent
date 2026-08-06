@@ -16,6 +16,7 @@ import java.util.Map;
  * 定义 save_user_info 函数,当 AI 在对话中了解到用户的偏好,身份等信息时调用,
  * 存入 user_memory 表,下次对话时自动注入 system prompt 实现长期记忆.
  */
+
 @Component
 public class MemoryTool extends AbstractTool {
 

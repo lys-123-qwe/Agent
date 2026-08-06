@@ -9,6 +9,8 @@ import org.springframework.stereotype.Component;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+/** 定时任务管理工具。 */
+
 
 @Component
 public class ScheduledTaskTool extends AbstractTool {

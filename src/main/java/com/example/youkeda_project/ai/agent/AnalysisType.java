@@ -6,6 +6,7 @@ package com.example.youkeda_project.ai.agent;
  * 定义分析 Agent 支持的所有分析场景，
  * 每种类型对应不同的数据采集策略和 System Prompt 模板。
  */
+
 public enum AnalysisType {
 
     /** 个股深度分析：技术面 + 基本面 + 机构持仓 */

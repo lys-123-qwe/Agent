@@ -24,6 +24,8 @@ import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+/** 定时任务调度（SQLite 存储，每秒扫描触发）。 */
+
 
 @Service
 public class ScheduledTaskService {

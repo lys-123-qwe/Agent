@@ -24,6 +24,7 @@ import java.util.Map;
  * <p>
  * 内置 60 秒短缓存，避免短时间内重复请求同一品种。
  */
+
 @Service
 public class FuturesService {
 

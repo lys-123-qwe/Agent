@@ -12,6 +12,7 @@ import java.util.List;
 /**
  * 通用技能：封装搜索、记忆、定时任务等通用工具。
  */
+
 @Component
 public class CommonSkill extends AbstractSkill {
 

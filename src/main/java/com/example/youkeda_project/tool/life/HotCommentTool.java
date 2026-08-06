@@ -15,6 +15,7 @@ import java.util.Map;
  * 定义 get_hot_comment 函数,委托 HotCommentService 获取热评.
  * 支持随机热评和按歌曲名搜索.
  */
+
 @Component
 public class HotCommentTool extends AbstractTool {
 

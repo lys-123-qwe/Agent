@@ -33,6 +33,7 @@ import java.util.Set;
  * 所有搜索统一走 NewsService(天聚数行 → 博查降级 + 统一过滤),
  * 避免直接调博查绕过过滤逻辑.
  */
+
 @Component
 public class SearchTool extends AbstractTool {
 

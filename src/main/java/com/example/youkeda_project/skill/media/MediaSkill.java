@@ -11,6 +11,7 @@ import java.util.List;
 /**
  * 媒体技能：封装文生图与语音合成工具。
  */
+
 @Component
 public class MediaSkill extends AbstractSkill {
 

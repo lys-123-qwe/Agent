@@ -11,6 +11,7 @@ import java.util.Map;
 /**
  * token 消耗统计接口（供 Web 前端左下角监控面板使用）。
  */
+
 @RestController
 @RequestMapping("/api")
 public class TokenController {
@@ -57,10 +58,16 @@ public class TokenController {
             m.put("total", total);
             sources.put(e.getKey(), m);
         }
+        // 按次计费服务（生图/改图/语音合成/语音识别）
+        Map<String, Object> counts = new LinkedHashMap<>();
+        for (var e : com.example.youkeda_project.util.TokenStats.countSnapshot().entrySet()) {
+            counts.put(e.getKey(), e.getValue());
+        }
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("accounts", accounts);
         out.put("models", models);
         out.put("sources", sources);
+        out.put("counts", counts);
         out.put("grandTotal", grandTotal);
         return out;
     }

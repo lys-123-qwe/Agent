@@ -15,6 +15,7 @@ import java.util.Set;
  * 技能通过 Spring Bean 注册（ToolRegistry.init 收集），此处仅负责：
  * 根据用户输入命中技能触发词，返回匹配的技能（供上层做 RAG 知识检索）。
  */
+
 @Component
 public class SkillManager {
 

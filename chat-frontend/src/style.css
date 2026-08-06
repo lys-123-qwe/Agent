@@ -273,6 +273,27 @@ body {
 }
 .tt-unit { font-size: 11px; color: #94a3b8; }
 
+/* 生图/改图次数 */
+.image-count {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 6px 10px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+}
+.ic-label { font-size: 12px; font-weight: 600; color: #9a3412; }
+.ic-chip {
+  font-size: 11px;
+  color: #c2410c;
+  background: #ffedd5;
+  border-radius: 99px;
+  padding: 2px 8px;
+}
+
 /* 各模型消耗列表 */
 .model-list {
   flex: 1;
@@ -463,7 +484,65 @@ body {
 .time { font-size: 11px; color: #9ca3af; }
 .copy-btn { background: none; border: none; color: #6b7280; font-size: 11px; cursor: pointer; padding: 2px 6px; border-radius: 4px; }
 .copy-btn:hover { background: #f3f4f6; color: #2563eb; }
-.msg-image { max-width: 100%; border-radius: 10px; margin-bottom: 8px; box-shadow: 0 3px 12px rgba(0,0,0,0.12); border: 1px solid #eef0f4; display: block; }
+.msg-image {
+  max-width: 100%;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.12);
+  border: 1px solid #eef0f4;
+  display: block;
+  cursor: zoom-in;
+  transition: transform 0.15s;
+}
+.msg-image:hover { transform: scale(1.01); }
+
+/* ==================== 图片查看器 ==================== */
+.img-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(2, 6, 23, 0.88);
+  display: flex;
+  flex-direction: column;
+}
+.viewer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+}
+.viewer-hint { color: #94a3b8; font-size: 13px; }
+.viewer-btns { display: flex; gap: 8px; }
+.viewer-btns button {
+  padding: 7px 16px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #e2e8f0;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.viewer-btns button:hover { background: rgba(255, 255, 255, 0.25); }
+.viewer-btns .viewer-close { background: rgba(239, 68, 68, 0.5); border-color: rgba(239, 68, 68, 0.6); }
+.viewer-btns .viewer-close:hover { background: rgba(239, 68, 68, 0.8); }
+.viewer-canvas {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+}
+.viewer-canvas.dragging { cursor: grabbing; }
+.viewer-canvas img {
+  max-width: 92vw;
+  max-height: 86vh;
+  border-radius: 6px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  transition: transform 0.1s ease-out;
+  will-change: transform;
+}
 
 /* Markdown */
 .md-body > *:first-child { margin-top: 0; }
@@ -595,4 +674,7 @@ html.dark ::-webkit-scrollbar-thumb:hover { background: #64748b; }
   html.dark .btn-mini{ background: #1e3a5f; color: #93c5fd; border-color: #3b82f6; }
   html.dark .btn-mini:hover{ background: #1d4ed8; color: #fff; }
   html.dark .cfg-msg{ color: #34d399; }
+  html.dark .image-count{ background: #431407; border-color: #7c2d12; }
+  html.dark .ic-label{ color: #fdba74; }
+  html.dark .ic-chip{ background: #7c2d12; color: #fed7aa; }
   html.dark .empty{ color: #64748b; }

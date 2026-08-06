@@ -11,6 +11,14 @@ const sessions = ref([])
 const activeId = ref('')
 const tab = ref('chat') // chat | log
 const logs = ref([])
+// 运行日志持久化到 localStorage，刷新后保留
+const savedLogs = localStorage.getItem('run_logs')
+if (savedLogs) {
+  try {
+    const arr = JSON.parse(savedLogs)
+    if (Array.isArray(arr)) logs.value = arr
+  } catch (e) { /* 忽略损坏数据 */ }
+}
 // 主题：light / dark（手动切换，持久化到 localStorage）
 const theme = ref(localStorage.getItem('theme') || 'light')
 
@@ -53,6 +61,12 @@ function onDeleted(sessionId) {
 function onLog(log) {
   logs.value.push(log)          // 新日志追加到末尾（按流程从上到下）
   if (logs.value.length > 100) logs.value.shift()
+  localStorage.setItem('run_logs', JSON.stringify(logs.value))   // 持久化
+}
+
+function clearLogs() {
+  logs.value = []
+  localStorage.removeItem('run_logs')
 }
 </script>
 
@@ -86,7 +100,7 @@ function onLog(log) {
           @select="onSelect"
           @log="onLog"
         />
-        <LogContent v-show="tab !== 'chat'" :logs="logs" @clear="logs = []" />
+        <LogContent v-show="tab !== 'chat'" :logs="logs" @clear="clearLogs" />
       </div>
     </main>
   </div>

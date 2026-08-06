@@ -12,6 +12,7 @@ import java.util.Map;
 /**
  * 基金查询工具（Function Calling）。
  */
+
 @Component
 public class FundTool extends AbstractTool {
 

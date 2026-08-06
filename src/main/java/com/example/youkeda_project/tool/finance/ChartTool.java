@@ -32,6 +32,7 @@ import java.util.Map;
  * <p>
  * 触发条件：用户明确说"画图"、"K线图"、"走势图"、"图表"等。
  */
+
 @Component
 public class ChartTool extends AbstractTool {
 

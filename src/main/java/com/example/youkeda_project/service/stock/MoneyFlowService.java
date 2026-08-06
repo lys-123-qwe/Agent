@@ -26,6 +26,7 @@ import java.util.Map;
  *   <li>北向资金 — 沪股通/深股通每日净买入额</li>
  * </ol>
  */
+
 @Service
 public class MoneyFlowService {
 

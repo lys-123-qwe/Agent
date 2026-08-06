@@ -15,6 +15,7 @@ import java.util.Map;
  * 定义 get_weather 函数,供 DeepSeek 通过 Function Calling 调用.
  * 内部委托 WeatherService 执行实际查询.
  */
+
 @Component
 public class WeatherTool extends AbstractTool {
 

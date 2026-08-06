@@ -13,6 +13,7 @@ import java.util.List;
  * 金融分析服务:基于真实 K 线数据计算 MA/RSI/MACD/布林带/ATR,
  * 输出方向判断,置信度,预测有效期,支撑/阻力,预计底部/顶部区域.
  */
+
 @Service
 public class FinancialAnalysisService {
 

@@ -8,6 +8,8 @@ import org.springframework.stereotype.Service;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
+/** 持仓管理（SQLite 持久化）。 */
+
 
 @Service
 public class PositionService {

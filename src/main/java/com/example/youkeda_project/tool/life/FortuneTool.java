@@ -8,6 +8,8 @@ import org.springframework.stereotype.Component;
 
 import java.util.HashMap;
 import java.util.Map;
+/** 命理测算工具。 */
+
 
 @Component
 public class FortuneTool extends AbstractTool {

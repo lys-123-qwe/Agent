@@ -4,6 +4,8 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+/** 技术指标计算（RSI 等）。 */
+
 
 @Service
 public class TechnicalService {

@@ -17,6 +17,8 @@ import java.time.LocalDate;
 import java.time.MonthDay;
 import java.util.List;
 import java.util.Random;
+/** 星座运势查询。 */
+
 
 @Service
 public class ConstellationService {

@@ -11,6 +11,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * <p>
  * fromCdn() 用于构造发送图片时的 ImageItem.
  */
+
 public record ImageItem(
     @JsonProperty("media") CDNMedia media,
     @JsonProperty("mid_size") Integer midSize,

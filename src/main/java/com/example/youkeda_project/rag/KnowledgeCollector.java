@@ -9,6 +9,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+/** 搜索网络学习新知识并写入知识库。 */
+
 
 @Component
 public class KnowledgeCollector {

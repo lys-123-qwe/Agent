@@ -7,6 +7,7 @@ import java.util.Map;
  * AI 对话请求体,兼容 OpenAI/DeepSeek/通义千问 VL 的 chat completion 格式.
  * 支持 Function Calling 的 tools 字段.
  */
+
 public class ChatRequest {
 
     private String model;

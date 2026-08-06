@@ -25,6 +25,7 @@ import java.util.concurrent.TimeUnit;
  * <p>
  * 使用虚拟线程并发采集，单个接口超时 5 秒不阻塞整体。
  */
+
 @Service
 public class FinDataService {
 

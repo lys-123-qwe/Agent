@@ -9,6 +9,7 @@ import java.util.Map;
  * 供 DeepSeek/OpenAI Function Calling 使用.
  * execute() 返回 ToolResult,可携带文本结果和/或媒体数据.
  */
+
 public interface Tool {
 
     String getName();

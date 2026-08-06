@@ -10,6 +10,8 @@ import org.springframework.stereotype.Component;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+/** 语音合成工具。 */
+
 
 @Component
 public class TtsTool extends AbstractTool {

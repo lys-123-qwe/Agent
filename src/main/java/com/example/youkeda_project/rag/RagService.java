@@ -6,6 +6,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+/** RAG 检索编排：关键词优先、向量检索、未命中先学后查、拼入 prompt。 */
+
 
 @Service
 public class RagService {

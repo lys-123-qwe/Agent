@@ -10,6 +10,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * <p>
  * 静态工厂方法 text() / cdnImage() 用于快速构造发送消息.
  */
+
 public record MessageItem(
     int type,
     @JsonProperty("text_item") TextItem textItem,

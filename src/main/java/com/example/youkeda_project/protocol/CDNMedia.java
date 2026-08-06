@@ -12,6 +12,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * <p>
  * 简化构造器:仅传 encryptQueryParam + aesKey,默认 fullUrl=null, encryptType=1.
  */
+
 public record CDNMedia(
     @JsonProperty("encrypt_query_param") String encryptQueryParam,
     @JsonProperty("full_url") String fullUrl,

@@ -8,6 +8,8 @@ import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+/** 文案生成工具。 */
+
 
 @Component
 public class CopywritingTool extends AbstractTool {

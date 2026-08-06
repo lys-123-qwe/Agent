@@ -16,6 +16,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * name: 工具名称,仅 tool role 使用
  * toolCalls: 工具调用列表,仅 assistant role 使用(Function Calling)
  */
+
 public record ChatMessage(
     @JsonProperty("role") String role,
     @JsonProperty("content") Object content,

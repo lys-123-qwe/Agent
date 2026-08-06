@@ -15,6 +15,7 @@ import java.util.Map;
  * 支持扫码登录、轮询登录状态、账户列表、删除账户。
  * 供前端登录页 / 账户管理页使用。
  */
+
 @RestController
 @RequestMapping("/api")
 public class AuthController {

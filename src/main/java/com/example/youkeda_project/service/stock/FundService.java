@@ -23,6 +23,7 @@ import java.util.Map;
  * 优先使用新浪接口，失败时自动回退到腾讯接口。
  * 内置 60 秒短缓存。
  */
+
 @Service
 public class FundService {
 

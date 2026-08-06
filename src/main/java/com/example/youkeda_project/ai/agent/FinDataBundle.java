@@ -9,6 +9,7 @@ import java.util.Map;
  * 由 FinDataService 并行采集后填充，
  * 通过 toContextText() 拼接为 LLM 可读的上下文文本。
  */
+
 public class FinDataBundle {
 
     private final Map<String, String> stockResults = new LinkedHashMap<>();

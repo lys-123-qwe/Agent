@@ -9,6 +9,8 @@ import org.springframework.stereotype.Component;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+/** 出行路线工具。 */
+
 
 @Component
 public class TravelTool extends AbstractTool {

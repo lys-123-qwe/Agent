@@ -14,6 +14,7 @@ import java.util.*;
  * <p>支持策略: ma_cross, rsi, macd, bollinger, grid, buy_hold</p>
  * <p>资产类型: A股 / 港股 / 美股 / 国内期货</p>
  */
+
 @Service
 public class BacktestService {
 

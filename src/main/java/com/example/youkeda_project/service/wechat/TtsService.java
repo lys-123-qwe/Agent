@@ -26,6 +26,7 @@ import java.util.Map;
  * - 模型:cosyvoice-v3-flash
  * - 响应:返回音频文件 URL(有效期 24h),需再下载
  */
+
 @Service
 public class TtsService {
 
@@ -48,6 +49,9 @@ public class TtsService {
      */
     public TtsResult synthesizeMp3(String text, String voice) {
         byte[] mp3Bytes = callTtsApi(text, voice, "mp3");
+        if (mp3Bytes != null && mp3Bytes.length > 0) {
+            com.example.youkeda_project.util.TokenStats.recordCount("语音合成");
+        }
         // MP3 按 128kbps 估算时长
         int bitrate = apiConfig.getTtsMp3Bitrate();
         int durationSeconds = Math.max(1, mp3Bytes.length * 8 / bitrate);

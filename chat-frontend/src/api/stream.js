@@ -1,7 +1,13 @@
+// 清空指定账户的对话历史（新建对话用）
+export async function clearHistory(userId) {
+  const r = await fetch(`/api/chat/clear?userId=${encodeURIComponent(userId)}`, { method: 'POST' })
+  if (!r.ok) throw new Error('清空失败 ' + r.status)
+  return r.json()
+}
+
 // SSE 流式接收：fetch + ReadableStream 逐段读取
 // 事件类型：{delta} 文本增量、{image} 图片(base64/URL)、{log} 运行日志
-export async function chatStream({ msg, model = '', userId = 'web', onDelta, onImage, onLog }) {
-  const params = new URLSearchParams({ msg, userId })
+export async function chatStream({ msg, model = '', userId = 'web', onDelta, onImage, onLog }) {  const params = new URLSearchParams({ msg, userId })
   if (model) params.set('model', model)
 
   const resp = await fetch(`/api/chat/stream?${params}`, {

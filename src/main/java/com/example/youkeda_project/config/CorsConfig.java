@@ -7,6 +7,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 /**
  * 跨域配置：允许前端（开发期 Vite :5173）调用后端 API。
  */
+
 @Configuration
 public class CorsConfig implements WebMvcConfigurer {
 

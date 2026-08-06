@@ -12,6 +12,7 @@ import java.util.Map;
 /**
  * 期货查询工具（Function Calling）。
  */
+
 @Component
 public class FuturesTool extends AbstractTool {
 

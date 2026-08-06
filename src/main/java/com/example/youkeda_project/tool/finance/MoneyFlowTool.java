@@ -17,6 +17,7 @@ import java.util.Map;
  * 定义 get_money_flow 函数，供 DeepSeek 通过 Function Calling 调用。
  * 支持行业板块资金排名、个股资金流向、北向资金三种查询模式。
  */
+
 @Component
 public class MoneyFlowTool extends AbstractTool {
 

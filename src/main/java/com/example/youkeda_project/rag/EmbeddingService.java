@@ -25,6 +25,7 @@ import java.util.Map;
  * 将文本转为 1024 维归一化向量，用于知识库语义检索。
  * 支持单条和批量调用，批量模式可大幅减少网络开销。
  */
+
 @Service("knowledgeEmbeddingService")
 public class EmbeddingService {
 

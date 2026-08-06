@@ -21,6 +21,7 @@ import java.util.Map;
  * 适用场景：个股/基金深度分析、板块产业链分析、跨市场联动、
  * 持仓诊断、资产配置、大盘综评等需要综合多维金融数据的分析任务。
  */
+
 @Component
 public class FinAnalysisTool extends AbstractTool {
 

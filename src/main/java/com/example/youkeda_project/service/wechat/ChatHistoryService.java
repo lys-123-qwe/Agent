@@ -16,6 +16,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+/** 聊天记录与用户记忆（SQLite），提供 DataSource。 */
+
 
 @Service
 public class ChatHistoryService {

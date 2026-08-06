@@ -9,6 +9,7 @@ import java.util.Map;
 /**
  * 配置接口：人设、知识库（供 Web 前端左中配置面板使用）。
  */
+
 @RestController
 @RequestMapping("/api/config")
 public class ConfigController {

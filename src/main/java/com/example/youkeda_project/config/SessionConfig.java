@@ -8,6 +8,7 @@ import org.springframework.context.annotation.Configuration;
  * Each session is an independent bot login with its own IlinkProtocolClient,
  * thread pool, contextToken, and QR code.
  */
+
 @Configuration
 @ConfigurationProperties(prefix = "wechat.session")
 public class SessionConfig {

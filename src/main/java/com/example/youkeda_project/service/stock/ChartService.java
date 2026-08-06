@@ -19,6 +19,7 @@ import javax.imageio.ImageIO;
  * 纯 Java2D 实现，无第三方依赖。
  * 支持折线图、K线图（含均线+成交量）、多品种对比图。
  */
+
 @Service
 public class ChartService {
 

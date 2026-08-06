@@ -31,6 +31,7 @@ import java.util.Map;
  * SILK 格式处理:若直接发送 SILK 到 API 返回空结果,则使用 silk-codec 库
  * 将 SILK 解码为 PCM,再封装为 WAV 格式后重试.
  */
+
 @Service
 public class VoiceService {
 
@@ -67,17 +68,21 @@ public class VoiceService {
                 byte[] wavBytes = silkToWav(audioBytes);
                 if (wavBytes != null) {
                     log.info("SILK→WAV 转换成功: {} bytes", wavBytes.length);
-                    return transcribeSync(wavBytes, "wav");
+                    String wavResult = transcribeSync(wavBytes, "wav");
+                    if (!wavResult.startsWith("错误:")) com.example.youkeda_project.util.TokenStats.recordCount("语音识别");
+                    return wavResult;
                 }
                 log.warn("SILK→WAV 转换失败,尝试直接发送 SILK...");
                 String result = transcribeSync(audioBytes, format);
                 if (result.startsWith("错误:") || result.contains("未能从响应中提取")) {
                     return "语音识别失败:无法解析此语音格式";
                 }
+                com.example.youkeda_project.util.TokenStats.recordCount("语音识别");
                 return result;
             }
 
             String result = transcribeSync(audioBytes, format);
+            if (!result.startsWith("错误:")) com.example.youkeda_project.util.TokenStats.recordCount("语音识别");
             return result;
         } catch (Exception e) {
             log.error("语音识别失败", e);

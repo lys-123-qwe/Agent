@@ -17,6 +17,7 @@ import java.util.Map;
  * <p>根据用户指定的股票、策略、初始资金，基于历史K线数据模拟交易，
  * 返回收益率、最大回撤、胜率等指标。</p>
  */
+
 @Component
 public class BacktestTool implements Tool {
 

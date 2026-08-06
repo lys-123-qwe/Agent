@@ -12,6 +12,8 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.util.*;
+/** 股票/指数多维度对比工具。 */
+
 
 @Component
 public class ComparisonTool extends AbstractTool {

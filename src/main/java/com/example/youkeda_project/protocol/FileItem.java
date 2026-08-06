@@ -10,6 +10,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * file_url: 文件直链下载地址(可选,优先使用 media 构造下载 URL);
  * media: CDN 媒体元数据(包含 encrypt_query_param,aes_key 等).
  */
+
 public record FileItem(
     @JsonProperty("media") CDNMedia media,
     @JsonProperty("file_name") String fileName,

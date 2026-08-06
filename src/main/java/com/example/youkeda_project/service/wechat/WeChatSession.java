@@ -36,6 +36,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>每个会话完全隔离：各自的 HTTP 客户端、轮询线程
  * 和 contextToken 池。多个会话互不干扰。</p>
  */
+
 public class WeChatSession implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(WeChatSession.class);

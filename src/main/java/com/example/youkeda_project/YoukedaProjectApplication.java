@@ -14,6 +14,7 @@ import org.springframework.scheduling.annotation.EnableAsync;
  * <p>
  * 项目使用 SQLite 而非标准数据源,故排除 DataSource 自动配置.
  */
+
 @SpringBootApplication(exclude = org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration.class)
 @EnableAsync
 public class YoukedaProjectApplication {

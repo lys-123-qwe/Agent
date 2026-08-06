@@ -9,6 +9,7 @@ import java.util.List;
  * 由 FinAnalysisAgent 通过 AI 解析用户问题生成，
  * 指导 FinDataService 采集哪些数据。
  */
+
 public class AnalysisIntent {
 
     private AnalysisType type;

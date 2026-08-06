@@ -7,6 +7,8 @@ import com.example.youkeda_project.service.wechat.ImageService;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+/** 图片编辑工具（通义万相改图）。 */
+
 
 public class EditImageTool extends AbstractTool {
 

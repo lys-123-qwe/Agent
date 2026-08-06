@@ -43,6 +43,7 @@ import tools.jackson.databind.ObjectMapper;
  * - Image upload/download with AES-128-ECB encryption/decryption
  * - Voice download/upload helpers
  */
+
 @Component
 public class IlinkProtocolClient {
 

@@ -11,6 +11,8 @@ import org.springframework.stereotype.Component;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+/** 大盘概况工具（指数/热点/汇率/新闻）。 */
+
 
 @Component
 public class MarketOverviewTool extends AbstractTool {

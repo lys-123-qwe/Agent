@@ -20,6 +20,7 @@ import java.util.Map;
  * 定义 compare_funds 函数，供 DeepSeek 通过 Function Calling 调用。
  * 支持多只基金的涨幅对比图表生成。
  */
+
 @Component
 public class CompareFundsTool extends AbstractTool {
 

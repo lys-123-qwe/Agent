@@ -11,6 +11,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * <p>
  * 和图片类似,语音也走微信 CDN 加密传输,优先使用 media 字段构造下载 URL.
  */
+
 public record VoiceItem(
     @JsonProperty("voice_url") String voiceUrl,
     @JsonProperty("media") CDNMedia media,

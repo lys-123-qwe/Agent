@@ -19,6 +19,7 @@ import java.util.stream.Stream;
  * </ul>
  * 检索分两路：search/fastSearch 只查通用知识；searchForSkill/fastSearchForSkill 只查指定 skill。
  */
+
 @Component
 public class VectorStore {
 

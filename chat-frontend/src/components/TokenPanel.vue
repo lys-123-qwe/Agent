@@ -6,7 +6,7 @@ const props = defineProps({
   sessions: Array
 })
 
-const stats = ref({ accounts: {}, models: {}, sources: {}, grandTotal: 0 })
+const stats = ref({ accounts: {}, models: {}, sources: {}, counts: {}, grandTotal: 0 })
 let timer = null
 
 // 每个模型/来源一个固定颜色
@@ -64,6 +64,12 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
         <span class="tt-label">累计消耗</span>
         <span class="tt-num">{{ stats.grandTotal.toLocaleString() }}</span>
         <span class="tt-unit">tokens</span>
+      </div>
+
+      <!-- 按次计费服务：生图/改图/语音合成/语音识别 -->
+      <div v-if="Object.keys(stats.counts || {}).length" class="image-count">
+        <span class="ic-label">⚡ 按次服务</span>
+        <span v-for="(v, k) in stats.counts" :key="k" class="ic-chip">{{ k }} × {{ v }}</span>
       </div>
 
       <!-- 对话模型 + 工具/服务消耗列表 -->

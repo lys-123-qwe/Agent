@@ -21,6 +21,7 @@ import java.util.Random;
  * <p>
  * 直接调用网易云公开 GET 接口,无需加密,无需外部服务.
  */
+
 @Service
 public class HotCommentService {
 

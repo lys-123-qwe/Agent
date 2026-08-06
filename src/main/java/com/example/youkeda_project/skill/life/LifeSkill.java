@@ -20,6 +20,7 @@ import java.util.List;
 /**
  * 生活技能：封装生活/娱乐工具（天气/翻译/出行/物流/音乐/运势/文案/快递/星座等）。
  */
+
 @Component
 public class LifeSkill extends AbstractSkill {
 

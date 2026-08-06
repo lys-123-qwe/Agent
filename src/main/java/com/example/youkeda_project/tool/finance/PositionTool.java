@@ -17,6 +17,7 @@ import java.util.Map;
 /**
  * 持仓管理工具：add(买入/加仓)、remove(卖出/减仓/清仓)、list(查看持仓与盈亏)。
  */
+
 @Component
 public class PositionTool extends AbstractTool {
 

@@ -14,6 +14,7 @@ import java.util.List;
  * <p>启动时自动加载 {@link com.example.youkeda_project.skill.SkillManager}
  * 动态扫描 src/skills/* 注册 Skill,不依赖 if-else 硬编码.</p>
  */
+
 @Service
 public class IlinkService {
 

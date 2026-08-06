@@ -9,6 +9,8 @@ import org.springframework.stereotype.Component;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+/** 星座运势工具。 */
+
 
 @Component
 public class ConstellationTool extends AbstractTool {

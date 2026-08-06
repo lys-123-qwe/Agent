@@ -10,6 +10,8 @@ const props = defineProps({
 
 const copied = ref(false)
 
+const emit = defineEmits(['image-click'])
+
 const md = new MarkdownIt({
   html: false,
   linkify: true,
@@ -52,7 +54,23 @@ const isStreamingEmpty = computed(() =>
     <div class="avatar">{{ message.role === 'user' ? '👤' : '🤖' }}</div>
     <div class="msg-body">
       <div class="bubble" :class="{ typing: thinking }">
-        <img v-if="message.image" :src="message.image" class="msg-image" alt="图表" />
+        <template v-if="message.images && message.images.length">
+          <img
+            v-for="(img, idx) in message.images"
+            :key="idx"
+            :src="img"
+            class="msg-image"
+            alt="图表"
+            @click="emit('image-click', img)"
+          />
+        </template>
+        <img
+          v-else-if="message.image"
+          :src="message.image"
+          class="msg-image"
+          alt="图表"
+          @click="emit('image-click', message.image)"
+        />
         <div
           v-if="message.role === 'assistant' && !isStreamingEmpty"
           class="md-body"

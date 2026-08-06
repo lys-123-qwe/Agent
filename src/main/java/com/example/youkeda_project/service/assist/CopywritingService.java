@@ -6,6 +6,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+/** 文案生成（朋友圈/小红书等）。 */
+
 
 @Service
 public class CopywritingService {

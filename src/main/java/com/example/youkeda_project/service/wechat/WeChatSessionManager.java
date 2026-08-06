@@ -20,6 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * thread pool, QR code, login state, and message listener.
  * Sessions are keyed by a unique sessionId (UUID).</p>
  */
+
 @Service
 public class WeChatSessionManager {
 

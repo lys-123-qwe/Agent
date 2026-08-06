@@ -23,6 +23,7 @@ import java.util.List;
 /**
  * 金融分析技能：封装全部金融工具（行情/分析/对比/图表/持仓/自选/资金流向等）。
  */
+
 @Component
 public class FinanceSkill extends AbstractSkill {
 

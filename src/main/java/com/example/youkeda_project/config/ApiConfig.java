@@ -10,6 +10,8 @@ import java.io.InputStream;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+/** 全部外部 API 的 Key/URL/模型配置（Spring @Value 注入）。 */
+
 
 @Configuration
 public class ApiConfig {

@@ -19,6 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *        Spring         Tool   Skill Bean,
  *              (  SkillManager   ).
  */
+
 @Component
 public class ToolRegistry {
 

@@ -21,6 +21,7 @@ import java.util.Map;
  * 调用阿里云通义万相 wan2.6-t2i 模型生图,返回图片下载 URL,
  * 并提供下载图片字节流的能力(供后续 CDN 上传发送到微信).
  */
+
 @Service
 public class ImageService {
 
@@ -114,7 +115,10 @@ public class ImageService {
                     JsonNode results = poll.path("output").path("results");
                     if (results.isArray() && !results.isEmpty()) {
                         String url = results.get(0).path("url").asText(null);
-                        if (url != null && !url.isBlank()) return url;
+                        if (url != null && !url.isBlank()) {
+                            com.example.youkeda_project.util.TokenStats.recordImage("文生图");
+                            return url;
+                        }
                     }
                     return "错误: 任务成功但未解析到图片URL: " + poll;
                 }
@@ -170,7 +174,11 @@ public class ImageService {
             String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
             log.info("通义万相响应: {}", responseJson);
 
-            return parseImageResponse(responseJson);
+            String result = parseImageResponse(responseJson);
+            if (result != null && !result.startsWith("错误:")) {
+                com.example.youkeda_project.util.TokenStats.recordImage("文生图");
+            }
+            return result;
 
         } catch (Exception e) {
             log.error("通义万相调用失败", e);
@@ -231,7 +239,11 @@ public class ImageService {
             String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
             log.info("通义万相图编辑响应: {}", responseJson);
 
-            return parseImageResponse(responseJson);
+            String result = parseImageResponse(responseJson);
+            if (result != null && !result.startsWith("错误:")) {
+                com.example.youkeda_project.util.TokenStats.recordImage("图编辑");
+            }
+            return result;
 
         } catch (Exception e) {
             log.error("通义万相图编辑调用失败", e);

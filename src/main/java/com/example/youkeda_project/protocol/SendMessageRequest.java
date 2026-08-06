@@ -13,6 +13,7 @@ import java.util.UUID;
  * <p>
  * 静态工厂方法: text() / cdnImage() / items().
  */
+
 public record SendMessageRequest(
     Msg msg,
     @JsonProperty("base_info") Map<String, Object> baseInfo
