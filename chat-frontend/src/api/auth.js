@@ -51,3 +51,21 @@ export async function addKnowledge(text) {
   if (!r.ok) throw new Error('知识添加失败 ' + r.status)
   return r.json()
 }
+
+// ---- 图片 / 文件上传 ----
+
+export async function uploadImage(userId, file) {
+  const fd = new FormData()
+  fd.append('file', file)
+  const r = await fetch(`/api/upload/image?userId=${encodeURIComponent(userId)}`, { method: 'POST', body: fd })
+  if (!r.ok) throw new Error('上传失败 ' + r.status)
+  return r.json()
+}
+
+export async function uploadFile(userId, file) {
+  const fd = new FormData()
+  fd.append('file', file)
+  const r = await fetch(`/api/upload/file?userId=${encodeURIComponent(userId)}`, { method: 'POST', body: fd })
+  if (!r.ok) throw new Error('上传失败 ' + r.status)
+  return r.json()
+}

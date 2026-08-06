@@ -563,9 +563,93 @@ body {
 .md-body tr:nth-child(even) td { background: #fafbfc; }
 .md-body hr { border: none; border-top: 1px solid #eef0f4; margin: 10px 0; }
 
-.input-bar { display: flex; gap: 10px; padding: 14px 20px; border-top: 1px solid #eef0f4; background: rgba(255,255,255,0.8); }
+.input-bar { display: flex; gap: 10px; padding: 14px 20px; border-top: 1px solid #eef0f4; background: rgba(255,255,255,0.8); align-items: flex-end; }
+.attach-btn {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  cursor: pointer;
+  font-size: 16px;
+}
+.attach-btn:hover { background: #e2e8f0; }
+
+/* ＋ 号 + 弹出菜单（微信样式） */
+.plus-wrap { position: relative; flex-shrink: 0; }
+.plus-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  font-size: 22px;
+  color: #3b82f6;
+  cursor: pointer;
+  line-height: 1;
+  transition: transform 0.15s, background 0.15s;
+}
+.plus-btn:hover { background: #f1f5f9; }
+.plus-btn.open { transform: rotate(45deg); background: #eef2ff; }
+.plus-menu {
+  position: absolute;
+  bottom: 50px;
+  left: 0;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 50;
+  min-width: 120px;
+}
+.plus-item {
+  padding: 10px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #1f2937;
+  white-space: nowrap;
+}
+.plus-item:hover { background: #f1f5f9; }
+.input-wrap { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.attach-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  position: relative;
+}
+.attach-preview img {
+  max-height: 120px;
+  max-width: 180px;
+  border-radius: 8px;
+  display: block;
+}
+.attach-file { font-size: 13px; color: #334155; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; }
+.attach-del {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #ef4444;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+}
+.attach-del:hover { background: #dc2626; }
 .input-bar input {
-  flex: 1;
+  width: 100%;
   padding: 11px 16px;
   border: 1px solid #e5e7eb;
   border-radius: 24px;
@@ -574,7 +658,7 @@ body {
   background: #f8fafc;
 }
 .input-bar input:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15); background: #fff; }
-.input-bar button {
+.send-btn {
   padding: 10px 24px;
   background: linear-gradient(135deg, #3b82f6, #2563eb);
   color: #fff;
@@ -583,8 +667,9 @@ body {
   cursor: pointer;
   font-size: 14px;
   box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+  flex-shrink: 0;
 }
-.input-bar button:disabled { background: #a5b4d8; box-shadow: none; cursor: not-allowed; }
+.send-btn:disabled { background: #a5b4d8; box-shadow: none; cursor: not-allowed; }
 
 /* ==================== 运行日志（tab2） ==================== */
 .log-content { flex: 1; overflow-y: auto; padding: 14px 16px; }
@@ -656,6 +741,15 @@ html.dark ::-webkit-scrollbar-thumb:hover { background: #64748b; }
   html.dark .msg.user .bubble{ background: linear-gradient(135deg, #2563eb, #1d4ed8); }
   html.dark .avatar{ background: linear-gradient(135deg, #334155, #475569); box-shadow: none; }
   html.dark .input-bar{ background: rgba(30, 41, 59, 0.7); border-top-color: #334155; }
+  html.dark .attach-btn{ background: #334155; border-color: #475569; }
+  html.dark .attach-preview{ background: #1e293b; border-color: #334155; }
+  html.dark .attach-file{ color: #e2e8f0; }
+  html.dark .plus-btn{ background: #1e293b; border-color: #475569; color: #60a5fa; }
+  html.dark .plus-btn:hover{ background: #334155; }
+  html.dark .plus-btn.open{ background: #1e3a5f; }
+  html.dark .plus-menu{ background: #1e293b; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+  html.dark .plus-item{ color: #e2e8f0; }
+  html.dark .plus-item:hover{ background: #334155; }
   html.dark .md-body blockquote{ background: #0f172a; border-left-color: #3b82f6; color: #cbd5e1; }
   html.dark .md-body code:not(pre code){ background: #334155; }
   html.dark .md-body th{ background: #334155; }

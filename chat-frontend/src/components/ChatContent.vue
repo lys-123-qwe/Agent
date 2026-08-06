@@ -4,6 +4,7 @@ import MessageBubble from './MessageBubble.vue'
 import InputBar from './InputBar.vue'
 import ImageViewer from './ImageViewer.vue'
 import { chatStream, clearHistory } from '../api/stream.js'
+import { uploadImage, uploadFile } from '../api/auth.js'
 
 const props = defineProps({
   sessions: Array,
@@ -137,6 +138,59 @@ async function send(text) {
     persistMsgs(selectedId.value)
   }
 }
+
+// 发送图片：上传 -> 后端识别（qwen-vl-plus）-> 显示识别结果
+async function sendImage(file) {
+  if (!selectedId.value || loading.value) return
+  const msgs = msgMap[selectedId.value]
+
+  const reader = new FileReader()
+  reader.onload = async () => {
+    msgs.push({ role: 'user', content: '📷 ' + (file.name || '图片'), time: new Date(), images: [reader.result] })
+    loading.value = true
+    try {
+      const r = await uploadImage(selectedId.value, file)
+      msgs.push({ role: 'assistant', content: r.text || '未能识别图片内容', time: new Date() })
+      emit('log', { kind: 'tool', model: 'qwen-vl-plus', msg: '图片识别', detail: (r.text || '').slice(0, 60), status: 'OK', ts: Date.now() })
+    } catch (e) {
+      msgs.push({ role: 'assistant', content: '⚠️ 图片上传/识别失败：' + e.message, time: new Date() })
+    } finally {
+      loading.value = false
+      persistMsgs(selectedId.value)
+    }
+  }
+  reader.readAsDataURL(file)
+}
+
+// 发送文件：上传 -> 后端提取文本 -> 走对话让 AI 总结
+async function sendFile(file) {
+  if (!selectedId.value || loading.value) return
+  const msgs = msgMap[selectedId.value]
+
+  msgs.push({ role: 'user', content: '📄 ' + (file.name || '文件'), time: new Date() })
+  const aiMsg = reactive({ role: 'assistant', content: '', time: new Date(), image: null, images: [] })
+  msgs.push(aiMsg)
+  loading.value = true
+
+  try {
+    const r = await uploadFile(selectedId.value, file)
+    const content = (r.text || '').slice(0, 8000)
+    emit('log', { kind: 'tool', model: 'Tika', msg: '文件提取', detail: '「' + (r.filename || '') + '」' + content.length + ' 字符', status: 'OK', ts: Date.now() })
+    await chatStream({
+      msg: `请总结这个文件「${r.filename || file.name}」的内容：\n${content}`,
+      model: props.model,
+      userId: selectedId.value,
+      onDelta: (d) => { aiMsg.content += d },
+      onImage: (img) => { aiMsg.images.push(img) },
+      onLog: (raw) => emit('log', { ...(typeof raw === 'string' ? { kind: 'tool', msg: raw } : raw), ts: Date.now() })
+    })
+  } catch (e) {
+    aiMsg.content = '⚠️ 文件上传失败：' + e.message
+  } finally {
+    loading.value = false
+    persistMsgs(selectedId.value)
+  }
+}
 </script>
 
 <template>
@@ -166,7 +220,7 @@ async function send(text) {
           @image-click="(src) => viewerSrc = src"
         />
       </div>
-      <InputBar :loading="loading" @send="send" />
+      <InputBar :loading="loading" @send="send" @send-image="sendImage" @send-file="sendFile" />
 
       <!-- 图片放大查看器 -->
       <ImageViewer v-if="viewerSrc" :src="viewerSrc" @close="viewerSrc = ''" />
