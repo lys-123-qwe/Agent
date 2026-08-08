@@ -8,7 +8,10 @@ import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 /**
  * 文件文本提取服务.
@@ -110,5 +113,28 @@ public class FileService {
         if (fileName == null) return "";
         int dot = fileName.lastIndexOf('.');
         return dot >= 0 ? fileName.substring(dot + 1) : "";
+    }
+
+    /**
+     * 提取 Office 文档（docx/pptx/xlsx）内嵌的图片字节，供 OCR/视觉识别。
+     * Office 文档本质是 zip，直接解包读取 media 目录下的图片。返回空列表表示无内嵌图片或提取失败。
+     */
+    public List<byte[]> extractImages(byte[] fileBytes, String fileName) {
+        List<byte[]> images = new ArrayList<>();
+        if (fileBytes == null || fileBytes.length == 0) return images;
+        try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(fileBytes))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                String name = entry.getName().toLowerCase();
+                boolean inMedia = name.startsWith("word/media/") || name.startsWith("ppt/media/") || name.startsWith("xl/media/");
+                boolean isImg = name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".gif");
+                if (!entry.isDirectory() && inMedia && isImg) {
+                    images.add(zis.readAllBytes());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("提取内嵌图片失败: {} - {}", fileName, e.getMessage());
+        }
+        return images;
     }
 }

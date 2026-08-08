@@ -10,10 +10,35 @@ const text = ref('')
 const fileInput = ref(null)
 const attach = ref(null)  // { type, name, file, dataUrl }
 const menuOpen = ref(false)
+const dragging = ref(false)  // 是否正在拖拽文件到输入栏
 
 function onDocClick() { menuOpen.value = false }
 onMounted(() => document.addEventListener('click', onDocClick))
 onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
+
+// 拖拽：文件/图片直接拖进输入栏
+function onDragOver(e) {
+  e.preventDefault()
+  dragging.value = true
+}
+function onDragLeave(e) {
+  if (!e.currentTarget.contains(e.relatedTarget)) dragging.value = false
+}
+function onDrop(e) {
+  e.preventDefault()
+  dragging.value = false
+  const f = e.dataTransfer.files[0]
+  if (!f) return
+  if (f.type.startsWith('image/')) {
+    const reader = new FileReader()
+    reader.onload = () => {
+      attach.value = { type: 'image', name: f.name, file: f, dataUrl: reader.result }
+    }
+    reader.readAsDataURL(f)
+  } else {
+    attach.value = { type: 'file', name: f.name, file: f, dataUrl: null }
+  }
+}
 
 function pick(type) {
   menuOpen.value = false
@@ -64,7 +89,15 @@ function onSend() {
     </div>
     <input ref="fileInput" type="file" hidden @change="onFileChange" />
 
-    <div class="input-wrap">
+    <div
+      class="input-wrap"
+      @dragover="onDragOver"
+      @dragleave="onDragLeave"
+      @drop="onDrop"
+    >
+      <div v-if="dragging" class="drop-overlay" @dragover.prevent>
+        <div class="drop-hint">松开即可发送图片/文件</div>
+      </div>
       <div v-if="attach" class="attach-preview">
         <img v-if="attach.type === 'image'" :src="attach.dataUrl" alt="预览" />
         <span v-else class="attach-file">📄 {{ attach.name }}</span>

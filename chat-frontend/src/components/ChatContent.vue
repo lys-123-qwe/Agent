@@ -174,10 +174,18 @@ async function sendFile(file) {
 
   try {
     const r = await uploadFile(selectedId.value, file)
-    const content = (r.text || '').slice(0, 8000)
+    const content = (r.text || '').trim()
+    // 提取为空/失败：直接提示，不再让 AI 瞎答
+    if (!content || content.startsWith('文件解析失败') || content.startsWith('文本读取失败')
+        || content === '(文件内容为空)' || content.includes('未能从文件中提取')) {
+      aiMsg.content = content ? '⚠️ ' + content : '⚠️ 未能从该文件中提取到文本内容（可能文档里是图片，当前不支持 OCR 识别）。'
+      emit('log', { kind: 'tool', model: 'Tika', msg: '文件提取', detail: '未提取到文本', status: 'FAIL', ts: Date.now() })
+      return
+    }
+    const slim = content.slice(0, 8000)
     emit('log', { kind: 'tool', model: 'Tika', msg: '文件提取', detail: '「' + (r.filename || '') + '」' + content.length + ' 字符', status: 'OK', ts: Date.now() })
     await chatStream({
-      msg: `请总结这个文件「${r.filename || file.name}」的内容：\n${content}`,
+      msg: `请总结这个文件「${r.filename || file.name}」的内容：\n${slim}`,
       model: props.model,
       userId: selectedId.value,
       onDelta: (d) => { aiMsg.content += d },

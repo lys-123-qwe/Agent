@@ -281,7 +281,6 @@ public class CliRunner implements CommandLineRunner {
 
     // ==================== Message listener (auto-reply) ====================
 
-    /** 启动消息监听：注册文本/图片/语音/文件处理器，处理收到的微信消息并回复。 */
     /**
      * 启动消息监听：注册文本/图片/语音/文件处理器，处理收到的微信消息并回复。
      * Web 端扫码登录成功后也调用此方法，让该账户能收发微信消息。
@@ -454,6 +453,7 @@ public class CliRunner implements CommandLineRunner {
                 ilinkService.sendImage(sessionId, userId, contextToken, imgBytes);
                 log.info("已发送图片到 {}", userId);
             } catch (Exception e) {
+                
                 log.error("图片上传失败", e);
                 reply += "\n\n(图片上传失败: " + e.getMessage() + ")";
             }
