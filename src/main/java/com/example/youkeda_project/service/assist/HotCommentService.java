@@ -141,7 +141,9 @@ public class HotCommentService {
             JsonNode first = songs.get(0);
             String id = first.path("id").asText();
             String name = first.path("name").asText("");
-            String artist = first.path("artists").get(0).path("name").asText("");
+            JsonNode artists = first.path("artists");
+            String artist = artists.isArray() && !artists.isEmpty()
+                ? artists.get(0).path("name").asText("") : "";
 
             log.info("Found song: {} - {} (id={})", name, artist, id);
             return new SongInfo(id, name, artist);

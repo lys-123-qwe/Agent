@@ -67,12 +67,17 @@ public class PositionTool extends AbstractTool {
 
     // ==================== add: 买入/加仓 ====================
 
+    /** 安全解析数值参数，失败返回默认值（避免模型传非数字导致整轮对话崩溃）。 */
+    private static double parseDouble(Object v, double def) {
+        if (v == null) return def;
+        try { return Double.parseDouble(v.toString()); }
+        catch (NumberFormatException e) { return def; }
+    }
+
     private ToolResult add(Map<String, Object> arguments) {
         String stock = (String) arguments.get("stock");
-        double quantity = arguments.get("quantity") != null
-            ? Double.parseDouble(arguments.get("quantity").toString()) : 0;
-        double price = arguments.get("price") != null
-            ? Double.parseDouble(arguments.get("price").toString()) : 0;
+        double quantity = parseDouble(arguments.get("quantity"), 0);
+        double price = parseDouble(arguments.get("price"), 0);
 
         if (stock == null || quantity <= 0 || price <= 0) {
             return ToolResult.text("错误: 参数不正确，需要指定股票、数量（股）和买入价格");
@@ -99,8 +104,7 @@ public class PositionTool extends AbstractTool {
 
     private ToolResult remove(Map<String, Object> arguments) {
         String stock = (String) arguments.get("stock");
-        double quantity = arguments.get("quantity") != null
-            ? Double.parseDouble(arguments.get("quantity").toString()) : -1;
+        double quantity = parseDouble(arguments.get("quantity"), -1);
 
         if (stock == null) return ToolResult.text("错误: 请指定股票名称或代码");
 

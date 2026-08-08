@@ -373,7 +373,6 @@ public class BacktestService {
         double maxDD = 0;
         int pos = 0;
         double cash = capital;
-        int tIdx = 0;
         // 先扣除所有买入资金
         for (Trade t : trades) {
             if (t.action.equals("BUY")) { cash -= t.amount; pos += t.shares; }

@@ -171,17 +171,6 @@ public class KLineService {
         }
     }
 
-    /** 判断输入是否为期货品种。 */
-    public boolean isFutures(String input) {
-        if (input == null || input.isBlank()) return false;
-        String t = input.trim().toUpperCase();
-        if (t.matches("^[A-Z]{1,2}888$")) return true;
-        if (FUTURES_MAP.containsKey(input.trim())) return true;
-        String mapped = StockCodes.byName(input.trim());
-        if (mapped != null && FUTURES_BASES.contains(mapped)) return true;
-        return false;
-    }
-
     /** 把品种名解析为期货基础代码（如 螺纹钢→RB）。 */
     private String resolveFuturesBase(String input) {
         if (input == null || input.isBlank()) return null;

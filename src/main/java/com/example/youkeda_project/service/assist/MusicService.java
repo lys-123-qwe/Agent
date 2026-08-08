@@ -53,7 +53,7 @@ public class MusicService {
             merged.merge(s.key(), s, SongInfo::merge);
         }
 
-        SongInfo best = merged.values().iterator().next();
+        SongInfo best = withLyric(merged.values().iterator().next());
         StringBuilder sb = new StringBuilder();
         sb.append("🎵 ").append(best.name).append(" - ").append(best.artist).append("\n");
         if (!best.duration.isBlank()) sb.append("   时长: ").append(best.duration).append("\n");
@@ -96,18 +96,19 @@ public class MusicService {
         sb.append("🎵 为你推荐 ").append(description).append(" 相关歌曲:\n\n");
         int idx = 1;
         for (SongInfo s : merged.values()) {
-            sb.append(idx).append(". ").append(s.name).append(" - ").append(s.artist).append("\n");
-            if (!s.album.isBlank()) sb.append("   专辑: ").append(s.album).append("\n");
-            if (!s.duration.isBlank()) sb.append("   时长: ").append(s.duration).append("\n");
-            if (!s.qqSongmid.isBlank()) {
-                sb.append("   ▶ QQ音乐: https://i.y.qq.com/v8/playsong.html?songmid=").append(s.qqSongmid).append("&source=wechat&ADTAG=wechat\n");
+            SongInfo d = withLyric(s);
+            sb.append(idx).append(". ").append(d.name).append(" - ").append(d.artist).append("\n");
+            if (!d.album.isBlank()) sb.append("   专辑: ").append(d.album).append("\n");
+            if (!d.duration.isBlank()) sb.append("   时长: ").append(d.duration).append("\n");
+            if (!d.qqSongmid.isBlank()) {
+                sb.append("   ▶ QQ音乐: https://i.y.qq.com/v8/playsong.html?songmid=").append(d.qqSongmid).append("&source=wechat&ADTAG=wechat\n");
             }
-            if (s.neteaseId > 0) {
-                sb.append("   ▶ 网易云: https://music.163.com/song?id=").append(s.neteaseId).append("\n");
+            if (d.neteaseId > 0) {
+                sb.append("   ▶ 网易云: https://music.163.com/song?id=").append(d.neteaseId).append("\n");
             }
-            if (!s.lyric.isBlank()) {
+            if (!d.lyric.isBlank()) {
                 sb.append("   歌词:\n");
-                for (String l : s.lyric.split("\n")) {
+                for (String l : d.lyric.split("\n")) {
                     if (!l.isBlank()) sb.append("     ").append(l).append("\n");
                 }
             }
@@ -149,8 +150,7 @@ public class MusicService {
                 if (album.isEmpty()) album = s.path("album").path("name").asText("");
                 int seconds = s.path("interval").asInt(0);
                 String duration = seconds > 0 ? String.format("%d:%02d", seconds / 60, seconds % 60) : "";
-                String lyric = fetchQqLyric(songmid);
-                result.add(new SongInfo(name, artist, album, duration, songmid, 0, lyric));
+                result.add(new SongInfo(name, artist, album, duration, songmid, 0, ""));
             }
             return result;
         } catch (Exception e) {
@@ -235,6 +235,13 @@ public class MusicService {
             log.debug("获取QQ歌词失败 songmid={}", songmid);
             return "";
         }
+    }
+
+    /** 懒加载歌词：仅当歌曲最终需要展示时才拉取 QQ 歌词。 */
+    private SongInfo withLyric(SongInfo s) {
+        if (!s.lyric.isBlank() || s.qqSongmid.isBlank()) return s;
+        return new SongInfo(s.name, s.artist, s.album, s.duration,
+            s.qqSongmid, s.neteaseId, fetchQqLyric(s.qqSongmid));
     }
 
     private String extractQqArtist(JsonNode singer) {

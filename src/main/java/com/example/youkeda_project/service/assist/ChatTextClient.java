@@ -65,7 +65,7 @@ public class ChatTextClient {
         return choice.path("message").path("content").asText("");
     }
 
-    public static String jsonEscape(String s) {
+    private static String jsonEscape(String s) {
         return "\"" + s.replace("\\", "\\\\")
                 .replace("\"", "\\\"")
                 .replace("\n", "\\n")

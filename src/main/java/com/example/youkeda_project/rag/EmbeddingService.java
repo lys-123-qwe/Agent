@@ -11,8 +11,6 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -31,7 +29,6 @@ public class EmbeddingService {
 
     private static final Logger log = LoggerFactory.getLogger(EmbeddingService.class);
     private static final ObjectMapper mapper = new ObjectMapper();
-    private static final int DIMENSION = 1024;
 
     private final ApiConfig apiConfig;
     private final HttpClient httpClient;
@@ -144,23 +141,6 @@ public class EmbeddingService {
 
     // ==================== 向量工具方法 ====================
 
-    /** 向量序列化为字节（用于 SQLite BLOB 存储） */
-    public static byte[] toBytes(float[] vec) {
-        if (vec == null || vec.length == 0) return new byte[0];
-        ByteBuffer buf = ByteBuffer.allocate(vec.length * 4).order(ByteOrder.BIG_ENDIAN);
-        for (float v : vec) buf.putFloat(v);
-        return buf.array();
-    }
-
-    /** 从字节反序列化向量 */
-    public static float[] fromBytes(byte[] bytes) {
-        if (bytes == null || bytes.length == 0) return new float[0];
-        ByteBuffer buf = ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN);
-        float[] vec = new float[bytes.length / 4];
-        for (int i = 0; i < vec.length; i++) vec[i] = buf.getFloat();
-        return vec;
-    }
-
     /** 余弦相似度（Dashscope 返回归一化向量，内积即余弦） */
     public static double cosineSimilarity(float[] a, float[] b) {
         if (a.length == 0 || b.length == 0) return 0;
@@ -169,6 +149,4 @@ public class EmbeddingService {
         for (int i = 0; i < len; i++) dot += (double) a[i] * b[i];
         return dot; // 归一化向量省略分母
     }
-
-    public static int getDimension() { return DIMENSION; }
 }

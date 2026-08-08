@@ -65,16 +65,6 @@ public final class SparklineUtil {
         return sb.toString();
     }
 
-    /**
-     * 从 double 数组生成火花图。
-     */
-    public static String generate(double[] values) {
-        if (values == null || values.length == 0) return "";
-        List<BigDecimal> list = new java.util.ArrayList<>(values.length);
-        for (double v : values) list.add(BigDecimal.valueOf(v));
-        return generate(list);
-    }
-
     // ==================== 内部方法 ====================
 
     /**

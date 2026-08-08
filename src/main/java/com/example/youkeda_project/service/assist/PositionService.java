@@ -51,16 +51,21 @@ public class PositionService {
     }
 
     public boolean addOrUpdate(String userId, String code, String name, double quantity, double buyPrice) {
+        // 成本价按持仓量加权平均：新成本 = (旧成本*旧数量 + 新价*新数量) / (旧数量+新数量)
         String sql = "INSERT INTO positions(user_id, stock_code, stock_name, quantity, buy_price) VALUES(?,?,?,?,?) "
-            + "ON CONFLICT(user_id, stock_code) DO UPDATE SET quantity=quantity+?, buy_price=?";
+            + "ON CONFLICT(user_id, stock_code) DO UPDATE SET "
+            + "quantity=quantity+?, "
+            + "buy_price=(buy_price*quantity + ?*?) / (quantity+?)";
         try (Connection conn = getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, userId);
             ps.setString(2, code);
             ps.setString(3, name);
             ps.setDouble(4, quantity);
             ps.setDouble(5, buyPrice);
-            ps.setDouble(6, quantity);
-            ps.setDouble(7, buyPrice);
+            ps.setDouble(6, quantity);   // quantity=quantity+?
+            ps.setDouble(7, quantity);   // 加权：新增数量
+            ps.setDouble(8, buyPrice);   // 加权：新增价格
+            ps.setDouble(9, quantity);   // 加权：分母（旧+新）
             return ps.executeUpdate() > 0;
         } catch (Exception e) {
             log.warn("添加持仓失败: {}", e.getMessage());

@@ -79,7 +79,7 @@ public class ApiConfig {
     public String getImageEditSize() { return imageEditSize; }
 
     /** 翻译/文案/算命等通用 LLM 调用，复用 DeepSeek API URL。 */
-    public String getTranslationApiUrl() { return aiApiUrl; }
+    public String getTranslationApiUrl() { return getVisionApiUrl(); }
 
     // ==================== 通义千问 VL(图片识别) ====================
     @Value("${vision.api.url:https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions}")
@@ -223,21 +223,6 @@ public class ApiConfig {
     public String getBochaApiKey() { return bochaApiKey; }
     public String getBochaApiUrl() { return bochaApiUrl; }
 
-    // ==================== 股票行情 ====================
-    @Value("${stock.sina.api.url:http://hq.sinajs.cn/list=}")
-    private String stockSinaApiUrl;
-
-    @Value("${stock.tencent.api.url:http://qt.gtimg.cn/q=}")
-    private String stockTencentApiUrl;
-
-    @Value("${stock.sina.referer.url:https://finance.sina.com.cn}")
-    private String stockSinaRefererUrl;
-
-    public String getStockSinaApiUrl() { return stockSinaApiUrl; }
-    public String getStockTencentApiUrl() { return stockTencentApiUrl; }
-    public String getStockSinaRefererUrl() { return stockSinaRefererUrl; }
-
-
     // ==================== iLink 协议 ====================
     @Value("${ilink.base.url:https://ilinkai.weixin.qq.com}")
     private String ilinkBaseUrl;
@@ -280,5 +265,4 @@ public class ApiConfig {
     private String yuanfenjuApiKey;
 
     public String getYuanfenjuApiKey() { return yuanfenjuApiKey; }
-
 }

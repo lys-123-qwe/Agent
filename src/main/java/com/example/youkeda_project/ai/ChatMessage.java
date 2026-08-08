@@ -1,10 +1,5 @@
 package com.example.youkeda_project.ai;
 
-import com.example.youkeda_project.tool.Tool;
-import com.example.youkeda_project.tool.ToolCall;
-import com.example.youkeda_project.tool.ToolResult;
-
-
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**

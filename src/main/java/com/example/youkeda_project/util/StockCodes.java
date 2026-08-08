@@ -227,19 +227,6 @@ public final class StockCodes {
         return "A股";
     }
 
-    /** 宽松解析数值字符串为 long（支持纯数字与小数），失败返回 0 */
-    public static long parseLong(String s) {
-        try {
-            return Long.parseLong(s);
-        } catch (NumberFormatException e) {
-            try {
-                return (long) Double.parseDouble(s);
-            } catch (NumberFormatException e2) {
-                return 0;
-            }
-        }
-    }
-
     /**
      * 将股票代码/名称解析为东方财富 secid。
      * 支持：已带 secid(1./0.)、sh/sz/bj 前缀新浪格式、纯 6 位数字。

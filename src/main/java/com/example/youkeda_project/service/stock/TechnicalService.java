@@ -97,7 +97,7 @@ public class TechnicalService {
 
     public String formatAnalysis(List<KLineService.KLineData> data,
                                   List<Integer> maPeriods, List<Integer> rsiPeriods) {
-        if (data == null || data.isEmpty()) return "暂无数据";
+        if (data == null || data.size() < 2) return "暂无数据";
 
         var latest = data.get(data.size() - 1);
         double change = latest.getClose() - data.get(data.size() - 2).getClose();

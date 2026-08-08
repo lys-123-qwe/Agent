@@ -58,7 +58,7 @@ public class VectorStore {
 
     private final EmbeddingService embeddingService;
     private final KnowledgeRepository knowledgeRepo;
-    private final List<Entry> entries = new ArrayList<>();
+    private final List<Entry> entries = new java.util.concurrent.CopyOnWriteArrayList<>();
     /** 关键词→匹配的知识条目索引 */
     private Map<String, List<Integer>> keywordIndex;
 

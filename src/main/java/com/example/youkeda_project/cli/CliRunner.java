@@ -11,7 +11,6 @@ import com.example.youkeda_project.service.wechat.IlinkService;
 import com.example.youkeda_project.service.wechat.ImageService;
 import com.example.youkeda_project.service.wechat.VoiceService;
 import com.example.youkeda_project.skill.*;
-import com.example.youkeda_project.protocol.WeixinMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
@@ -109,10 +108,14 @@ public class CliRunner implements CommandLineRunner {
             System.out.print("> ");
             String input;
             try {
+                if (!scanner.hasNextLine()) {
+                    // 非交互环境 (如 docker run -d, stdin 关闭): 退出 CLI 循环进入守护模式
+                    log.info("stdin closed - no interactive console, entering daemon mode");
+                    break;
+                }
                 input = scanner.nextLine().trim();
-            } catch (Exception e) {
-                // 输入流已关闭/无输入(如后台运行),正常退出
-                log.info("CLI 输入流已结束,退出");
+            } catch (NoSuchElementException e) {
+                log.info("stdin unavailable - no interactive console, entering daemon mode");
                 break;
             }
 
@@ -136,6 +139,18 @@ public class CliRunner implements CommandLineRunner {
             } catch (Exception e) {
                 log.error("Command error: {}", e.getMessage());
                 System.out.println("Error: " + e.getMessage());
+            }
+        }
+
+        // 守护模式保活: 无终端输入时主线程不退出, 消息监听线程持续工作,
+        // 二维码/登录状态通过 docker logs 查看
+        log.info("Daemon mode active - bot is running in background. QR code and status are printed to logs.");
+        while (true) {
+            try {
+                Thread.sleep(86_400_000L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
             }
         }
     }
@@ -171,14 +186,6 @@ public class CliRunner implements CommandLineRunner {
             System.out.println("  ★ = default session");
         }
         System.out.println("Tools: " + TOOLS.stream().map(Tool::getName).toList());
-    }
-
-    /** 按名称在工具列表中查找工具。 */
-    private Tool findTool(String name) {
-        for (Tool t : TOOLS) {
-            if (t.getName().equals(name)) return t;
-        }
-        return null;
     }
 
     // ==================== WeChat commands ====================
@@ -453,7 +460,7 @@ public class CliRunner implements CommandLineRunner {
                 ilinkService.sendImage(sessionId, userId, contextToken, imgBytes);
                 log.info("已发送图片到 {}", userId);
             } catch (Exception e) {
-                
+
                 log.error("图片上传失败", e);
                 reply += "\n\n(图片上传失败: " + e.getMessage() + ")";
             }

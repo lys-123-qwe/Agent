@@ -486,7 +486,6 @@ public class WeChatSession implements AutoCloseable {
     public String getSessionId() { return sessionId; }
     public String getLabel() { return label; }
     public Status getStatus() { return status; }
-    public String getQrContent() { return qrContent; }
     public IlinkProtocolClient getClient() { return client; }
     public String getBotId() { return botId; }
     public String getBotToken() { return botToken; }

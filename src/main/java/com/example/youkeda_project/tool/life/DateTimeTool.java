@@ -139,7 +139,12 @@ public class DateTimeTool extends AbstractTool {
         }
         try {
             LocalDate date = LocalDate.parse(dateStr);
-            int days = ((Number) daysObj).intValue();
+            int days;
+            try {
+                days = Integer.parseInt(daysObj.toString());
+            } catch (NumberFormatException e) {
+                return ToolResult.text("天数格式错误,请使用整数");
+            }
             LocalDate result = date.plusDays(days);
             String sign = days >= 0 ? "后" : "前";
             return ToolResult.text(dateStr + " 的 " + Math.abs(days) + " 天" + sign + "是 " + result);

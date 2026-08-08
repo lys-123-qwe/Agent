@@ -1,6 +1,7 @@
 package com.example.youkeda_project.service.stock;
 
 import com.example.youkeda_project.config.ApiConfig;
+import com.example.youkeda_project.util.TtlCache;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -18,6 +19,8 @@ public class ExchangeRateService {
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
     private final ApiConfig apiConfig;
+    /** 汇率缓存（1 小时），避免每次换算都打外网 */
+    private final TtlCache<Double> rateCache = new TtlCache<>(3600_000);
 
     public ExchangeRateService(ApiConfig apiConfig, ObjectMapper objectMapper) {
         this.apiConfig = apiConfig;
@@ -31,39 +34,44 @@ public class ExchangeRateService {
             return "错误: 未配置汇率 API Key";
         }
 
-        try {
-            String url = apiConfig.getExchangeApiUrl() + "/" + apiConfig.getExchangeApiKey() + "/pair/" + from + "/" + to;
-            log.info("汇率API请求: {}", url.replace(apiConfig.getExchangeApiKey(), "***"));
+        String cacheKey = from + "/" + to;
+        Double rate = rateCache.get(cacheKey);
+        String lastUpdate = "";
+        if (rate == null) {
+            try {
+                String url = apiConfig.getExchangeApiUrl() + "/" + apiConfig.getExchangeApiKey() + "/pair/" + from + "/" + to;
+                log.info("汇率API请求: {}", url.replace(apiConfig.getExchangeApiKey(), "***"));
 
-            String response = restClient.get()
-                .uri(url)
-                .retrieve()
-                .body(String.class);
+                String response = restClient.get()
+                    .uri(url)
+                    .retrieve()
+                    .body(String.class);
 
-            log.info("汇率API响应: {}", response);
+                log.info("汇率API响应: {}", response);
 
-            JsonNode root = objectMapper.readTree(response);
-            String result = root.path("result").asText();
+                JsonNode root = objectMapper.readTree(response);
+                String result = root.path("result").asText();
 
-            if (!"success".equals(result)) {
-                String errorType = root.path("error-type").asText("未知错误");
-                return "汇率查询失败: " + errorType;
+                if (!"success".equals(result)) {
+                    String errorType = root.path("error-type").asText("未知错误");
+                    return "汇率查询失败: " + errorType;
+                }
+
+                rate = root.path("conversion_rate").asDouble();
+                lastUpdate = root.path("time_last_update_utc").asText("");
+                rateCache.put(cacheKey, rate);
+            } catch (Exception e) {
+                log.error("汇率查询失败", e);
+                return "汇率查询失败: " + e.getMessage();
             }
-
-            double rate = root.path("conversion_rate").asDouble();
-            double converted = amount * rate;
-            String lastUpdate = root.path("time_last_update_utc").asText("");
-
-            return String.format(
-                "%.2f %s = %.2f %s\n汇率: 1 %s = %.6f %s%s",
-                amount, from, converted, to,
-                from, rate, to,
-                lastUpdate.isEmpty() ? "" : "\n更新时间: " + lastUpdate
-            );
-
-        } catch (Exception e) {
-            log.error("汇率查询失败", e);
-            return "汇率查询失败: " + e.getMessage();
         }
+
+        double converted = amount * rate;
+        return String.format(
+            "%.2f %s = %.2f %s\n汇率: 1 %s = %.6f %s%s",
+            amount, from, converted, to,
+            from, rate, to,
+            lastUpdate.isEmpty() ? "" : "\n更新时间: " + lastUpdate
+        );
     }
 }

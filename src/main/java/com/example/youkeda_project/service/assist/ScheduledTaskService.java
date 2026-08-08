@@ -36,6 +36,7 @@ public class ScheduledTaskService {
 
     private final WeChatSessionManager sessionManager;
     private ScheduledExecutorService scheduler;
+    private Connection schedulerConn;
 
     public ScheduledTaskService(WeChatSessionManager sessionManager) {
         this.sessionManager = sessionManager;
@@ -50,6 +51,14 @@ public class ScheduledTaskService {
 
     private Connection getConn() throws SQLException {
         return DriverManager.getConnection(DB_URL);
+    }
+
+    /** 调度线程复用的 SQLite 连接,避免每秒扫描都新建连接。 */
+    private Connection getScanConn() throws SQLException {
+        if (schedulerConn == null || schedulerConn.isClosed()) {
+            schedulerConn = DriverManager.getConnection(DB_URL);
+        }
+        return schedulerConn;
     }
 
     private void createTableIfNotExists() {
@@ -208,9 +217,10 @@ public class ScheduledTaskService {
     private void fireDueTasks() {
         String now = LocalDateTime.now().format(DTF);
         String sql = "SELECT * FROM scheduled_tasks WHERE status = 'pending' AND trigger_at <= ?";
-        try (Connection conn = getConn();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, now);
+        try {
+            Connection conn = getScanConn();
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, now);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     int id = rs.getInt("id");
@@ -251,6 +261,7 @@ public class ScheduledTaskService {
                             updateTaskStatus(conn, id, "done");
                         }
                     }
+                }
                 }
             }
         } catch (Exception e) {
@@ -297,6 +308,13 @@ public class ScheduledTaskService {
         if (scheduler != null) {
             scheduler.shutdown();
             log.info("定时任务调度器已关闭");
+        }
+        if (schedulerConn != null) {
+            try {
+                schedulerConn.close();
+            } catch (Exception e) {
+                log.warn("关闭定时任务连接失败", e);
+            }
         }
     }
 }

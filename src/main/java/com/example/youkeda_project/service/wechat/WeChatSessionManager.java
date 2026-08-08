@@ -133,14 +133,6 @@ public class WeChatSessionManager {
         session.startListening(textHandler, imageHandler, voiceHandler, fileHandler);
     }
 
-    /** Stop message polling for a session. */
-    public void stopListening(String sessionId) {
-        WeChatSession session = sessions.get(sessionId);
-        if (session != null) {
-            session.stopListening();
-        }
-    }
-
     // ---- send ----
 
     public void sendText(String sessionId, String toUserId, String contextToken, String text) throws IOException {
@@ -176,10 +168,6 @@ public class WeChatSessionManager {
 
     public WeChatSession getSession(String sessionId) {
         return sessions.get(sessionId);
-    }
-
-    public Collection<WeChatSession> listSessions() {
-        return Collections.unmodifiableCollection(sessions.values());
     }
 
     public List<SessionInfo> listSessionInfos() {
@@ -253,7 +241,11 @@ public class WeChatSessionManager {
     public void closeSession(String sessionId) {
         WeChatSession session = sessions.remove(sessionId);
         if (session != null) {
-            session.close();
+            try {
+                session.close();
+            } catch (Exception e) {
+                log.warn("关闭会话异常(忽略，继续删除): {}", sessionId, e);
+            }
             if (sessionId.equals(defaultSessionId)) {
                 defaultSessionId = sessions.isEmpty() ? null
                         : sessions.values().iterator().next().getSessionId();

@@ -51,7 +51,6 @@ public enum AnalysisType {
     }
 
     public String getLabel() { return label; }
-    public String getDescription() { return description; }
 
     @Override
     public String toString() { return label; }

@@ -12,7 +12,6 @@ import com.example.youkeda_project.util.TtlCache;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -535,7 +534,6 @@ public class FuturesService {
         String mapped = DOMESTIC_MAP.get(trimmed);
         if (mapped == null) mapped = DOMESTIC_MAP.get(trimmed.toLowerCase());
         if (mapped != null && mapped.matches("nf_([A-Za-z]+)0")) {
-            baseCode = java.util.regex.Matcher.quoteReplacement(mapped);
             baseCode = mapped.substring(3, mapped.length() - 1); // nf_RB0 -> RB
             international = false;
         }

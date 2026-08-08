@@ -209,7 +209,13 @@ public class FortuneService {
         sb.append("━━ 农历转换 ━━\n");
         sb.append("公历：").append(data.path("yangli").asText("")).append("\n");
         sb.append("农历：").append(data.path("yinli").asText("")).append("\n");
-        String shengxiao = getChineseZodiac(Integer.parseInt(data.path("yangli").asText("").substring(0, 4)));
+        String yangli = data.path("yangli").asText("");
+        String shengxiao = "未知";
+        if (yangli.length() >= 4) {
+            try {
+                shengxiao = getChineseZodiac(Integer.parseInt(yangli.substring(0, 4)));
+            } catch (NumberFormatException ignored) { /* 保留默认 */ }
+        }
         sb.append("生肖：").append(shengxiao).append("\n");
         sb.append("星期：").append(data.path("xingqi").asText("")).append("\n\n");
 
@@ -781,7 +787,7 @@ public class FortuneService {
     private String getWesternZodiac(int month, int day) {
         int[] lastDays = {20, 19, 21, 20, 21, 21, 23, 23, 23, 23, 22, 22};
         String[] names = {"摩羯座", "水瓶座", "双鱼座", "白羊座", "金牛座", "双子座",
-            "巨蟹座", "狮子座", "处女座", "天秤座", "天蝎座", "射手座", "摩羯座"};
+            "巨蟹座", "狮子座", "处女座", "天秤座", "天蝎座", "射手座"};
         int idx = day <= lastDays[month - 1] ? month - 1 : month;
         return names[idx % 12];
     }

@@ -68,8 +68,8 @@ public class ConstellationTool extends AbstractTool {
         }
 
         if (arguments.containsKey("month") && arguments.containsKey("day")) {
-            int month = ((Number) arguments.get("month")).intValue();
-            int dayVal = ((Number) arguments.get("day")).intValue();
+            int month = toInt(arguments.get("month"));
+            int dayVal = toInt(arguments.get("day"));
             return ToolResult.text(constellationService.queryByDate(month, dayVal));
         }
 
@@ -79,5 +79,12 @@ public class ConstellationTool extends AbstractTool {
         }
 
         return ToolResult.text(constellationService.queryHoroscope(sign));
+    }
+
+    /** 安全解析整数参数（模型可能传 String），失败返回 0。 */
+    private static int toInt(Object v) {
+        if (v == null) return 0;
+        try { return Integer.parseInt(v.toString()); }
+        catch (NumberFormatException e) { return 0; }
     }
 }

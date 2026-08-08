@@ -106,18 +106,23 @@ public class NewsService {
                 String title = cleanTitle(rawTitle);
                 if (title.length() < 4) continue;
 
-                if (title.matches("^[\\u4e00-\\u9fa5]{2,15}$")) {
-                    String pageTitle = fetchPageTitle(url);
-                    if (pageTitle != null && pageTitle.length() > title.length()) {
-                        title = cleanTitle(pageTitle);
-                    }
-                }
-
                 int cnCount = title.replaceAll("[^\\u4e00-\\u9fa5]", "").length();
                 if (cnCount < 3) continue;
 
                 items.add(new String[]{title, url});
                 if (items.size() >= 20) break;
+            }
+
+            // 只对最终入选的纯中文短标题补抓页面标题,避免逐个候选发 HTTP 请求
+            for (int i = 0; i < items.size(); i++) {
+                String[] it = items.get(i);
+                String title = it[0];
+                if (title.matches("^[\\u4e00-\\u9fa5]{2,15}$")) {
+                    String pageTitle = fetchPageTitle(it[1]);
+                    if (pageTitle != null && pageTitle.length() > title.length()) {
+                        items.set(i, new String[]{cleanTitle(pageTitle), it[1]});
+                    }
+                }
             }
 
             if (items.isEmpty()) {
@@ -141,13 +146,6 @@ public class NewsService {
 
     public String searchNews(int num, String keyword, String category) {
         return bochaSearch(keyword, num, category);
-    }
-
-    /**
-     * 博查搜索,过滤宽松(用于非新闻类通用查询).
-     */
-    private String bochaSearch(String keyword, int pageSize) {
-        return bochaSearch(keyword, pageSize, null);
     }
 
     private String bochaSearch(String keyword, int pageSize, String category) {

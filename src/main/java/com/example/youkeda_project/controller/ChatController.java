@@ -52,7 +52,7 @@ public class ChatController {
                              @RequestParam(defaultValue = "") String model,
                              @RequestParam String msg) {
         SseEmitter emitter = new SseEmitter(180_000L);
-        new Thread(() -> {
+        Thread.startVirtualThread(() -> {
             try {
                 aiService.chatStream(userId, msg, model, tools,
                     delta -> {
@@ -82,7 +82,7 @@ public class ChatController {
                 log.error("SSE 流式处理失败", e);
                 emitter.completeWithError(e);
             }
-        }).start();
+        });
         return emitter;
     }
 }

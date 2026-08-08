@@ -8,7 +8,6 @@ import com.example.youkeda_project.service.stock.NewsService;
 import com.example.youkeda_project.service.stock.StockService;
 import org.springframework.stereotype.Component;
 
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 /** 大盘概况工具（指数/热点/汇率/新闻）。 */
@@ -46,15 +45,6 @@ public class MarketOverviewTool extends AbstractTool {
     public String getDescription() {
         return "获取A股大盘概览，包括主要指数行情、热点板块、汇率、最新财经新闻。"
             + "用户问今天大盘怎么样、股市行情、市场概况时调用。";
-    }
-
-    @Override
-    public Map<String, Object> getParameters() {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("type", "object");
-        params.put("properties", new LinkedHashMap<>());
-        params.put("required", List.of());
-        return params;
     }
 
     @Override

@@ -50,7 +50,6 @@ public class IlinkProtocolClient {
     private static final Logger log = LoggerFactory.getLogger(IlinkProtocolClient.class);
     private static final String DEFAULT_BASE_URL = "https://ilinkai.weixin.qq.com";
     private static final String CDN_BASE = "https://novac2c.cdn.weixin.qq.com/c2c";
-    private static final int LONG_POLL_TIMEOUT_MS = 35000;
 
     private final ObjectMapper objectMapper;
 
@@ -63,9 +62,6 @@ public class IlinkProtocolClient {
         this.restClient = buildRestClient(DEFAULT_BASE_URL);
     }
 
-    /**
-     * 设置登录后的凭据(botToken + baseUrl),baseUrl 变化时重建 RestClient.
-     */
     /** 设置登录后拿到的 Bot 授权 Token 与接口地址。 */
     public void setCredentials(String botToken, String baseUrl) {
         this.botToken = botToken;
@@ -84,9 +80,6 @@ public class IlinkProtocolClient {
         return baseUrl;
     }
 
-    /**
-     * 获取登录二维码 bot_type=3 表示第三方 Bot.
-     */
     /** 向微信申请一个登录二维码，返回二维码 ID 与图片内容。 */
     public QRCodeResponse getQRCode() {
         String json = restClient.get()
@@ -96,9 +89,6 @@ public class IlinkProtocolClient {
         return parseJson(json, QRCodeResponse.class);
     }
 
-    /**
-     * 轮询二维码扫码状态.
-     */
     /** 轮询二维码状态（用户是否扫码/确认），返回登录结果。 */
     public LoginResult pollQRStatus(String qrcode) {
         String json = restClient.get()
@@ -108,27 +98,20 @@ public class IlinkProtocolClient {
         return parseJson(json, LoginResult.class);
     }
 
-    /**
-     * 长轮询拉取消息(35s 超时),通过 cursor 实现增量拉取.
-     */
     /** 长轮询获取新消息，cursor 为消息游标（收到的进度）。 */
     public GetUpdatesResponse getUpdates(String cursor) {
         String body = "{\"get_updates_buf\":\"" + (cursor != null ? cursor : "") + "\"}";
-        String json = postWithAuth("/ilink/bot/getupdates", body, LONG_POLL_TIMEOUT_MS);
+        String json = postWithAuth("/ilink/bot/getupdates", body);
         return parseJson(json, GetUpdatesResponse.class);
     }
 
-    /**
-     * 发送文本消息(可包含多项内容,如图文混排).
-     * 使用 SendMessageRequest.items() 构造请求体.
-     */
     /** 发送消息（文本/图片/语音/文件，由 items 决定类型）。 */
     public String sendMessage(String toUserId, String contextToken, List<MessageItem> items) {
         SendMessageRequest request = SendMessageRequest.items(toUserId, contextToken, items);
         try {
             String body = objectMapper.writeValueAsString(request);
             log.info("发送消息请求: {}", body);
-            String response = postWithAuth("/ilink/bot/sendmessage", body, 15000);
+            String response = postWithAuth("/ilink/bot/sendmessage", body);
             log.info("发送消息响应: {}", response);
             return response;
         } catch (Exception e) {
@@ -136,11 +119,6 @@ public class IlinkProtocolClient {
         }
     }
 
-    /**
-     * 从微信 CDN 下载图片并 AES-ECB 解密.
-     * 优先使用 fullUrl,否则使用 encryptQueryParam 拼装下载 URL.
-     * AES key 可能出现在 ImageItem.aeskey 或 CDNMedia.aesKey 中,两处都检查.
-     */
     /** 下载微信图片并 AES 解密，返回真实图片字节。 */
     public byte[] downloadAndDecryptImage(MessageItem item) {
         ImageItem imageItem = item.imageItem();
@@ -157,25 +135,9 @@ public class IlinkProtocolClient {
             aesKeyStr = imageItem.media().aesKey();
         }
 
-        log.info("下载图片CDN: {}", url);
-        byte[] encryptedBytes = buildTimeoutRestClient().get()
-            .uri(URI.create(url))
-            .retrieve()
-            .body(byte[].class);
-        log.info("CDN下载完成: {} bytes", encryptedBytes != null ? encryptedBytes.length : 0);
-
-        if (aesKeyStr == null) {
-            log.warn("图片无AES key,返回原始密文");
-            return encryptedBytes;
-        }
-
-        return aesDecrypt(encryptedBytes, aesKeyStr);
+        return downloadAndDecrypt(url, aesKeyStr, "图片");
     }
 
-    /**
-     * 从微信 CDN 下载文件并 AES-ECB 解密.
-     * 流程与 downloadAndDecryptImage 相同,仅入参类型不同.
-     */
     /** 下载微信文件并 AES 解密，返回真实文件字节。 */
     public byte[] downloadAndDecryptFile(FileItem fileItem) {
         if (fileItem == null || fileItem.media() == null) {
@@ -185,16 +147,22 @@ public class IlinkProtocolClient {
         String url = resolveCdnUrl(fileItem.media());
         if (url == null) throw new RuntimeException("文件无下载URL");
 
-        String aesKeyStr = fileItem.media().aesKey();
+        return downloadAndDecrypt(url, fileItem.media().aesKey(), "文件(" + fileItem.fileName() + ")");
+    }
 
-        log.info("下载文件CDN: {} ({})", url, fileItem.fileName());
-        byte[] encryptedBytes = buildTimeoutRestClient().get()
+    /** 从 CDN 下载媒体字节并 AES-ECB 解密，返回真实字节；无 AES key 时返回原始密文。 */
+    private byte[] downloadAndDecrypt(String url, String aesKeyStr, String logName) {
+        if (url == null) throw new RuntimeException(logName + "无下载URL");
+
+        log.info("下载{}CDN: {}", logName, url);
+        byte[] encryptedBytes = buildRestClient(null).get()
             .uri(URI.create(url))
             .retrieve()
             .body(byte[].class);
+        log.info("CDN下载完成: {} bytes", encryptedBytes != null ? encryptedBytes.length : 0);
 
         if (aesKeyStr == null) {
-            log.warn("文件无AES key,返回原始密文");
+            log.warn("{}无AES key,返回原始密文", logName);
             return encryptedBytes;
         }
 
@@ -208,10 +176,15 @@ public class IlinkProtocolClient {
             return media.fullUrl();
         }
         if (media.encryptQueryParam() != null && !media.encryptQueryParam().isBlank()) {
-            return CDN_BASE + "/download?encrypted_query_param="
-                + URLEncoder.encode(media.encryptQueryParam(), StandardCharsets.UTF_8);
+            return buildDownloadUrl(media.encryptQueryParam());
         }
         return null;
+    }
+
+    /** 用加密查询参数构造 CDN 下载 URL。 */
+    private String buildDownloadUrl(String encryptQueryParam) {
+        return CDN_BASE + "/download?encrypted_query_param="
+            + URLEncoder.encode(encryptQueryParam, StandardCharsets.UTF_8);
     }
 
     /** AES-128-ECB 解密并去除 PKCS5Padding。 */
@@ -238,7 +211,6 @@ public class IlinkProtocolClient {
      * 2. base64 解码后是 32 字节 hex 字符串
      * 3. base64 解码后直接是 16 字节密钥
      */
-    /** 从 hex 字符串派生 16 字节 AES 密钥。 */
     private byte[] deriveAesKey(String aesKeyStr) {
         if (aesKeyStr == null) throw new IllegalArgumentException("AES key为空");
 
@@ -271,23 +243,11 @@ public class IlinkProtocolClient {
         throw new RuntimeException("无法解析AES key,长度不匹配: " + aesKeyStr);
     }
 
-    /**
-     * 完整图片发送链路:
-     * 1. 生成随机 AES 密钥
-     * 2. 调用 getUploadUrl 获取 CDN 上传地址
-     * 3. AES-128-ECB 加密图片字节
-     * 4. POST 密文到 CDN
-     * 5. 从响应 header(x-encrypted-param)获取加密查询参数
-     * 6. 构造 CDNMedia + SendMessageRequest 发送 image_item
-     */
     /** 上传图片到 CDN 并作为图片消息发送给用户。 */
     public void uploadAndSendImage(String toUserId, String contextToken, byte[] imageBytes) {
         try {
             UploadedMedia m = uploadMedia(1, imageBytes, toUserId);
-            SendMessageRequest request = SendMessageRequest.cdnImage(toUserId, contextToken, m.media(), m.midSize());
-            String msgBody = objectMapper.writeValueAsString(request);
-            log.info("发送图片CDN消息: {}", msgBody);
-            postWithAuth("/ilink/bot/sendmessage", msgBody, 15000);
+            uploadAndSend(SendMessageRequest.cdnImage(toUserId, contextToken, m.media(), m.midSize()), "图片");
         } catch (Exception e) {
             throw new RuntimeException("图片上传发送失败", e);
         }
@@ -320,7 +280,7 @@ public class IlinkProtocolClient {
             );
             String uploadReqJson = objectMapper.writeValueAsString(uploadReq);
             log.info("getUploadUrl(media_type={})请求: {}", mediaType, uploadReqJson);
-            String uploadRespJson = postWithAuth("/ilink/bot/getuploadurl", uploadReqJson, 15000);
+            String uploadRespJson = postWithAuth("/ilink/bot/getuploadurl", uploadReqJson);
             log.info("getUploadUrl响应: {}", uploadRespJson);
 
             JsonNode uploadResp = objectMapper.readTree(uploadRespJson);
@@ -350,11 +310,6 @@ public class IlinkProtocolClient {
     /** 上传结果：CDN 媒体元数据 + AES 加密后的大小。 */
     private record UploadedMedia(CDNMedia media, int midSize) {}
 
-    /**
-     * 将 AES 加密后的图片字节 POST 到微信 CDN.
-     * 支持两种上传方式:upload_full_url(直连)或 CDN_BASE + upload_param.
-     * 上传成功后从响应 header 中获取 x-encrypted-param.
-     */
     /** 把密文 POST 到 CDN，从响应头取 x-encrypted-param 返回。 */
     private String uploadToCdn(byte[] encryptedBytes, String uploadFullUrl, String uploadParam, String fileKey) {
         String cdnUrl;
@@ -408,9 +363,6 @@ public class IlinkProtocolClient {
         }
     }
 
-    /**
-     * 生成随机 16 字节 hex 字符串作为 fileKey.
-     */
     /** 生成随机 16 字节 hex 作为文件唯一标识。 */
     private String generateFileKey() {
         byte[] bytes = new byte[16];
@@ -418,13 +370,8 @@ public class IlinkProtocolClient {
         return HexFormat.of().formatHex(bytes);
     }
 
-    /**
-     * 带鉴权的 POST 请求.
-     * 使用 byte[] + UTF-8 编解码避免 GBK 编码污染.
-     * 必须携带 Authorization + X-WECHAT-UIN 两个 HTTP header.
-     */
     /** 带授权 Token 的 POST 请求，返回响应 JSON 字符串。 */
-    private String postWithAuth(String path, String body, int timeoutMs) {
+    private String postWithAuth(String path, String body) {
         if (botToken == null || botToken.isBlank()) {
             throw new IllegalStateException("未登录,缺少 bot_token");
         }
@@ -441,12 +388,6 @@ public class IlinkProtocolClient {
         return new String(responseBytes, StandardCharsets.UTF_8);
     }
 
-    /**
-     * 从 VoiceItem 中提取公开可访问的 CDN 下载 URL(用于传给外部 ASR 服务).
-     * <p>
-     * 优先通过 media.encrypt_query_param 拼接 URL(避免 fullUrl 中的 taskid 等追踪参数),
-     * 否则使用 media.fullUrl 并去除 taskid,最后降级到 voice_url 直链.
-     */
     /** 从语音消息构造 CDN 下载 URL。 */
     public String getVoiceDownloadUrl(VoiceItem voiceItem) {
         if (voiceItem == null) {
@@ -457,8 +398,7 @@ public class IlinkProtocolClient {
 
         // 优先用 encryptQueryParam 构造,避免 fullUrl 里的 taskid 等额外参数
         if (media != null && media.encryptQueryParam() != null && !media.encryptQueryParam().isBlank()) {
-            return CDN_BASE + "/download?encrypted_query_param="
-                + URLEncoder.encode(media.encryptQueryParam(), StandardCharsets.UTF_8);
+            return buildDownloadUrl(media.encryptQueryParam());
         }
 
         if (media != null && media.fullUrl() != null && !media.fullUrl().isBlank()) {
@@ -472,9 +412,6 @@ public class IlinkProtocolClient {
         throw new RuntimeException("语音无下载 URL(media 和 voice_url 均为空)");
     }
 
-    /**
-     * 去掉 URL 中的 taskid 等追踪参数,缩短 URL 长度.
-     */
     /** 去除 URL 中的追踪参数（如临时签名），保留可下载地址。 */
     private String stripTrackingParams(String url) {
         try {
@@ -496,18 +433,12 @@ public class IlinkProtocolClient {
         }
     }
 
-    /**
-     * 从微信 CDN 下载语音文件并 AES-ECB 解密(和图片下载逻辑相同).
-     * <p>
-     * 优先从 VoiceItem.media 构造 CDN 下载 URL(fullUrl 或 encrypt_query_param),
-     * 降级到 voiceUrl 直链.AES key 从 media.aesKey 获取.
-     */
     /** 下载微信语音并 AES 解密，返回真实语音字节。 */
     public byte[] downloadVoice(VoiceItem voiceItem) {
         String url = getVoiceDownloadUrl(voiceItem);
 
         log.info("下载语音: {}", url);
-        byte[] encryptedBytes = buildTimeoutRestClient().get()
+        byte[] encryptedBytes = buildRestClient(null).get()
             .uri(URI.create(url))
             .retrieve()
             .body(byte[].class);
@@ -521,58 +452,41 @@ public class IlinkProtocolClient {
         return aesDecrypt(encryptedBytes, media.aesKey());
     }
 
-    /**
-     * 完整语音发送链路(用于 TTS 语音合成结果发送):
-     * 1. 生成随机 AES 密钥
-     * 2. 调用 getUploadUrl 获取 CDN 上传地址,media_type=3(音频)
-     * 3. AES-128-ECB 加密音频字节
-     * 4. 用 HttpURLConnection POST 密文到 CDN(避免 RestClient 编码问题)
-     * 5. 从响应 header(x-encrypted-param)获取加密查询参数
-     * 6. 构造 CDNMedia + SendMessageRequest 发送 voice_item
-     */
     /** 上传语音到 CDN 并作为语音消息发送（含时长）。 */
     public void uploadAndSendVoice(String toUserId, String contextToken, byte[] audioBytes, int durationSeconds) {
         try {
             UploadedMedia m = uploadMedia(3, audioBytes, toUserId);
-            String voiceUrl = CDN_BASE + "/download?encrypted_query_param="
-                + URLEncoder.encode(m.media().encryptQueryParam(), StandardCharsets.UTF_8);
-            SendMessageRequest request = SendMessageRequest.cdnVoice(toUserId, contextToken,
-                m.media(), voiceUrl, durationSeconds);
-            String msgBody = objectMapper.writeValueAsString(request);
-            log.info("发送语音CDN消息: {}", msgBody);
-            postWithAuth("/ilink/bot/sendmessage", msgBody, 15000);
+            String voiceUrl = buildDownloadUrl(m.media().encryptQueryParam());
+            uploadAndSend(SendMessageRequest.cdnVoice(toUserId, contextToken,
+                m.media(), voiceUrl, durationSeconds), "语音");
         } catch (Exception e) {
             throw new RuntimeException("语音上传发送失败", e);
         }
     }
 
-    /**
-     * 把文件上传到微信 CDN 并作为 file_item 发送.
-     * <p>
-     * iLink 文件消息结构(基于 weixin-ilink SDK 确认):
-     * - getUploadUrl 时 media_type=3(FILE)
-     * - sendMessage 时 item type=4(FILE)
-     * - file_item 包含 media(CDNMedia),file_name,len(文件大小字符串)
-     */
     /** 上传文件到 CDN 并作为文件消息发送。 */
     public void uploadAndSendFile(String toUserId, String contextToken, byte[] fileBytes,
                                    String fileName, long fileSize) {
         try {
             UploadedMedia m = uploadMedia(3, fileBytes, toUserId);
-            SendMessageRequest request = SendMessageRequest.cdnFile(toUserId, contextToken,
-                m.media(), fileName, fileSize);
-            String msgBody = objectMapper.writeValueAsString(request);
-            log.info("发送文件CDN消息: {}", msgBody);
-            postWithAuth("/ilink/bot/sendmessage", msgBody, 15000);
+            uploadAndSend(SendMessageRequest.cdnFile(toUserId, contextToken,
+                m.media(), fileName, fileSize), "文件");
         } catch (Exception e) {
             throw new RuntimeException("文件上传发送失败", e);
         }
     }
 
-    /**
-     * 生成随机 X-WECHAT-UIN header,iLink 协议要求的客户端标识.
-     * 将 int 转 unsigned decimal string,再 base64 编码.
-     */
+    /** 上传媒体后发送消息的公共链路：序列化请求 → POST 发送。 */
+    private void uploadAndSend(SendMessageRequest request, String logName) {
+        try {
+            String msgBody = objectMapper.writeValueAsString(request);
+            log.info("发送{}CDN消息: {}", logName, msgBody);
+            postWithAuth("/ilink/bot/sendmessage", msgBody);
+        } catch (Exception e) {
+            throw new RuntimeException(logName + "上传发送失败", e);
+        }
+    }
+
     /** 生成随机 X-WECHAT-UIN 客户端标识（iLink 协议要求）。 */
     private String generateWechatUin() {
         int random = ThreadLocalRandom.current().nextInt();
@@ -580,33 +494,19 @@ public class IlinkProtocolClient {
         return Base64.getEncoder().encodeToString(decimal.getBytes(StandardCharsets.UTF_8));
     }
 
-    /** 构建指定地址的 RestClient。 */
+    /** 构建指定地址的 RestClient；url 为 null 时不设 baseUrl（用于 CDN 下载上传）。 */
     private RestClient buildRestClient(String url) {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(Duration.ofSeconds(10));
-        factory.setReadTimeout(Duration.ofSeconds(30));
-        return RestClient.builder()
-                .baseUrl(url)
-                .requestFactory(factory)
-                .build();
+        factory.setReadTimeout(Duration.ofSeconds(45));
+        RestClient.Builder builder = RestClient.builder()
+                .requestFactory(factory);
+        if (url != null && !url.isBlank()) {
+            builder.baseUrl(url);
+        }
+        return builder.build();
     }
 
-    /**
-     * 创建一个带超时的 RestClient(用于 ad-hoc CDN 下载/上传等).
-     */
-    /** 构建带连接/读取超时的 RestClient（用于 CDN 下载上传）。 */
-    private static RestClient buildTimeoutRestClient() {
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(Duration.ofSeconds(10));
-        factory.setReadTimeout(Duration.ofSeconds(30));
-        return RestClient.builder()
-                .requestFactory(factory)
-                .build();
-    }
-
-    /**
-     * 通用 JSON 反序列化,统一异常处理.
-     */
     /** 通用 JSON 反序列化，统一异常处理。 */
     private <T> T parseJson(String json, Class<T> clazz) {
         try {

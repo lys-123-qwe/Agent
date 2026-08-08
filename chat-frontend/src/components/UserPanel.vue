@@ -15,6 +15,7 @@ const label = ref('')
 const qrImg = ref('')
 const waiting = ref(false)
 const error = ref('')
+const currentLogin = ref('')  // 当前创建中的登录会话 id（用于取消）
 let timer = null
 
 function openCreate() {
@@ -22,6 +23,7 @@ function openCreate() {
   label.value = ''
   qrImg.value = ''
   error.value = ''
+  currentLogin.value = ''
 }
 
 async function doLogin() {
@@ -29,6 +31,7 @@ async function doLogin() {
   waiting.value = true
   try {
     const resp = await startLogin(label.value.trim() || '新账户')
+    currentLogin.value = resp.sessionId
     const qr = await QRCode.toDataURL(resp.qrContent, { width: 200, margin: 1 })
     qrImg.value = qr
     timer = setInterval(() => poll(resp.sessionId), 2000)
@@ -46,14 +49,29 @@ async function poll(sessionId) {
       timer = null
       waiting.value = false
       creating.value = false
+      currentLogin.value = ''   // 已登录成功，不再取消
       emit('created')
     } else if (st.status === 'NOT_FOUND') {
       clearInterval(timer)
       timer = null
       waiting.value = false
       error.value = '会话不存在，请重试'
+      currentLogin.value = ''
     }
   } catch (e) { /* 继续轮询 */ }
+}
+
+// 关闭/取消创建：清轮询 + 删除后端等待中的登录会话，避免残留干扰下次创建
+async function cancelCreate() {
+  if (timer) { clearInterval(timer); timer = null; }
+  const sid = currentLogin.value
+  currentLogin.value = ''
+  creating.value = false
+  qrImg.value = ''
+  waiting.value = false
+  if (sid) {
+    try { await deleteSession(sid); } catch (e) { /* 忽略 */ }
+  }
 }
 
 function askDelete(sessionId) {
@@ -112,7 +130,7 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
           <p>用微信扫一扫，确认登录</p>
         </div>
         <p v-if="error" class="error">{{ error }}</p>
-        <button class="btn-close" @click="creating = false">关闭</button>
+        <button class="btn-close" @click="cancelCreate">关闭</button>
       </div>
     </div>
 

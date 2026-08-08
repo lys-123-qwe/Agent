@@ -158,9 +158,11 @@ body {
   justify-content: center;
   z-index: 10;
   padding: 14px;
+  overflow-y: auto;   /* 弹窗内容超高时可滚动，二维码不丢 */
 }
 .create-card {
   width: 100%;
+  margin: auto;   /* flex 滚动容器中居中，超高时可滚到顶部 */
   background: #fff;
   border-radius: 14px;
   padding: 16px;

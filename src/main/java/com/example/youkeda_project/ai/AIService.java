@@ -161,6 +161,11 @@ public class AIService {
             String enrichedBase = ragContext != null && !ragContext.isBlank()
                 ? financialSystemPrompt() + "\n\n" + basePrompt + "\n\n" + ragContext
                 : basePrompt;
+            // 用户人设（微信端同样生效）
+            String persona = personas.get(userId);
+            if (persona != null && !persona.isBlank()) {
+                enrichedBase += "\n\n【用户设定的人设，请严格遵守】" + persona;
+            }
             // RAG: 根据用户问题检索相关知识并拼入 system prompt
             list.add(new ChatMessage("system", ragService.augment(userMessage, enrichedBase)));
             return list;
@@ -192,7 +197,7 @@ public class AIService {
                     tools != null ? tools.size() : 0);
 
                 byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
-                ChatResponse response = callCompletion(restClient, apiConfig.getAiApiKey(), bodyBytes, MODEL);
+                ChatResponse response = callCompletion(restClient, userId, apiConfig.getAiApiKey(), bodyBytes, MODEL);
                 if (response == null) {
                     return new ChatResult("错误: AI 服务返回空响应");
                 }
@@ -364,6 +369,10 @@ public class AIService {
         final String usedModel = (model != null && !model.isBlank()) ? model : MODEL;
         try {
             int maxRounds = apiConfig.getAiToolMaxRounds();
+            // 已出图的标的 -> 出图工具名(拦截重复出图)
+            Map<String, String> chartedStocks = new HashMap<>();
+            // 工具失败追踪:同一工具连续失败≥2次后,跳过调用并通知模型放弃重试
+            Map<String, Integer> toolFailureCount = new HashMap<>();
             for (int round = 0; round < maxRounds; round++) {
                 Map<String, Object> requestBody = new LinkedHashMap<>();
                 requestBody.put("model", usedModel);
@@ -487,9 +496,46 @@ public class AIService {
                         history.add(ChatMessage.tool(c[0], c[1], "错误: 未知工具 " + c[1]));
                         continue;
                     }
+
+                    // 如果该工具已连续失败≥2次,跳过执行并通知模型放弃重试
+                    int fails = toolFailureCount.getOrDefault(c[1], 0);
+                    if (fails >= 2) {
+                        log.warn("工具 {} 已连续失败 {} 次,跳过执行", c[1], fails);
+                        history.add(ChatMessage.tool(c[0], c[1],
+                            "系统提示:工具[" + c[1] + "]之前已调用两次均失败,请不要再尝试使用此工具,直接用文本回复用户."));
+                        continue;
+                    }
+
                     Map<String, Object> args = parseArguments(c[2], userId);
+
+                    // 同一标的已出过图时,拦截重复出图工具(analyze_stock/generate_chart 都会带图)
+                    if (c[1].equals("generate_chart") || c[1].equals("analyze_stock")) {
+                        Object stockArg = args.get("stock");
+                        String stock = stockArg != null ? stockArg.toString() : "";
+                        String prevChartTool = chartedStocks.get(stock);
+                        if (prevChartTool != null && !prevChartTool.equals(c[1])) {
+                            log.info("标的 {} 已通过 {} 出图,跳过重复出图工具 {}", stock, prevChartTool, c[1]);
+                            history.add(ChatMessage.tool(c[0], c[1],
+                                "系统提示:" + stock + "的图表已通过" + prevChartTool + "生成并发送给用户,不要重复生成图表,请直接基于已有图表和数据分析总结回复."));
+                            continue;
+                        }
+                    }
+
                     ToolResult toolResult = matched.execute(args);
                     String resultText = toolResult.getText();
+
+                    // 检测工具执行结果是否表示失败,失败则递增追踪计数
+                    if (resultText != null && (resultText.startsWith("错误:") || resultText.contains("失败"))) {
+                        toolFailureCount.merge(c[1], 1, Integer::sum);
+                        log.warn("工具执行失败: {} -> {} (失败次数: {})",
+                            c[1], resultText, toolFailureCount.get(c[1]));
+                    }
+                    // 记录已出图的标的
+                    if (toolResult.hasImage()
+                            && (c[1].equals("generate_chart") || c[1].equals("analyze_stock"))) {
+                        Object stockArg = args.get("stock");
+                        chartedStocks.put(stockArg != null ? stockArg.toString() : "", c[1]);
+                    }
                     boolean ok = resultText != null && !resultText.startsWith("错误:");
                     if (onLog != null) {
                         Map<String, Object> lm = new LinkedHashMap<>();
@@ -578,7 +624,7 @@ public class AIService {
             log.info("通义千问VL请求: {} chars", body.length());
 
             byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
-            ChatResponse response = callCompletion(visionRestClient, apiConfig.getVisionApiKey(), bodyBytes, QWEN_VL_MODEL);
+            ChatResponse response = callCompletion(visionRestClient, userId, apiConfig.getVisionApiKey(), bodyBytes, QWEN_VL_MODEL);
             if (response == null) {
                 return "错误: AI 服务返回空响应";
             }
@@ -629,7 +675,7 @@ public class AIService {
             log.info("上下文回复请求: {} chars", body.length());
 
             byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
-            ChatResponse response = callCompletion(restClient, apiConfig.getAiApiKey(), bodyBytes, MODEL);
+            ChatResponse response = callCompletion(restClient, userId, apiConfig.getAiApiKey(), bodyBytes, MODEL);
             if (response == null) {
                 return "错误: AI 服务返回空响应";
             }
@@ -745,7 +791,7 @@ public class AIService {
     }
 
     /** 发送一次对话补全请求并解析响应。响应为空返回 null，解析异常向上抛。 */
-    private ChatResponse callCompletion(RestClient client, String apiKey, byte[] bodyBytes, String model) throws Exception {
+    private ChatResponse callCompletion(RestClient client, String userId, String apiKey, byte[] bodyBytes, String model) throws Exception {
         byte[] responseBytes = client.post()
                 .header("Content-Type", "application/json; charset=UTF-8")
                 .header("Authorization", "Bearer " + apiKey)
@@ -755,7 +801,7 @@ public class AIService {
         if (responseBytes == null) return null;
         String responseJson = new String(responseBytes, StandardCharsets.UTF_8);
         log.debug("AI 响应: {} chars", responseJson.length());
-        // 统计 token 消耗（按模型）
+        // 统计 token 消耗（按模型 + 按用户）
         JsonNode usageNode = objectMapper.readTree(responseJson).path("usage");
         if (usageNode.isObject()) {
             long pt = usageNode.path("prompt_tokens").asLong(0);
@@ -764,6 +810,9 @@ public class AIService {
                 long[] um = MODEL_USAGE.computeIfAbsent(model, k -> new long[2]);
                 um[0] += pt;
                 um[1] += ct;
+                long[] ut = TOKEN_USAGE.computeIfAbsent(userId, k -> new long[2]);
+                ut[0] += pt;
+                ut[1] += ct;
             }
         }
         return objectMapper.readValue(responseJson, ChatResponse.class);

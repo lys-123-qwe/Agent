@@ -43,3 +43,10 @@ deps.txt
 
 *.db
 chat.db
+
+# Docker 部署
+.env
+.env.*
+!.env.example
+data/
+claw-assistant*.tar

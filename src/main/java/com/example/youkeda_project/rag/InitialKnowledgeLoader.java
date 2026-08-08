@@ -3,7 +3,6 @@ package com.example.youkeda_project.rag;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -11,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 /** 启动时加载初始知识入库。 */
 
 
@@ -35,10 +35,10 @@ public class InitialKnowledgeLoader {
             log.info("初始知识加载: 知识库已有 {} 条，跳过预搜", knowledgeRepo.count());
             return;
         }
-        batchCollect();
+        // @Async 对同类自调用不生效（会同步阻塞启动），改用 CompletableFuture 后台执行
+        CompletableFuture.runAsync(this::batchCollect);
     }
 
-    @Async
     public void batchCollect() {
         List<String> topics = loadTopics();
         if (topics.isEmpty()) return;

@@ -70,12 +70,6 @@ public class IlinkService {
         return resp;
     }
 
-    public com.example.youkeda_project.protocol.LoginResult waitForLogin(long timeoutMs) throws Exception {
-        String sid = sessionManager.getDefaultSessionId();
-        if (sid == null) throw new IllegalStateException("No login in progress. Call login() first.");
-        return sessionManager.waitForLogin(sid, timeoutMs);
-    }
-
     public com.example.youkeda_project.protocol.LoginResult waitForLogin(String sessionId, long timeoutMs) throws Exception {
         return sessionManager.waitForLogin(sessionId, timeoutMs);
     }
@@ -88,10 +82,6 @@ public class IlinkService {
                                WeChatSession.VoiceMessageHandler voiceHandler,
                                WeChatSession.FileMessageHandler fileHandler) {
         sessionManager.startListening(sessionId, textHandler, imageHandler, voiceHandler, fileHandler);
-    }
-
-    public void stopListening(String sessionId) {
-        sessionManager.stopListening(sessionId);
     }
 
     // ---- send ----
@@ -132,16 +122,6 @@ public class IlinkService {
 
     public List<WeChatSessionManager.SessionInfo> listSessions() {
         return sessionManager.listSessionInfos();
-    }
-
-    // ---- helpers ----
-
-    private String requireDefaultSessionId() {
-        String sid = sessionManager.getDefaultSessionId();
-        if (sid == null) {
-            throw new IllegalStateException("No default session. Call login() first.");
-        }
-        return sid;
     }
 
     /**

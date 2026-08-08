@@ -15,7 +15,6 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
 import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -188,18 +187,6 @@ public class StockService {
             case 3 -> 2;  // Wednesday
             case 4 -> 3;  // Thursday
             default -> 4; // Friday/Saturday/Sunday → Friday
-        };
-    }
-
-    /** 返回指定日索引对应的日期标签(如"周一")，用于提示数据时效性 */
-    private static String getMockDayLabel(int dayIndex) {
-        return switch (dayIndex) {
-            case 0 -> "周一";
-            case 1 -> "周二";
-            case 2 -> "周三";
-            case 3 -> "周四";
-            case 4 -> "周五";
-            default -> "";
         };
     }
 
@@ -378,67 +365,17 @@ public class StockService {
      */
     /** 从腾讯接口拉取近期收盘价序列（供火花图使用）。 */
     private List<BigDecimal> fetchRecentCloses(String fullCode) {
-        // 日股/韩股使用 Mock 收盘价
-        if (fullCode.startsWith("jp_") || fullCode.startsWith("kr_")) {
-            List<String[]> weekData = MOCK_STOCK_DATA.get(fullCode);
-            if (weekData != null) {
-                List<BigDecimal> closes = new ArrayList<>();
-                for (String[] day : weekData) {
-                    closes.add(new BigDecimal(day[3]));
-                }
-                return closes;
-            }
-            return List.of();
+        // 复用 getHistoricalKline（带 5 分钟缓存），避免每次行情额外打一次 K 线接口
+        List<KLineService.KLineData> klines = getHistoricalKline(fullCode, 30);
+        if (klines.isEmpty()) return List.of();
+        List<BigDecimal> closes = new ArrayList<>();
+        for (KLineService.KLineData k : klines) {
+            closes.add(BigDecimal.valueOf(k.getClose()));
         }
-
-        String tencentCode = toTencentCode(fullCode);
-
-        try {
-            String url = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param="
-                    + tencentCode + ",day,,,30,qfq";
-            String response = restClient.get()
-                    .uri(url)
-                    .header("Referer", "https://finance.qq.com")
-                    .retrieve()
-                    .body(String.class);
-
-            @SuppressWarnings("unchecked")
-            var map = OBJECT_MAPPER.readValue(response, Map.class);
-            if (map == null || map.get("data") == null) return List.of();
-
-            @SuppressWarnings("unchecked")
-            var data = (Map<String, Object>) map.get("data");
-            @SuppressWarnings("unchecked")
-            var stockData = (Map<String, Object>) data.get(tencentCode);
-            if (stockData == null) {
-                stockData = (Map<String, Object>) data.get(tencentCode.toLowerCase());
-            }
-            if (stockData == null) return List.of();
-
-            // 优先取前复权，无则取不复权
-            @SuppressWarnings("unchecked")
-            var klines = (List<List<String>>) stockData.get("qfqday");
-            if (klines == null || klines.isEmpty()) {
-                klines = (List<List<String>>) stockData.get("day");
-            }
-            if (klines == null || klines.isEmpty()) return List.of();
-
-            List<BigDecimal> closes = new ArrayList<>();
-            for (List<String> item : klines) {
-                // 腾讯K线格式: [日期, 开盘, 收盘, 最高, 最低, 成交量]
-                if (item.size() >= 3) {
-                    closes.add(new BigDecimal(item.get(2))); // 收盘价在索引2
-                }
-            }
-            // 腾讯接口可能多返回1条(含当前不完整日),截取到30条,保证火花图标签固定为"近30日走势"
-            if (closes.size() > 30) {
-                return closes.subList(0, 30);
-            }
-            return closes;
-        } catch (Exception e) {
-            log.debug("获取近K线失败(code={}): {}", fullCode, e.getMessage());
-            return List.of();
+        if (closes.size() > 30) {
+            return closes.subList(0, 30);
         }
+        return closes;
     }
 
     // ==================== 新浪接口 ====================

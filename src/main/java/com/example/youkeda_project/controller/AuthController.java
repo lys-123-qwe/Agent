@@ -86,7 +86,12 @@ public class AuthController {
     @DeleteMapping("/sessions/{sessionId}")
     public Map<String, Object> delete(@PathVariable String sessionId) {
         log.info("Web 删除账户: sessionId={}", sessionId);
-        sessionManager.deleteSession(sessionId);
+        try {
+            sessionManager.deleteSession(sessionId);
+        } catch (Exception e) {
+            // 尽力删除：内存移除 + 持久化清理各自有兜底，即使异常也不阻断
+            log.error("删除会话异常(尽力删除): sessionId={}", sessionId, e);
+        }
         Map<String, Object> m = new java.util.LinkedHashMap<>();
         m.put("ok", true);
         return m;

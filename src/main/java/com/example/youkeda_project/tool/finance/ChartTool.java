@@ -94,7 +94,6 @@ public class ChartTool extends AbstractTool {
         }
 
         String chartType = arguments != null ? (String) arguments.get("chart_type") : "line";
-        if (chartType == null) chartType = "line";
 
         log.info("ChartTool 执行: stock={}, type={}", stock, chartType);
 

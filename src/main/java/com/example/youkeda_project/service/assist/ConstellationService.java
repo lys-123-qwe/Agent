@@ -213,7 +213,10 @@ public class ConstellationService {
         MonthDay md = MonthDay.of(month, day);
         for (ZodiacSign z : ZODIAC_SIGNS) {
             if (z.end.getMonthValue() < z.start.getMonthValue()) {
-                if (md.getMonthValue() >= z.start.getMonthValue() || md.getMonthValue() <= z.end.getMonthValue()) {
+                // 跨年星座（如摩羯 12/22~1/19）：要么在 start 之后（12/22~12/31），要么在 end 之前（1/1~1/19）
+                boolean afterStart = md.isAfter(z.start) || md.equals(z.start);
+                boolean beforeEnd = md.isBefore(z.end) || md.equals(z.end);
+                if (afterStart || beforeEnd) {
                     return z.name;
                 }
             } else if ((md.isAfter(z.start) || md.equals(z.start)) && (md.isBefore(z.end) || md.equals(z.end))) {

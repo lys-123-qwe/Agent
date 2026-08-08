@@ -51,13 +51,6 @@ public class ToolRegistry {
         standaloneTools.put(tool.getName(), tool);
     }
 
-    public void register(Collection<Tool> tools) {
-        if (tools == null) return;
-        for (Tool tool : tools) {
-            register(tool);
-        }
-    }
-
     /**
      *      Skill,           .   Skill       .
      */
@@ -65,23 +58,6 @@ public class ToolRegistry {
         if (skill == null) return;
         if (skills.containsKey(skill.getName())) return;
         skills.put(skill.getName(), skill);
-    }
-
-    /**
-     *          (      ,    Skill).
-     */
-    public Tool findTool(String name) {
-        Tool tool = standaloneTools.get(name);
-        if (tool != null) return tool;
-
-        for (Skill skill : skills.values()) {
-            for (Tool st : skill.getTools()) {
-                if (st.getName().equals(name)) {
-                    return st;
-                }
-            }
-        }
-        return null;
     }
 
     /**
